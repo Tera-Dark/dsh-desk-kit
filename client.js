@@ -1868,7 +1868,8 @@ window.__ModuleLoader__.load({
        const c = r.created
        const raw = (r.parsed && (r.parsed.raw || r.parsed.text)) || ''
        let undo = null
-       if (c && c.kind === 'note' && c.id) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       // 去重命中时没有「新建」这回事,别给出会删掉旧便签的撤销
+       if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'reminder' && c.id) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        showReply(r.reply || '已保存', undo)
@@ -2054,7 +2055,8 @@ window.__ModuleLoader__.load({
        const c = r.created
        const raw = (r.parsed && (r.parsed.raw || r.parsed.text)) || ''
        let undo = null
-       if (c && c.kind === 'note' && c.id) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       // 去重命中时没有「新建」这回事,别给出会删掉旧便签的撤销
+       if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'reminder' && c.id) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        showReply(r.reply || '已保存', undo)
