@@ -42,7 +42,7 @@ const state = {
   notesArchivedCount: 0,
   reminders: [{ id: 'r1', title: '每日打卡', time: '21:00', weekdays: [], leadMin: 30, url: 'https://example.com/s', status: 'pending', done: false, occurrenceAt: Date.now() + 3600000, active: true }],
   alerts: [],
-  secrets: [{ id: 's1', title: '示例站点', tags: [], createdAt: 5, updatedAt: 5, fieldCount: 0 }],
+  secrets: [{ id: 's1', title: '某示例站点', tags: [], createdAt: 5, updatedAt: 5, fieldCount: 0 }],
   settings: { tickSeconds: 20, muted: false },
   root: '/tmp/desk-kit',
 }
@@ -87,7 +87,7 @@ test('首页极简:今天 + 最近记的,不再有分类列表', () => {
   const html = renderToString(h(T.Home, { state, run, onLink: () => {} }))
   assert.ok(html.includes('今天'))
   assert.ok(html.includes('每日打卡'))
-  assert.ok(html.includes('去签到'))
+  assert.ok(html.includes('打开'), '带网址的提醒要有打开入口')
   assert.ok(html.includes('最近记的'))
   assert.ok(!html.includes('__dk_navrow'), '分类列表应交给底栏')
 })
@@ -96,7 +96,7 @@ test('提醒页仍可手动新增/编辑', () => {
   const html = renderToString(h(T.RemindersPage, { state, run }))
   assert.ok(html.includes('新提醒'))
   assert.ok(html.includes('每日打卡'))
-  assert.ok(html.includes('去签到'))
+  assert.ok(html.includes('打开'), '带网址的提醒要有打开入口')
   assert.ok(html.includes('<svg'), '要有 SVG 图标按钮')
 })
 
@@ -137,7 +137,7 @@ test('提醒表单支持公历/农历每年', () => {
   const src = readFileSync(join(HERE, 'client.js'), 'utf8')
   assert.ok(src.includes('公历每年') && src.includes('农历每年'), '缺周期选项')
   const html = renderToString(h(T.RemindersPage, { state, run }))
-  assert.ok(html.includes('去签到'))
+  assert.ok(html.includes('打开'), '带网址的提醒要有打开入口')
 })
 
 test('滑屏动画与触摸手势都写了', () => {
@@ -223,13 +223,13 @@ test('提醒页有垃圾箱入口,能恢复与彻底删', () => {
   const st = {
     ...state,
     reminderCounts: { active: 1, trash: 1 },
-    trashedReminders: [{ id: 'rt1', title: '被删的签到', time: '21:00', deletedAt: Date.now() }],
+    trashedReminders: [{ id: 'rt1', title: '被删的提醒', time: '21:00', deletedAt: Date.now() }],
     reminders: [{ id: 'r1', title: '每日打卡', time: '21:00', weekdays: [], leadMin: 30, status: 'upcoming', done: false, active: true }],
   }
   const html = renderToString(h(T.RemindersPage, { state: st, run }))
   assert.ok(html.includes('垃圾箱 (1)'), '要有垃圾箱入口')
   assert.ok(html.includes('每日打卡'))
-  assert.ok(!html.includes('被删的签到'), '垃圾箱内容不该进主列表')
+  assert.ok(!html.includes('被删的提醒'), '垃圾箱内容不该进主列表')
 })
 
 test('生日档位给出提前量天数和提示', () => {
@@ -379,15 +379,15 @@ test('顶栏侧门:浮标被挡住时也能打开', () => {
   assert.ok(src.includes('Escape'), 'Esc 要能关面板')
 })
 
-test('待办数统一口径:待签到 + 未确认提示', () => {
+test('待办数统一口径:到点未完成 + 未确认提示', () => {
   assert.equal(T.dueCount(null), 0)
   const st2 = {
     settings: { muted: false },
     alerts: [{ id: 'a1' }],
     reminders: [{ status: 'pending', done: false }, { status: 'upcoming', done: false }, { status: 'pending', done: true }],
   }
-  assert.equal(T.dueCount(st2), 2, '一待签到 + 一提示')
-  assert.equal(T.dueCount({ ...st2, settings: { muted: true } }), 1, '静音后只剩待签到')
+  assert.equal(T.dueCount(st2), 2, '一条到点未完成 + 一条提示')
+  assert.equal(T.dueCount({ ...st2, settings: { muted: true } }), 1, '静音后只剩待办')
 })
 
 // ---------------------------------------------------------------- 侧边栏(better-sidebar)
@@ -622,7 +622,7 @@ test('便签超出 8 条:给「显示更多」而不是让人自己去搜', () =
 
 test('首页超过 4 条提醒:给「查看全部」出口', () => {
   const many = Array.from({ length: 7 }, (_, i) => ({
-    id: 'r' + i, title: '签到' + i, time: '21:00', weekdays: [], leadMin: 30,
+    id: 'r' + i, title: '待办' + i, time: '21:00', weekdays: [], leadMin: 30,
     status: 'upcoming', done: false, active: true, occurrenceAt: Date.now() + i * 1e6,
   }))
   const noGo = renderToString(h(T.Home, { state: { ...state, reminders: many, notes: [] }, run, onLink: () => {} }))
@@ -649,6 +649,25 @@ test('表单按「什么时候 / 提前多久 / 链接」分块,提前量能点�
   const src = readFileSync(join(HERE, 'client.js'), 'utf8')
   assert.ok(src.includes('LEAD_PRESETS'), '缺常用提前量预设')
   assert.ok(src.includes('提前多久提醒'), '缺提前量分组')
-  assert.ok(src.includes('签到网址'), '链接单独一块')
+  assert.ok(src.includes('打开链接'), '链接单独一块')
   assert.ok(src.includes('__dk_group'), '缺分组样式类')
+})
+
+test('提示音:现场合成,不打包音频文件,不支持的浏览器静默跳过', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('AudioContext'), '要用 Web Audio 合成')
+  assert.ok(!/\.(mp3|wav|ogg|m4a)/i.test(src), '不该打包音频文件')
+  assert.ok(typeof T.playChime === 'function', '缺 playChime')
+  // node 里没有 AudioContext:必须返回 false 而不是抛错
+  assert.equal(T.playChime(), false)
+  assert.ok(Array.isArray(T.SOUND.notes) && T.SOUND.notes.length === 2, '两声')
+  assert.ok(T.SOUND.decay > 0 && T.SOUND.attack < 0.05, '起音要短、衰减要够')
+})
+
+test('设置里能开关提示音并试听', () => {
+  const html = renderToString(h(T.Settings, { state: { ...state, settings: {} }, run, sidebarReady: true }))
+  assert.ok(html.includes('提示音'), '缺提示音开关')
+  assert.ok(html.includes('试听'), '缺试听按钮')
+  const off = renderToString(h(T.Settings, { state: { ...state, settings: { sound: false } }, run, sidebarReady: true }))
+  assert.ok(/提示音[\s\S]{0,400}?__dk_switch(?! on)/.test(off), '关掉时开关要灭')
 })

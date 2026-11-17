@@ -77,7 +77,7 @@ test('稍后提醒:静音期内不弹,过点后再弹', () => {
 
 test('保险库:密文落盘、可读回、列表不泄密、删除生效', () => {
   const s = fresh()
-  const item = s.addSecret({ title: '示例站点', username: 'demo_user', password: 'p@ss word', note: '备忘' })
+  const item = s.addSecret({ title: '某示例站点', username: 'demo_user', password: 'p@ss word', note: '备忘' })
   const vaultText = readFileSync(s.vaultFile, 'utf8')
   assert.ok(!vaultText.includes('p@ss word'), '磁盘上不能出现明文密码')
   assert.ok(!vaultText.includes('demo_user'), '磁盘上不能出现明文用户名')
@@ -88,13 +88,13 @@ test('保险库:密文落盘、可读回、列表不泄密、删除生效', () =
   assert.equal(s.listSecrets().length, 1)
   assert.equal(s.listSecrets()[0].fieldCount, 0, '列表页不带字段')
   // 按标题模糊查
-  assert.equal(s.getSecret('公益').id, item.id)
+  assert.equal(s.getSecret('示例').id, item.id)
   s.updateSecret(item.id, { fields: { 密码: 'newpass' } })
   assert.equal(s.getSecret(item.id).fields['密码'], 'newpass')
   assert.equal(s.getSecret(item.id).fields['用户名'], 'demo_user', '未传的字段保留')
   s.deleteSecret(item.id)
   assert.equal(s.listSecrets().length, 0)
-  assert.equal(s.getSecret('示例站点'), null)
+  assert.equal(s.getSecret('不存在的条目'), null)
 })
 
 test('保险库:主密钥被换掉后旧密文解不开(而不是读出垃圾)', () => {

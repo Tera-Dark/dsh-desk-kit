@@ -3,7 +3,7 @@
  *
  * 三件事:
  *   1. 便签      —— 随手记,落 $DSH_HOME/desk-kit/data.json
- *   2. 提醒      —— 每天到点前提醒(签到类),签到后当天静默;由本插件自己的定时器驱动
+ *   2. 提醒      —— 到点前提醒(打卡/待办类),完成后当天静默;由本插件自己的定时器驱动
  *   3. 保险库    —— 账号/密钥长期保存,AES-256-GCM 加密落盘(主密钥在本机 vault.key,0600)
  *
  * 对外:13 个 Agent 工具 + 一条同源 HTTP API(/desk-kit-api),浏览器半侧轮询它。
@@ -17,7 +17,7 @@ import { parseCapture, describeCapture } from './capture.js'
 
 /** 把已解析的结果落盘(本地规则与 AI 分类共用这一段)。 */
 function persistParsed(s, parsed, rawText) {
-  // 多站点批量签到:一句「这些每天签到」→ N 条每日提醒
+  // 多站点批量:一句「这些站每天打卡」→ N 条每日提醒
   if (parsed.kind === 'multi') {
     const created = []
     const skipped = []
@@ -31,13 +31,13 @@ function persistParsed(s, parsed, rawText) {
         weekdays: [],
         leadMin: 30,
         url: site.url,
-        note: '每天签到',
+        note: '每天打卡',
       }))
       have.add(key)
     }
-    const reply = '已整理成 ' + created.length + ' 条每日签到提醒(21:00 前,提前 30 分提醒)'
+    const reply = '已整理成 ' + created.length + ' 条每日打卡提醒(21:00 前,提前 30 分提醒)'
       + (skipped.length ? ';跳过已存在的 ' + skipped.length + ' 条' : '')
-      + (created.length ? ':' + created.map((r2) => r2.title.replace(' 签到', '')).join('、') : '')
+      + (created.length ? ':' + created.map((r2) => r2.title.replace(' 打卡', '')).join('、') : '')
     return { parsed, reply, item: created, created: { kind: 'reminder', ids: created.map((r2) => r2.id) } }
   }
   if (parsed.kind === 'secret') {
@@ -409,7 +409,7 @@ export function apply(ctx) {
     return
   }
 
-  // 首次启动给一条默认的「每日打卡」提醒,省得装完是空面板。
+  // 首次启动给一条默认提醒,省得装完是空面板(内容保持中性,不带任何个人习惯)。
   try {
     if (!s.data.reminders.length) {
       s.addReminder({
@@ -418,7 +418,7 @@ export function apply(ctx) {
         weekdays: [],
         leadMin: 30,
         snoozeMin: 20,
-        note: '晚上 9 点前把各每日打卡点完;已签就在面板点「已签到」。',
+        note: '到点提醒;做完了在面板点「完成」,当天就不再提。',
       })
     }
   } catch (error) {
@@ -556,9 +556,9 @@ export function apply(ctx) {
 
   reg('desk_reminder_add', () => ctx.tools.register(defineTool({
     name: 'desk_reminder_add',
-    description: '加一条定时提醒。到「时间」前 leadMin 分钟开始提醒;当天签到了就不再提醒。支持每天/每周/公历每年(annual)/农历每年(lunarMonth+lunarDay)。',
+    description: '加一条定时提醒。到「时间」前 leadMin 分钟开始提醒;当天标记完成后就不再提醒。支持每天/每周/每月(monthly)/公历每年(annual)/农历每年(lunarMonth+lunarDay)。',
     parameters: {
-      title: { type: 'string', description: '提醒标题,如「每日打卡」' },
+      title: { type: 'string', description: '提醒标题,如「交电费」「吃药」' },
       time: { type: 'string', description: '截止时间,HH:MM,如 21:00' },
       weekdays: { type: 'array', items: { type: 'number' }, description: '周几重复,0=周日…6=周六;空数组=每天' },
       date: { type: 'string', description: '一次性提醒的日期 YYYY-MM-DD(可选)' },
@@ -566,7 +566,7 @@ export function apply(ctx) {
       lunarMonth: { type: 'number', description: '农历生日的月(1-12)' },
       lunarDay: { type: 'number', description: '农历生日的日(1-30)' },
       leadMin: { type: 'number', description: '提前多少分钟提醒,默认 30(生日建议 4320=3天)' },
-      url: { type: 'string', description: '签到/办事的跳转网址(可选)' },
+      url: { type: 'string', description: '办事的跳转网址(可选)' },
       note: { type: 'string', description: '备注(可选)' },
     },
     output: outputSpec,

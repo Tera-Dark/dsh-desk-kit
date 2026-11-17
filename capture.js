@@ -223,7 +223,7 @@ export function parseMultiSite(text) {
   }
   if (urls.length < 2) return null
   if (!/签到|打卡|每日|每天|天天|daily/i.test(raw)) return null
-  return { kind: 'multi', sites: urls.map((url) => ({ url, title: siteTitle(url) + ' 签到' })) }
+  return { kind: 'multi', sites: urls.map((url) => ({ url, title: siteTitle(url) + ' 打卡' })) }
 }
 
 /**
@@ -332,7 +332,7 @@ export function parseCapture(raw, now = new Date()) {
 /** 给用户看的一句回执。 */
 export function describeCapture(parsed) {
   if (parsed.kind === 'multi') {
-    return '已整理成 ' + parsed.sites.length + ' 条每日签到提醒:' + parsed.sites.map((s) => s.title.replace(' 签到', '')).join('、')
+    return '已整理成 ' + parsed.sites.length + ' 条每日打卡提醒:' + parsed.sites.map((s) => s.title.replace(' 打卡', '')).join('、')
   }
   if (parsed.kind === 'secret') {
     const bits = [parsed.username && '账号 ' + parsed.username, parsed.password && '密码已加密', parsed.url && '网址已存'].filter(Boolean)

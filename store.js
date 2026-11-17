@@ -152,7 +152,7 @@ export class DeskStore {
       notes: [],
       reminders: [],
       alerts: [],
-      settings: { tickSeconds: 20, muted: false },
+      settings: { tickSeconds: 20, muted: false, sound: true },
     }
     const raw = readJson(this.dataFile, null)
     if (!raw || typeof raw !== 'object') return base

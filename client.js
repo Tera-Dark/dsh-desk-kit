@@ -91,6 +91,65 @@ window.__ModuleLoader__.load({
      }, paths.map((d, i) => h('path', { key: i, d })))
    }
 
+   /**
+    * 到点提示音。
+    * 两声上行(A5 → E6)加 6ms 起音、0.55s 指数衰减,低通 6.2kHz 削掉数字味 ——
+    * 走路听见会回头,戴耳机不炸耳。用 Web Audio 现场合成,不打包 mp3:
+    * 体积为零、没有版权问题、音量随系统走。
+    */
+   const SOUND = { notes: [880, 1318.51], gap: 0.10, attack: 0.006, decay: 0.55, gain: 0.07, cutoff: 6200 }
+   let audioCtx = null
+
+   function playChime() {
+     try {
+       const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)
+       if (!AC) return false
+       if (!audioCtx) audioCtx = new AC()
+       // 浏览器要一次用户手势才允许出声;点过面板之后就一直可用
+       if (audioCtx.state === 'suspended' && typeof audioCtx.resume === 'function') audioCtx.resume()
+       const t0 = audioCtx.currentTime + 0.01
+       const filter = audioCtx.createBiquadFilter()
+       filter.type = 'lowpass'
+       filter.frequency.value = SOUND.cutoff
+       filter.connect(audioCtx.destination)
+       SOUND.notes.forEach((freq, i) => {
+         const start = t0 + i * SOUND.gap
+         const osc = audioCtx.createOscillator()
+         const gain = audioCtx.createGain()
+         osc.type = 'triangle'          // 三角波:比正弦有存在感,比锯齿干净
+         osc.frequency.value = freq
+         gain.gain.setValueAtTime(0.0001, start)
+         gain.gain.exponentialRampToValueAtTime(SOUND.gain, start + SOUND.attack)
+         gain.gain.exponentialRampToValueAtTime(0.0001, start + SOUND.decay)
+         osc.connect(gain)
+         gain.connect(filter)
+         osc.start(start)
+         osc.stop(start + SOUND.decay + 0.02)
+       })
+       return true
+     } catch { return false }
+   }
+
+   /**
+    * 新告警出现时响一声。
+    * 只在「多出来一条」时响:打开面板时已经躺在列表里的旧提醒不吵人;
+    * 一次轮询回来三条也只响一下。
+    */
+   function useAlertSound(settings, alerts) {
+     const heard = useRef('')
+     useEffect(() => {
+       const key = (alerts || []).map((a) => a.id).join(',')
+       if (!key) { heard.current = ''; return }
+       if (heard.current === key) return
+       const first = heard.current === ''
+       heard.current = key
+       if (first) return                      // 首屏已有的提醒不响
+       const st = settings || {}
+       if (st.muted || st.sound === false) return
+       playChime()
+     }, [settings, alerts])
+   }
+
    const CSS = [
      '@keyframes __dkSlideL{from{transform:translateX(26px);opacity:0}to{transform:translateX(0);opacity:1}}',
      '@keyframes __dkSlideR{from{transform:translateX(-26px);opacity:0}to{transform:translateX(0);opacity:1}}',
@@ -609,10 +668,10 @@ window.__ModuleLoader__.load({
          h('div', { key: 't', className: '__dk_rt' }, r.title),
          h('div', { key: 's', className: '__dk_rm' }, reminderMeta(r)),
        ]),
-       r.url ? h('a', { key: 'go', className: '__dk_go', href: r.url, target: '_blank', rel: 'noreferrer' }, '去签到') : null,
+       r.url ? h('a', { key: 'go', className: '__dk_go', href: r.url, target: '_blank', rel: 'noreferrer' }, '打开') : null,
        withCheck
          ? h('div', { key: 'act', className: '__dk_iact' }, [
-           h('button', { key: 'k', className: '__dk_mini', title: '设置网址', 'aria-label': '设置签到网址', onClick: () => onLink(r) }, h(Ico, { name: 'link', size: 15 })),
+           h('button', { key: 'k', className: '__dk_mini', title: '设置网址', 'aria-label': '设置打开网址', onClick: () => onLink(r) }, h(Ico, { name: 'link', size: 15 })),
          ])
          : null,
      ])
@@ -717,7 +776,7 @@ window.__ModuleLoader__.load({
          ]),
          h('input', {
            key: 'a', className: '__dk_input', autoFocus: true,
-           placeholder: '提醒什么,如「每日打卡」/「小美生日」',
+           placeholder: '提醒什么,如「交电费」/「吃药」/「朋友生日」',
            value: t, onChange: (e) => setT(e.target.value),
          }),
          h('div', { key: 'cyc', className: '__dk_chips' }, CYCLE.map(([k, label]) =>
@@ -760,9 +819,9 @@ window.__ModuleLoader__.load({
        ]),
 
        h('div', { key: 'g3', className: '__dk_group' }, [
-         h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '签到网址'), h('span', { key: 'b' }, '可选')]),
+         h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '打开链接'), h('span', { key: 'b' }, '可选')]),
          h('input', { key: 'e', className: '__dk_input', placeholder: 'https://…', value: url, onChange: (e) => setUrl(e.target.value) }),
-         h('div', { key: 't', className: '__dk_gtip' }, '填了会在提醒卡片和首页给一个「去签到」按钮'),
+         h('div', { key: 't', className: '__dk_gtip' }, '填了会在提醒行右侧给一个「打开」按钮'),
        ]),
 
        h('div', { key: 'f', className: '__dk_frow' }, [
@@ -832,12 +891,12 @@ window.__ModuleLoader__.load({
              ? h(ReminderForm, { key: 'f', title: '编辑', initial: r, onSave: (v) => save(r, v), onCancel: () => setEditing('') })
              : h(React.Fragment, { key: 'v' }, [
                h('div', { key: 't', className: '__dk_itop' }, [
-                 h('button', { key: 'c', className: '__dk_check' + (r.done ? ' on' : ''), title: r.done ? '取消签到' : '签到完成', onClick: () => run(r.done ? 'reminder.uncheckin' : 'reminder.checkin', { id: r.id }) }, r.done ? h(Ico, { name: 'check', size: 12 }) : null),
+                 h('button', { key: 'c', className: '__dk_check' + (r.done ? ' on' : ''), title: r.done ? '取消完成' : '标记完成', onClick: () => run(r.done ? 'reminder.uncheckin' : 'reminder.checkin', { id: r.id }) }, r.done ? h(Ico, { name: 'check', size: 12 }) : null),
                  h('div', { key: 'm', className: '__dk_itext' }, [
                    h('div', { key: 'a' }, r.title),
                    h('div', { key: 'b', className: '__dk_imeta' }, reminderMeta(r)),
                  ]),
-                 r.url ? h('a', { key: 'go', className: '__dk_go', href: r.url, target: '_blank', rel: 'noreferrer' }, '去签到') : null,
+                 r.url ? h('a', { key: 'go', className: '__dk_go', href: r.url, target: '_blank', rel: 'noreferrer' }, '打开') : null,
                  h('div', { key: 'act', className: '__dk_iact' }, [
                    // 暂停 = 暂时不想收到提醒,但记录留着。以前只有改时间或者删掉这两条路。
                    h('button', {
@@ -864,7 +923,7 @@ window.__ModuleLoader__.load({
          ]))
          : h('div', { key: 'e', className: '__dk_empty' }, [
            h('div', { key: 't', className: '__dk_emptytitle' }, '还没有提醒'),
-           h('div', { key: 'h', className: '__dk_note' }, '点上面「新提醒」手动加;或者在首页说一句「每天 21 点提醒我签到」。'),
+           h('div', { key: 'h', className: '__dk_note' }, '点上面「新提醒」手动加;或者在首页说一句「每天 9 点提醒我吃药」。'),
          ]),
        h('div', { key: 'foot', className: '__dk_foot' }, [
          h('span', { key: 'sp', className: '__dk_spacer' }),
@@ -1214,7 +1273,7 @@ window.__ModuleLoader__.load({
            h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '新条目'), h('span', { key: 'b' }, '整段加密')]),
            h('input', {
              key: 't', className: '__dk_input', autoFocus: true,
-             placeholder: '叫什么(如「示例站点」「家里 WiFi」)',
+             placeholder: '叫什么(如「家里 WiFi」「备用码」)',
              value: title, onChange: (e) => setTitle(e.target.value),
            }),
            h('textarea', {
@@ -1394,6 +1453,17 @@ window.__ModuleLoader__.load({
          h('span', { key: 'l' }, '数据目录'),
          h('span', { key: 'r', className: '__dk_hint' }, state.root || ''),
        ]),
+       h('div', { key: 'snd', className: '__dk_setrow' }, [
+         h('span', { key: 'l' }, '提示音'),
+         h('div', { key: 'r', className: '__dk_frow' }, [
+           h('button', { key: 'try', className: '__dk_chip', title: '试听一下', onClick: () => playChime() }, '试听'),
+           h('button', {
+             key: 'b', className: '__dk_switch' + (s.sound !== false ? ' on' : ''),
+             title: s.sound === false ? '打开提示音' : '关闭提示音',
+             onClick: () => update({ sound: s.sound === false }),
+           }),
+         ]),
+       ]),
        h('div', { key: 'm', className: '__dk_setrow' }, [
          h('span', { key: 'l' }, '静音提醒'),
          h('button', {
@@ -1476,7 +1546,7 @@ window.__ModuleLoader__.load({
      try { window.dispatchEvent(new CustomEvent(OPEN_EVENT)) } catch { /* 没有 window 就算了 */ }
    }
 
-   /** 待办数:待签到提醒 + 未确认提示。0 表示没东西催。 */
+   /** 待办数:到点未完成的提醒 + 未确认提示。0 表示没东西催。 */
    function dueCount(state) {
      if (!state) return 0
      const alerts = (state.alerts || []).filter(() => !(state.settings && state.settings.muted))
@@ -1529,7 +1599,7 @@ window.__ModuleLoader__.load({
          h('span', { key: 'i', className: '__dk_aicon' }, h(Ico, { name: over ? 'bell' : 'clock', size: 13 })),
          h('div', { key: 'm', className: '__dk_amain' }, [
            h('div', { key: 't', className: '__dk_atitle', title: a.title }, a.title),
-           h('div', { key: 's', className: '__dk_ameta' }, (over ? '该签到了 · ' : '快到点了 · ') + alertMeta(a)),
+           h('div', { key: 's', className: '__dk_ameta' }, (over ? '到点了 · ' : '快到点了 · ') + alertMeta(a)),
          ]),
          h('button', {
            key: 'x', className: '__dk_ax', title: '知道了(不再提醒)',
@@ -1688,6 +1758,7 @@ window.__ModuleLoader__.load({
        try { setState(await apiGet()); setErr('') } catch (e) { setErr(String((e && e.message) || e)) }
      }, [])
      usePoll(load)
+     useAlertSound(state && state.settings, state && state.alerts)
 
      // 位置:首屏读存档,改窗口大小时别把它挤到屏幕外
      useEffect(() => {
@@ -1879,10 +1950,10 @@ window.__ModuleLoader__.load({
      }, [showReply])
 
      const onLink = useCallback(async (r) => {
-       const v = window.prompt('粘贴签到网址(留空可清除)', r.url || '')
+       const v = window.prompt('粘贴要打开的网址(留空可清除)', r.url || '')
        if (v === null) return
        await run('reminder.update', { id: r.id, url: String(v).trim() })
-       showReply(String(v).trim() ? '已绑定签到链接' : '已清除链接')
+       showReply(String(v).trim() ? '已绑定打开链接' : '已清除链接')
      }, [run, showReply])
 
      const fabStyle = { left: Math.round(fab.x) + 'px', top: Math.round(fab.y) + 'px' }
@@ -2022,6 +2093,8 @@ window.__ModuleLoader__.load({
      const load = useCallback(async () => {
        try { setState(await apiGet()); setErr('') } catch (e) { setErr(String((e && e.message) || e)) }
      }, [])
+     useAlertSound(state && state.settings, state && state.alerts)
+
      // 侧栏标签页没打开时完全不轮询(以前后台也每 20 秒拉一遍全量)
      useEffect(() => {
        if (!visible) return undefined
@@ -2066,10 +2139,10 @@ window.__ModuleLoader__.load({
      }, [showReply])
 
      const onLink = useCallback(async (r) => {
-       const v = window.prompt('粘贴签到网址(留空可清除)', r.url || '')
+       const v = window.prompt('粘贴要打开的网址(留空可清除)', r.url || '')
        if (v === null) return
        await run('reminder.update', { id: r.id, url: String(v).trim() })
-       showReply(String(v).trim() ? '已绑定签到链接' : '已清除链接')
+       showReply(String(v).trim() ? '已绑定打开链接' : '已清除链接')
      }, [run, showReply])
 
      return h(SidebarView, {
@@ -2157,7 +2230,7 @@ window.__ModuleLoader__.load({
          disposeTab = service.registerTab({
            id: 'desk-kit:main',
            title: () => '随手台',
-           description: () => '签到提醒 · 随手便签 · 加密保险库',
+           description: () => '定时提醒 · 随手便签 · 加密保险库',
            icon: (size) => h(SidebarIcon, { size: size || 16 }),
            order: 40,
            single: true,
@@ -2249,6 +2322,7 @@ window.__ModuleLoader__.load({
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
+     playChime, SOUND, useAlertSound,
    }
    return module.exports
  },

@@ -40,7 +40,7 @@ test('分类:提醒', () => {
   assert.equal(b.kind, 'reminder')
   assert.equal(b.time, '21:00')
   assert.deepEqual(b.weekdays, [])
-  assert.ok(b.title.includes('每日打卡'))
+  assert.ok(b.title.includes('打卡'))
   const c = parseCapture('周一到周五 8点半 打卡', now)
   assert.equal(c.kind, 'reminder')
   assert.equal(c.time, '08:30')
@@ -57,11 +57,11 @@ test('分类:便签', () => {
 })
 
 test('分类:保险库', () => {
-  const a = parseCapture('把示例站点账号 demo_user 密码 abc123 存起来', now)
+  const a = parseCapture('把某示例站点账号 demo_user 密码 abc123 存起来', now)
   assert.equal(a.kind, 'secret')
   assert.equal(a.username, 'demo_user')
   assert.equal(a.password, 'abc123')
-  assert.ok(a.title.includes('示例站点'))
+  assert.ok(a.title.includes('某示例站点'))
   const b = parseCapture('密码 = p@ss word 记一下', now)
   assert.equal(b.kind, 'secret')
   assert.equal(b.password, 'p@ss')
@@ -73,7 +73,7 @@ test('回执文案', () => {
   assert.ok(describeCapture(parseCapture('账号 a 密码 b', now)).includes('保险库'))
 })
 
-test('多站点批量签到:拆成多条提醒而不是塞便签', () => {
+test('多站点批量打卡:拆成多条提醒而不是塞便签', () => {
   const txt = [
     'https://www.example.com/',
     'https://api.example.org/dashboard',
@@ -86,7 +86,7 @@ test('多站点批量签到:拆成多条提醒而不是塞便签', () => {
   assert.equal(r.kind, 'multi', '应识别成多站点')
   assert.equal(r.sites.length, 5, '5 个站点')
   assert.equal(r.sites[0].url, 'https://www.example.com/')
-  assert.ok(r.sites[0].title.includes('签到'), '标题要带签到')
+  assert.ok(r.sites[0].title.includes('打卡'), '标题要带打卡')
   // 单个网址 + 签到 不该走 multi(那不是批量)
   const one = parseCapture('每天9点提醒我去 https://a.com/ 签到')
   assert.notEqual(one.kind, 'multi')
