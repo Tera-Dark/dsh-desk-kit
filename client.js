@@ -97,7 +97,7 @@ window.__ModuleLoader__.load({
     * 走路听见会回头,戴耳机不炸耳。用 Web Audio 现场合成,不打包 mp3:
     * 体积为零、没有版权问题、音量随系统走。
     */
-   const SOUND = { notes: [880, 1318.51], gap: 0.10, attack: 0.006, decay: 0.55, gain: 0.07, cutoff: 6200 }
+   const SOUND = { notes: [880, 1318.51], gap: 0.10, attack: 0.006, decay: 0.55, gain: 0.08, cutoff: 6200 }
    let audioCtx = null
 
    function playChime() {
