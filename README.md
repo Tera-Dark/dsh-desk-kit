@@ -52,6 +52,12 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 - 保险库条目可以**编辑**（改标题或整段正文，保存后重新加密）。
 - 设置页去掉没有入口的「识图模型」（悬空功能容易让人以为能传图），补上**导出备份**：一次 `.json` 拿到 data + 密文 vault，并说明换机器要连 `vault.key` 一起拷。
 
+### 关机期间错过的,开机补
+
+- 不追求系统级通知(那要宿主给能力)。改成:**DSH 启动时先算一次**,把「关着的时候已经到点」的那批补成告警,卡片上写明「错过的提醒 · 计划 08:00」,并响一声。
+- 只补还没处理的:当时点过「完成」/「知道了」的不会再冒出来。
+- 全屏面板和侧栏都会显示;错过的不止一条时,坞里照常轮播并给「还有 N 条」。
+
 ### 到点怎么叫你
 
 - **一声「叮—咚」**:两声上行(A5 → E6)、起音 6ms、0.55 秒指数衰减、低通 6.2kHz,清脆但不扎耳。用 Web Audio 现场合成,不打包 mp3(体积零、没有版权问题、音量跟系统走)。
@@ -68,8 +74,8 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 
 ```
 node --check store.js capture.js index.js client.js
-node test.mjs           # 26 pass（静音、稍后、撤销、过期、每月、去重、导出、未来一次性、周期互斥、时间线）
-node client-test.mjs    # 47 pass
+node test.mjs           # 28 pass（静音、稍后、撤销、过期、每月、去重、导出、未来一次性、周期互斥、时间线、开机补提醒）
+node client-test.mjs    # 48 pass
 node capture.test.mjs   # 8 pass
 node lunar.test.mjs     # 4 pass
 node ai-classify.test.mjs / ownership.test.mjs / harness.mjs / verify-installed.mjs  全绿

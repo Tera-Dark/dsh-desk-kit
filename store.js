@@ -562,7 +562,7 @@ export class DeskStore {
    * 主循环:算出该不该弹提醒。
    * 返回这一轮新增的告警数(便于日志)。
    */
-  tick(nowMs = Date.now()) {
+  tick(nowMs = Date.now(), opts = {}) {
     const now = new Date(nowMs)
     const today = localYmd(now)
     let created = 0
@@ -604,6 +604,8 @@ export class DeskStore {
           at: nowMs,
           dueAt: occ.getTime(),
           over: nowMs >= occ.getTime(),
+          // 启动时补的一次:这条在 DSH 关着的时候就该响了,界面上要说明白
+          late: !!opts.catchUp && nowMs - dueFrom >= 60000,
           acked: false,
         })
         created++

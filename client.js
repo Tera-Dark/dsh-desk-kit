@@ -143,7 +143,12 @@ window.__ModuleLoader__.load({
        if (heard.current === key) return
        const first = heard.current === ''
        heard.current = key
-       if (first) return                      // 首屏已有的提醒不响
+       const st0 = settings || {}
+       if (first) {
+         // 打开面板时旧提醒一般不吵;但「DSH 关着时错过的」要响一声,否则等于没提醒
+         if ((alerts || []).some((a) => a.late) && !st0.muted && st0.sound !== false) playChime()
+         return
+       }
        const st = settings || {}
        if (st.muted || st.sound === false) return
        playChime()
@@ -1645,6 +1650,12 @@ window.__ModuleLoader__.load({
      return a.text || ('计划 ' + fmtClock(a.dueAt))
    }
 
+   /** 卡片上半句:错过的 / 到点了 / 快到点了。 */
+   function alertHead(a) {
+     if (a.late) return '错过的提醒 · '
+     return a.over ? '到点了 · ' : '快到点了 · '
+   }
+
    const SNOOZE_CHOICES = [[10, '10 分钟'], [30, '30 分钟'], [60, '1 小时']]
 
    function AlertCard({ a, run, onOpen, quiet }) {
@@ -1661,7 +1672,7 @@ window.__ModuleLoader__.load({
          h('span', { key: 'i', className: '__dk_aicon' }, h(Ico, { name: over ? 'bell' : 'clock', size: 13 })),
          h('div', { key: 'm', className: '__dk_amain' }, [
            h('div', { key: 't', className: '__dk_atitle', title: a.title }, a.title),
-           h('div', { key: 's', className: '__dk_ameta' }, (over ? '到点了 · ' : '快到点了 · ') + alertMeta(a)),
+           h('div', { key: 's', className: '__dk_ameta' }, alertHead(a) + alertMeta(a)),
          ]),
          h('button', {
            key: 'x', className: '__dk_ax', title: '知道了(不再提醒)',
@@ -2379,7 +2390,7 @@ window.__ModuleLoader__.load({
    exports.inject = inject
    exports.__test = {
      Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, HeaderButton,
-     Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO,
+     Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO, alertHead,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,

@@ -374,3 +374,30 @@ test('一次性提醒的时间线:提前量之前安静,到提前量响一次,�
   for (const m of [10, 30, 60]) s.tick(at('2026-11-18T15:05:00') + m * 60000)
   assert.equal(s.pendingAlerts().length, 0, '确认后当天不该再响')
 })
+
+test('开机补提醒:DSH 关着时已经到点的,标成「错过的」', () => {
+  const s = fresh()
+  s.addReminder({ title: '吃药', time: '08:00', weekdays: [], leadMin: 0 })
+  // 模拟:昨天关掉 DSH,今天 10 点才打开
+  s.tick(new Date('2026-11-18T10:00:00').getTime(), { catchUp: true })
+  const a = s.pendingAlerts()[0]
+  assert.ok(a, '要补出一条')
+  assert.equal(a.late, true, '要标成错过')
+  assert.equal(a.over, true, '早就过点了')
+
+  // 正常 tick 造出来的不算错过
+  const s2 = fresh()
+  s2.addReminder({ title: '开会', time: '10:00', weekdays: [], leadMin: 30 })
+  s2.tick(new Date('2026-11-18T09:30:00').getTime())
+  assert.equal(s2.pendingAlerts()[0].late, false)
+})
+
+test('开机补提醒只补一次:再 tick 不会把标记翻新或重复补', () => {
+  const s = fresh()
+  s.addReminder({ title: '交电费', time: '10:00', date: '2026-11-18', leadMin: 0 })
+  s.tick(new Date('2026-11-18T12:00:00').getTime(), { catchUp: true })
+  assert.equal(s.pendingAlerts().length, 1)
+  s.tick(new Date('2026-11-18T12:30:00').getTime())
+  assert.equal(s.pendingAlerts().length, 1, '还是那一张')
+  assert.equal(s.pendingAlerts()[0].late, true, '标记保留')
+})

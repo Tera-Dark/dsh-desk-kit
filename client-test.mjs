@@ -691,3 +691,12 @@ test('手动表单也能排「一次性 / 每月」,编辑时周期要回显正�
   assert.ok(T.CYCLE.some(([k]) => k === 'once') && T.CYCLE.some(([k]) => k === 'monthly'), 'CYCLE 要含一次性/每月')
   assert.equal(T.todayISO(new Date(2026, 10, 18)), '2026-11-18', 'todayISO 用本地日期,别用 UTC')
 })
+
+test('开机补提醒:卡片写「错过的提醒」而不是普通的到点了', () => {
+  const late = { id: 'a2', refId: 'r2', title: '吃药', dueAt: new Date('2026-11-18T08:00:00').getTime(), over: true, late: true, dueDate: '2026-11-18' }
+  const html = renderToString(h(T.AlertCard, { a: late, run, onOpen: () => {} }))
+  assert.ok(html.includes('错过的提醒'), '要说明这条是关着 DSH 时错过的')
+  assert.equal(T.alertHead(late), '错过的提醒 · ')
+  assert.equal(T.alertHead({ over: true }), '到点了 · ')
+  assert.equal(T.alertHead({ over: false }), '快到点了 · ')
+})

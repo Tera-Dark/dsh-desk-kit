@@ -438,7 +438,10 @@ export function apply(ctx) {
         try { ctx.logger && ctx.logger.error && ctx.logger.error('[desk-kit] tick 失败: ' + String(error && error.message)) } catch { }
       }
     }
-    tick()
+    // 立刻先算一次,并把「DSH 关着的时候已经到点」的那批标成 late —— 这就是开机补提醒
+    try { s.tick(Date.now(), { catchUp: true }) } catch (error) {
+      try { ctx.logger && ctx.logger.warn && ctx.logger.warn('[desk-kit] 启动补提醒失败: ' + String(error && error.message)) } catch { }
+    }
     const timer = setInterval(tick, TICK_MS)
     if (timer.unref) timer.unref()
     return () => clearInterval(timer)
