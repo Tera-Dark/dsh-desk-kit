@@ -49,11 +49,12 @@ const post = async (action, payload) => {
   return r.json()
 }
 
-// 3) 默认提醒应该已经种下
+// 3) 空库:不该替用户造数据
 const s0 = await get()
-assert.ok(s0.ok && s0.state.reminders.length === 1, '首次启动应有默认「每日打卡」提醒')
-assert.equal(s0.state.reminders[0].time, '21:00')
-console.log('✓ 默认提醒:', s0.state.reminders[0].title, s0.state.reminders[0].time)
+assert.ok(s0.ok, '快照要能读')
+assert.equal(s0.state.reminders.length, 0, '首次启动不要塞默认提醒')
+assert.equal(s0.state.notes.length, 0)
+console.log('✓ 首次启动是空面板(不造默认提醒)')
 
 // 4) 工具:便签
 const add = tools.get('desk_note_add')

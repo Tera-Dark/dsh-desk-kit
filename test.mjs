@@ -51,10 +51,11 @@ test('提醒:提前 30 分钟弹一次,不重复,签到后静默', () => {
   assert.equal(s.tick(at(20, 31)), 0, '同一分钟内不重复弹')
   assert.equal(s.pendingAlerts().length, 1)
   assert.equal(s.tick(at(20, 55)), 0, '未到点且未静音,不重复')
-  // 过了截止时间还没签到:立刻补一次,然后按 snoozeMin 每 20 分钟再催
-  assert.equal(s.tick(at(21, 1)), 1, '过点未签到要补催')
-  assert.equal(s.tick(at(21, 20)), 0, '距上次不到 20 分钟不重复')
-  assert.equal(s.tick(at(21, 40)), 1, '又过 20 分钟,再催一次')
+  // 过了截止时间还没处理:同一张卡片就地变「已到点」,不再叠新卡片
+  assert.equal(s.tick(at(21, 1)), 0, '不新建卡片')
+  assert.equal(s.pendingAlerts().length, 1, '始终只有一张')
+  assert.equal(s.pendingAlerts()[0].over, true, '过点后变红')
+  assert.equal(s.tick(at(21, 40)), 0, '再久也只有这一张')
   // 签到 → 当天不再提醒
   // 必须显式传日期:不传的话 checkin 按「真实今天」清理,测试换一天跑就会挂
   s.checkin(r.id, '2026-11-14')
@@ -318,4 +319,58 @@ test('导出备份包含 data 与密文 vault', () => {
   assert.equal(back.data.notes.length, 1)
   assert.ok(back.vault && Array.isArray(back.vault.entries), 'vault 要带上(密文)')
   assert.ok(!JSON.stringify(back.vault).includes('密码 y'), '导出里不能有明文')
+})
+
+test('未来的一次性提醒要算「还没到时间」,不能变成「没有下一次」', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '交电费', time: '10:00', date: '2026-11-18' })
+  const view = (iso) => s.todayView(new Date(iso)).find((x) => x.id === r.id)
+  assert.equal(view('2026-11-17T20:00:00').status, 'upcoming', '今天看:还没到')
+  assert.equal(new Date(view('2026-11-17T20:00:00').occurrenceAt).getDate(), 18)
+  assert.equal(view('2026-11-18T10:05:00').status, 'pending', '当天过点:要处理')
+  assert.equal(view('2026-11-19T09:00:00').status, 'expired', '过了那天:已过期')
+})
+
+test('改周期要互斥:换成每月/一次性时旧的日期字段必须清掉', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '交房租', time: '09:00', date: '2026-11-20' })
+  s.updateReminder(r.id, { monthly: 1 })
+  assert.equal(s.data.reminders[0].date, undefined, '旧 date 要清掉')
+  assert.equal(s.data.reminders[0].monthly, 1)
+  s.updateReminder(r.id, { date: '2026-11-21' })
+  assert.equal(s.data.reminders[0].monthly, undefined, '换回一次性时 monthly 要清掉')
+  assert.equal(s.data.reminders[0].date, '2026-11-21')
+  s.updateReminder(r.id, { annual: '05-03' })
+  assert.equal(s.data.reminders[0].date, undefined)
+  assert.deepEqual(s.data.reminders[0].weekdays, [])
+  assert.equal(s.data.reminders[0].annual, '05-03')
+})
+
+test('同一件事说两遍:第二次返回已有那条,不再存一份', () => {
+  const s = fresh()
+  const a = s.addReminder({ title: '吃药', time: '09:00', weekdays: [] })
+  const b = s.addReminder({ title: '吃药', time: '9:00', weekdays: [] })
+  assert.equal(b.id, a.id, '应返回同一条')
+  assert.equal(b.deduped, true)
+  assert.equal(s.data.reminders.length, 1)
+  // 换周期 = 另一件事,不算重复
+  const c = s.addReminder({ title: '吃药', time: '09:00', monthly: 1 })
+  assert.notEqual(c.id, a.id)
+})
+
+test('一次性提醒的时间线:提前量之前安静,到提前量响一次,确认后当天不再响', () => {
+  const s = fresh()
+  s.addReminder({ title: '开会', time: '15:00', date: '2026-11-18', leadMin: 30 })
+  const at = (iso) => new Date(iso).getTime()
+  s.tick(at('2026-11-18T14:00:00'))
+  assert.equal(s.pendingAlerts().length, 0, '提前量之前不该响')
+  s.tick(at('2026-11-18T14:31:00'))
+  assert.equal(s.pendingAlerts().length, 1, '进入提前量要响一条')
+  assert.equal(s.pendingAlerts()[0].over, false, '还没到点')
+  s.tick(at('2026-11-18T15:05:00'))
+  assert.equal(s.pendingAlerts().length, 1, '没确认之前不要叠出新的一条')
+  assert.equal(s.pendingAlerts()[0].over, true, '过了点,这条就地变成「已到点」')
+  s.ackAlert(s.pendingAlerts()[0].id)
+  for (const m of [10, 30, 60]) s.tick(at('2026-11-18T15:05:00') + m * 60000)
+  assert.equal(s.pendingAlerts().length, 0, '确认后当天不该再响')
 })

@@ -58,7 +58,11 @@ function persistParsed(s, parsed, rawText) {
       url: parsed.url,
       note: parsed.note || '',
     })
-    return { parsed, reply: describeCapture(parsed), item: r, created: { kind: 'reminder', id: r.id } }
+    // 已经有了就明说,别让「说了两遍」变成「两条提醒」
+    const reply = r.deduped
+      ? '这条提醒已经有了:' + String(describeCapture(parsed)).replace(/^已排成[^:]*:/, '')
+      : describeCapture(parsed)
+    return { parsed, reply, item: r, created: { kind: 'reminder', id: r.id, deduped: !!r.deduped } }
   }
   const note = s.addNote({ text: parsed.text || rawText })
   const reply = note.deduped
@@ -332,6 +336,7 @@ function statusLabel(r) {
     case 'paused': return '已暂停'
     case 'expired': return '已过期(一次性提醒)'
     case 'not-today': return '今天不用做'
+    case 'no-next': return '暂时排不出下一次(检查一下日期)'
     default: return r.status
   }
 }
@@ -409,21 +414,9 @@ export function apply(ctx) {
     return
   }
 
-  // 首次启动给一条默认提醒,省得装完是空面板(内容保持中性,不带任何个人习惯)。
-  try {
-    if (!s.data.reminders.length) {
-      s.addReminder({
-        title: '每日打卡',
-        time: '21:00',
-        weekdays: [],
-        leadMin: 30,
-        snoozeMin: 20,
-        note: '到点提醒;做完了在面板点「完成」,当天就不再提。',
-      })
-    }
-  } catch (error) {
-    try { ctx.logger && ctx.logger.warn && ctx.logger.warn('[desk-kit] 默认提醒创建失败: ' + String(error && error.message)) } catch { }
-  }
+  // 不再给新用户凭空塞一条提醒。
+  // 以前会种一条 21:00 的「每日打卡」:装完当天晚上就为一件自己没安排的事弹提醒(还带声音),
+  // 用户第一反应是「这什么?」。空面板 + 一句怎么开始,比一条假数据诚实。
 
   // ---- 定时器:每 15 秒算一次该不该弹提醒 ----
   ctx.effect(() => {

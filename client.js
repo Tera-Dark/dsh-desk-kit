@@ -250,6 +250,8 @@ window.__ModuleLoader__.load({
      '.__dk_dotsep{display:inline-block;width:8px;height:8px;margin:0 12px 0 8px;border-radius:50%;background:var(--dsw-alias-border-l1,rgba(255,255,255,.25));flex:none}',
      '.__dk_row--act .__dk_rt{font-weight:600}',
      '.__dk_row--act .__dk_dotsep{background:#e5484d}',
+     '.__dk_row--dim .__dk_rt,.__dk_row--dim .__dk_rm{opacity:.6}',
+     '.__dk_row--dim .__dk_dotsep{background:var(--dsw-alias-border-l1,rgba(255,255,255,.2))}',
      '.__dk_lvl{display:inline-flex;align-items:center;gap:4px;margin-left:7px;padding:0 6px;height:16px;border-radius:8px;font-size:9.5px;font-weight:600;letter-spacing:.04em;border:1px solid currentColor;opacity:.85;vertical-align:1px}',
      '.__dk_lvl i{width:5px;height:5px;border-radius:50%;background:currentColor;display:block}',
      '.__dk_hbtn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary,#9aa4b2);cursor:pointer}',
@@ -552,7 +554,15 @@ window.__ModuleLoader__.load({
      if (r.done) return base + ' · 今天已完成'
      if (r.status === 'pending') return base + ' · 到点了'
      if (r.status === 'upcoming') return base + (r.occurrenceAt ? ' · ' + fmtClock(r.occurrenceAt - (r.leadMin || 0) * 60000) + ' 提醒' : '')
-     if (r.status === 'not-today') return base + ' · 今天不用'
+     // 「今天不用」放在「接下来」里会读着别扭:直接说下次哪天
+     if (r.status === 'not-today') {
+       // occurrenceAt 是时间戳,fmtDay 吃 YYYY-MM-DD
+       const d = r.occurrenceAt ? new Date(r.occurrenceAt) : null
+       const ymd = d && !isNaN(d.getTime())
+         ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+         : ''
+       return base + (ymd ? ' · 下次 ' + fmtDay(ymd) : ' · 今天不用')
+     }
      return base
    }
 
@@ -697,8 +707,16 @@ window.__ModuleLoader__.load({
        expired.length
          ? h('div', { key: 's4', className: '__dk_sec __dk_sec--ref' }, [h('span', { key: 'a' }, '已过期'), h('span', { key: 'b' }, String(expired.length))])
          : null,
+       expired.slice(0, 2).map((r) => h('div', { key: r.id, className: '__dk_row __dk_row--dim' }, [
+         h('span', { key: 'c', className: '__dk_dotsep' }),
+         h('div', { key: 'm', className: '__dk_rowmain' }, [
+           h('div', { key: 't', className: '__dk_rt' }, r.title),
+           h('div', { key: 's', className: '__dk_rm' }, reminderMeta(r)),
+         ]),
+       ])),
        expired.length
-         ? h('div', { key: 'exp', className: '__dk_hint', style: { padding: '2px 4px 0' } }, '一次性提醒过了那天就不再响;要清理点下方「提醒」进列表删。')
+         ? h('div', { key: 'exp', className: '__dk_hint', style: { padding: '2px 4px 0' } },
+           '一次性提醒过了那天就不再响;要清理点「查看全部」进列表删。')
          : null,
 
        // 超过一屏就别把首页撑长,给个明确出口
@@ -728,9 +746,17 @@ window.__ModuleLoader__.load({
    const CYCLE = [
      ['daily', '每天'],
      ['weekly', '每周'],
+     ['monthly', '每月'],
+     ['once', '一次性'],
      ['solar', '公历每年'],
      ['lunar', '农历每年'],
    ]
+
+   /** 本地「今天」的 YYYY-MM-DD(不能用 toISOString:那是 UTC,晚上会差一天)。 */
+   function todayISO(now = new Date()) {
+     const p = (n) => String(n).padStart(2, '0')
+     return now.getFullYear() + '-' + p(now.getMonth() + 1) + '-' + p(now.getDate())
+   }
 
    /** 常用提前量:让人点一下,而不是算「4320 分钟是几天」。 */
    const LEAD_PRESETS = [
@@ -743,11 +769,17 @@ window.__ModuleLoader__.load({
    ]
 
    function ReminderForm({ initial, onSave, onCancel, title }) {
-     const mode = initial.lunar ? 'lunar' : initial.annual ? 'solar' : (initial.weekdays && initial.weekdays.length) ? 'weekly' : 'daily'
+     const mode = initial.lunar ? 'lunar'
+       : initial.annual ? 'solar'
+         : Number.isFinite(initial.monthly) ? 'monthly'
+           : initial.date ? 'once'
+             : (initial.weekdays && initial.weekdays.length) ? 'weekly' : 'daily'
      const [t, setT] = useState(initial.title || '')
      const [time, setTime] = useState(initial.time || '21:00')
      const [cycle, setCycle] = useState(mode)
      const [days, setDays] = useState(initial.weekdays || [])
+     const [mday, setMday] = useState(Number.isFinite(initial.monthly) ? initial.monthly : 1)
+     const [date, setDate] = useState(initial.date || todayISO())
      const [url, setUrl] = useState(initial.url || '')
      const [lead, setLead] = useState(initial.leadMin == null ? 30 : initial.leadMin)
      const [mm, setMm] = useState(initial.lunar ? initial.lunar.month : Number((initial.annual || '01-01').split('-')[0]) || 1)
@@ -757,6 +789,8 @@ window.__ModuleLoader__.load({
      const save = () => {
        const payload = { title: t.trim(), time, leadMin: Number(lead) || 0, url: url.trim() }
        if (cycle === 'weekly') payload.weekdays = days
+       else if (cycle === 'monthly') { payload.monthly = Math.max(1, Math.min(31, Number(mday) || 1)); payload.weekdays = [] }
+       else if (cycle === 'once') { payload.date = date || todayISO(); payload.weekdays = [] }
        else if (cycle === 'solar') { payload.annual = String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0'); payload.weekdays = []; payload.yearly = true }
        else if (cycle === 'lunar') { payload.lunar = { month: Number(mm), day: Number(dd) }; payload.weekdays = []; payload.yearly = true }
        else payload.weekdays = []
@@ -772,7 +806,10 @@ window.__ModuleLoader__.load({
        h('div', { key: 'g1', className: '__dk_group' }, [
          h('div', { key: 'h', className: '__dk_grouph' }, [
            h('span', { key: 'a' }, title || '新提醒'),
-           h('span', { key: 'b' }, annual ? '每年一次' : cycle === 'weekly' ? '按周' : '每天'),
+           h('span', { key: 'b' }, annual ? '每年一次'
+             : cycle === 'weekly' ? '按周'
+               : cycle === 'monthly' ? '每月' + (Number(mday) || 1) + ' 号'
+                 : cycle === 'once' ? '只提醒一次' : '每天'),
          ]),
          h('input', {
            key: 'a', className: '__dk_input', autoFocus: true,
@@ -789,6 +826,31 @@ window.__ModuleLoader__.load({
            }, w)))
            : null,
          cycle === 'weekly' && !days.length ? h('div', { key: 'd', className: '__dk_gtip' }, '都不选 = 每天') : null,
+         cycle === 'monthly'
+           ? h('div', { key: 'mo', className: '__dk_frow' }, [
+             h('span', { key: 'l', className: '__dk_gtip' }, '每月'),
+             h('input', {
+               key: 'd', type: 'number', min: 1, max: 31, className: '__dk_input __dk_num',
+               value: mday, onChange: (e) => setMday(e.target.value),
+             }),
+             h('span', { key: 'u', className: '__dk_gtip' }, '号'),
+           ])
+           : null,
+         cycle === 'monthly'
+           ? h('div', { key: 'mt', className: '__dk_gtip' }, '小月没有 31 号时,按当月最后一天提醒')
+           : null,
+         cycle === 'once'
+           ? h('div', { key: 'once', className: '__dk_frow' }, [
+             h('span', { key: 'l', className: '__dk_gtip' }, '在哪天'),
+             h('input', {
+               key: 'd', type: 'date', className: '__dk_input', value: date,
+               onChange: (e) => setDate(e.target.value),
+             }),
+           ])
+           : null,
+         cycle === 'once'
+           ? h('div', { key: 'ot', className: '__dk_gtip' }, '过了这天就不再提醒,也不会自动排下一次')
+           : null,
          annual
            ? h('div', { key: 'md', className: '__dk_frow' }, [
              h('span', { key: 'l', className: '__dk_gtip' }, cycle === 'lunar' ? '农历' : '公历'),
@@ -825,7 +887,7 @@ window.__ModuleLoader__.load({
        ]),
 
        h('div', { key: 'f', className: '__dk_frow' }, [
-         h('button', { key: 's', className: '__dk_btn p', disabled: !t.trim(), onClick: save }, '保存'),
+         h('button', { key: 's', className: '__dk_btn p', disabled: !t.trim() || (cycle === 'once' && !date), onClick: save }, '保存'),
          h('button', { key: 'c', className: '__dk_btn', onClick: onCancel }, '取消'),
        ]),
      ])
@@ -1941,7 +2003,7 @@ window.__ModuleLoader__.load({
        let undo = null
        // 去重命中时没有「新建」这回事,别给出会删掉旧便签的撤销
        if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
-       else if (c && c.kind === 'reminder' && c.id) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       else if (c && c.kind === 'reminder' && c.id && !c.deduped) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        showReply(r.reply || '已保存', undo)
        if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
@@ -2130,7 +2192,7 @@ window.__ModuleLoader__.load({
        let undo = null
        // 去重命中时没有「新建」这回事,别给出会删掉旧便签的撤销
        if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
-       else if (c && c.kind === 'reminder' && c.id) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       else if (c && c.kind === 'reminder' && c.id && !c.deduped) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        showReply(r.reply || '已保存', undo)
        if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
@@ -2317,7 +2379,7 @@ window.__ModuleLoader__.load({
    exports.inject = inject
    exports.__test = {
      Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, HeaderButton,
-     Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS,
+     Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,

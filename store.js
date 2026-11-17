@@ -84,7 +84,15 @@ export function nextOccurrence(reminder, now = new Date()) {
   if (!clock) return null
   const at = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), clock.h, clock.m, 0, 0)
 
-  if (reminder.date) return reminder.date === localYmd(now) ? at(now) : null
+  // 一次性日期:今天就是今天,以后的就是那天(以前只认今天,明天的一次性提醒会变成
+  // 「没有下一次」,首页看不见、状态也不对)
+  if (reminder.date) {
+    const today = localYmd(now)
+    if (reminder.date < today) return null
+    if (reminder.date === today) return at(now)
+    const d = new Date(reminder.date + 'T00:00:00')
+    return Number.isNaN(d.getTime()) ? null : at(d)
+  }
 
   if (reminder.lunar || reminder.annual) {
     for (let i = 0; i < 400; i++) {
@@ -376,6 +384,18 @@ export class DeskStore {
       createdAt: now,
       updatedAt: now,
     }
+    // 同一件事说两遍(或者换个写法再说一遍):返回已有那条,别再存一份。
+    // 以前会存出两条一模一样的提醒,到点弹两次、列表里也是一对。
+    const sig = (x) => [
+      x.title, x.time, x.date || '', x.monthly || '', x.annual || '',
+      x.lunar ? x.lunar.month + '-' + x.lunar.day : '', (x.weekdays || []).join(','),
+    ].join('|')
+    const same = this.data.reminders.find((x) => (x.deletedAt || 0) === 0 && sig(x) === sig(reminder))
+    if (same) {
+      same.updatedAt = now
+      this.save()
+      return { ...same, deduped: true }
+    }
     this.data.reminders.push(reminder)
     this.save()
     return reminder
@@ -399,14 +419,23 @@ export class DeskStore {
       const u = patch.url.trim()
       r.url = /^https?:\/\//i.test(u) ? u.slice(0, 600) : ''
     }
+    // 周期是互斥的:选了哪一种,就把其它的清掉。
+    // 以前只清 date→其它,反向不清:把「明天」改成「每月 1 号」后 date 还压在上面。
     if (patch.lunar === null) r.lunar = undefined
     else if (patch.lunar && Number.isFinite(patch.lunar.month) && Number.isFinite(patch.lunar.day)) {
       r.lunar = { month: Math.max(1, Math.min(12, patch.lunar.month)), day: Math.max(1, Math.min(30, patch.lunar.day)), isLeap: !!patch.lunar.isLeap }
+      r.date = undefined; r.monthly = undefined; r.annual = undefined; r.weekdays = []
     }
     if (patch.annual === null) r.annual = undefined
-    else if (typeof patch.annual === 'string' && /^\d{2}-\d{2}$/.test(patch.annual)) r.annual = patch.annual
+    else if (typeof patch.annual === 'string' && /^\d{2}-\d{2}$/.test(patch.annual)) {
+      r.annual = patch.annual
+      r.date = undefined; r.monthly = undefined; r.lunar = undefined; r.weekdays = []
+    }
     if (patch.monthly === null) r.monthly = undefined
-    else if (Number.isFinite(patch.monthly) && patch.monthly >= 1 && patch.monthly <= 31) r.monthly = Number(patch.monthly)
+    else if (Number.isFinite(patch.monthly) && patch.monthly >= 1 && patch.monthly <= 31) {
+      r.monthly = Number(patch.monthly)
+      r.date = undefined; r.annual = undefined; r.lunar = undefined; r.weekdays = []
+    }
     if (typeof patch.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(patch.date)) { r.date = patch.date; r.weekdays = []; r.annual = undefined; r.lunar = undefined; r.monthly = undefined }
     if (patch.date === null) r.date = undefined
     // 改了时间点/周期 = 用户还想让它响,今天的静音作废
@@ -554,7 +583,16 @@ export class DeskStore {
       if (r.snoozeUntil && nowMs < r.snoozeUntil) continue
       const sameDay = alerts.filter((a) => a.refId === r.id && a.date === today)
       const last = sameDay.sort((a, b) => b.at - a.at)[0]
-      if (!last) {
+      // 同一条还没被确认:就地更新,不要再叠一张。
+      // 以前逾期后每 snoozeMin 分钟 push 一条新的,十分钟后右下角就有三张一模一样的卡片。
+      // 确认过的那张会被 silencedDates 挡住一整天,唯一还会再建新卡的是「稍后」到点。
+      if (last && !last.acked) {
+        if (nowMs >= occ.getTime() && !last.over) { last.over = true; mutated = true }
+        if (r.snoozeUntil && nowMs >= r.snoozeUntil) { r.snoozeUntil = 0; mutated = true }
+        continue
+      }
+      // 没有卡片,或者上一张已经确认过(「稍后」到点):建一张新的
+      if (!last || last.acked) {
         alerts.push({
           id: uid('a-'),
           kind: 'reminder',
@@ -566,25 +604,6 @@ export class DeskStore {
           at: nowMs,
           dueAt: occ.getTime(),
           over: nowMs >= occ.getTime(),
-          acked: false,
-        })
-        created++
-      } else if (
-        (r.snoozeUntil && nowMs >= r.snoozeUntil)                       // 用户点过「稍后」:到点立刻再弹
-        || (nowMs >= occ.getTime() && nowMs - last.at >= (r.snoozeMin || 20) * 60000) // 逾期后按 snoozeMin 周期催
-      ) {
-        if (r.snoozeUntil) { r.snoozeUntil = 0; mutated = true }
-        alerts.push({
-          id: uid('a-'),
-          kind: 'reminder',
-          refId: r.id,
-          date: today,
-          dueDate,
-          title: r.title,
-          text: r.note || '',
-          at: nowMs,
-          dueAt: occ.getTime(),
-          over: true,
           acked: false,
         })
         created++

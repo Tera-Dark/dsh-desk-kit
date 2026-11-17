@@ -285,7 +285,12 @@ export function parseCapture(raw, now = new Date()) {
         .replace(/(请|帮我|麻烦|把|存一下|存起来|保存|记一下|记下|记)/g, '')
         .replace(/[。!！~～\s]+$/g, '')
         .trim()
-      return { kind: 'secret', title: (title || '未命名条目').slice(0, 40), username, password, url, note: text }
+      // 标题取「看得懂的那个」:自己写的名字 → 网址主机名 → 账号名 → 兜底
+      const host = url ? String(url).replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0] : ''
+      const fallback = username ? username + ' 的账号' : '一组凭据'
+      // 只贴了个链接时,标题用主机名,别让整条 URL 占满列表
+      const cleaned = String(title || '').replace(/https?:\/\/\S+/gi, '').replace(/[。!！~～\s]+$/g, '').trim()
+      return { kind: 'secret', title: (cleaned || host || fallback).slice(0, 40), username, password, url, note: text }
     }
   }
 

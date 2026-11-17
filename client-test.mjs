@@ -671,3 +671,23 @@ test('设置里能开关提示音并试听', () => {
   const off = renderToString(h(T.Settings, { state: { ...state, settings: { sound: false } }, run, sidebarReady: true }))
   assert.ok(/提示音[\s\S]{0,400}?__dk_switch(?! on)/.test(off), '关掉时开关要灭')
 })
+
+test('手动表单也能排「一次性 / 每月」,编辑时周期要回显正确', () => {
+  const once = renderToString(h(T.ReminderForm, {
+    initial: { id: 'r1', title: '交电费', time: '10:00', date: '2026-11-18', weekdays: [] },
+    onSave: () => {}, onCancel: () => {}, title: '编辑',
+  }))
+  assert.ok(once.includes('type="date"'), '一次性要有日期选择')
+  assert.ok(once.includes('只提醒一次'), '周期说明要对')
+  assert.ok(/__dk_chip on">一次性/.test(once), '应选中「一次性」而不是「每天」')
+
+  const monthly = renderToString(h(T.ReminderForm, {
+    initial: { id: 'r2', title: '交房租', time: '09:00', monthly: 1, weekdays: [] },
+    onSave: () => {}, onCancel: () => {}, title: '编辑',
+  }))
+  assert.ok(/__dk_chip on">每月/.test(monthly), '应选中「每月」')
+  assert.ok(monthly.includes('月末') || monthly.includes('最后一天'), '要说清小月怎么算')
+
+  assert.ok(T.CYCLE.some(([k]) => k === 'once') && T.CYCLE.some(([k]) => k === 'monthly'), 'CYCLE 要含一次性/每月')
+  assert.equal(T.todayISO(new Date(2026, 10, 18)), '2026-11-18', 'todayISO 用本地日期,别用 UTC')
+})
