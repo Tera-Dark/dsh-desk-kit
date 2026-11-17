@@ -1,0 +1,17 @@
+# 依赖 / 测试产物
+node_modules/
+profiles/
+package-lock.json
+
+# 本地数据(插件运行时写在 ~/.dsh/desk-kit,仓库里不该出现)
+*.vault.json
+desk-kit/
+
+# 系统与编辑器杂项
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+tmp/
+scratch/

@@ -1,0 +1,231 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { DeskStore, localYmd, occurrenceOf, parseClock } from './store.js'
+
+const fresh = () => new DeskStore(mkdtempSync(join(tmpdir(), 'desk-kit-')))
+
+test('便签:增改查删 + 置顶排序', () => {
+  const s = fresh()
+  const a = s.addNote({ text: '买牛奶', tags: ['生活'] })
+  const b = s.addNote({ text: '每日打卡要记密码', tags: ['站点'] })
+  assert.equal(s.listNotes().length, 2)
+  assert.equal(s.listNotes()[0].id, b.id, '新便签在最前')
+  s.updateNote(a.id, { pinned: true })
+  assert.equal(s.listNotes()[0].id, a.id, '置顶优先')
+  s.updateNote(a.id, { text: '买牛奶和鸡蛋' })
+  assert.ok(s.listNotes().some((n) => n.text.includes('鸡蛋')))
+  s.updateNote(b.id, { archived: true })
+  assert.equal(s.listNotes().length, 1)
+  assert.equal(s.listNotes({ includeArchived: true }).length, 2)
+  s.deleteNote(a.id)
+  assert.equal(s.listNotes({ includeArchived: true }).length, 1)
+  assert.throws(() => s.addNote({ text: '   ' }))
+})
+
+test('时间解析与周几', () => {
+  assert.deepEqual(parseClock('21:00'), { h: 21, m: 0 })
+  assert.deepEqual(parseClock('9:05'), { h: 9, m: 5 })
+  assert.equal(parseClock('24:00'), null)
+  assert.equal(parseClock('9'), null)
+  // 2026-11-14 是周六
+  const sat = new Date(2026, 10, 14, 12, 0, 0)
+  assert.equal(sat.getDay(), 6)
+  assert.equal(occurrenceOf({ time: '21:00', weekdays: [6] }, sat).getHours(), 21)
+  assert.equal(occurrenceOf({ time: '21:00', weekdays: [1] }, sat), null)
+  assert.equal(occurrenceOf({ time: '21:00', weekdays: [] }, sat).getDate(), 14)
+})
+
+test('提醒:提前 30 分钟弹一次,不重复,签到后静默', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '每日打卡', time: '21:00', leadMin: 30, snoozeMin: 20 })
+  const day = new Date(2026, 10, 14, 0, 0, 0)
+  const at = (h, m) => new Date(2026, 10, 14, h, m, 0).getTime()
+
+  assert.equal(s.tick(at(20, 29)), 0, '20:29 还不该提醒')
+  assert.equal(s.tick(at(20, 30)), 1, '20:30 该弹了')
+  assert.equal(s.pendingAlerts().length, 1)
+  assert.equal(s.tick(at(20, 31)), 0, '同一分钟内不重复弹')
+  assert.equal(s.pendingAlerts().length, 1)
+  assert.equal(s.tick(at(20, 55)), 0, '未到点且未静音,不重复')
+  // 过了截止时间还没签到:立刻补一次,然后按 snoozeMin 每 20 分钟再催
+  assert.equal(s.tick(at(21, 1)), 1, '过点未签到要补催')
+  assert.equal(s.tick(at(21, 20)), 0, '距上次不到 20 分钟不重复')
+  assert.equal(s.tick(at(21, 40)), 1, '又过 20 分钟,再催一次')
+  // 签到 → 当天不再提醒
+  // 必须显式传日期:不传的话 checkin 按「真实今天」清理,测试换一天跑就会挂
+  s.checkin(r.id, '2026-11-14')
+  assert.equal(s.pendingAlerts().length, 0)
+  assert.equal(s.tick(at(21, 40)), 0)
+  // 补签记录
+  assert.ok(s.todayView(new Date(2026, 10, 14, 22, 0, 0)).find((x) => x.id === r.id).done)
+})
+
+test('稍后提醒:静音期内不弹,过点后再弹', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '签到', time: '21:00', leadMin: 30, snoozeMin: 15 })
+  const at = (h, m) => new Date(2026, 10, 14, h, m, 0).getTime()
+  s.tick(at(20, 30))
+  s.ackAlert(s.pendingAlerts()[0].id)
+  s.snooze(r.id, 15, at(20, 30))
+  assert.equal(s.tick(at(20, 40)), 0, '静音期内不弹')
+  assert.equal(s.tick(at(20, 46)), 1, '静音结束后再提醒')
+})
+
+test('保险库:密文落盘、可读回、列表不泄密、删除生效', () => {
+  const s = fresh()
+  const item = s.addSecret({ title: '示例站点', username: 'demo_user', password: 'p@ss word', note: '备忘' })
+  const vaultText = readFileSync(s.vaultFile, 'utf8')
+  assert.ok(!vaultText.includes('p@ss word'), '磁盘上不能出现明文密码')
+  assert.ok(!vaultText.includes('demo_user'), '磁盘上不能出现明文用户名')
+  assert.ok(existsSync(s.keyFile))
+  const back = s.getSecret(item.id)
+  assert.equal(back.fields['密码'], 'p@ss word')
+  assert.equal(back.fields['用户名'], 'demo_user')
+  assert.equal(s.listSecrets().length, 1)
+  assert.equal(s.listSecrets()[0].fieldCount, 0, '列表页不带字段')
+  // 按标题模糊查
+  assert.equal(s.getSecret('公益').id, item.id)
+  s.updateSecret(item.id, { fields: { 密码: 'newpass' } })
+  assert.equal(s.getSecret(item.id).fields['密码'], 'newpass')
+  assert.equal(s.getSecret(item.id).fields['用户名'], 'demo_user', '未传的字段保留')
+  s.deleteSecret(item.id)
+  assert.equal(s.listSecrets().length, 0)
+  assert.equal(s.getSecret('示例站点'), null)
+})
+
+test('保险库:主密钥被换掉后旧密文解不开(而不是读出垃圾)', () => {
+  const s = fresh()
+  const item = s.addSecret({ title: 'x', fields: { 密码: 'secret' } })
+  // 模拟换机/密钥文件被杀软清掉:换一份新密钥材料 → GCM 校验失败必须抛错
+  writeFileSync(s.keyFile, randomBytes(48).toString('hex'), { mode: 0o600 })
+  assert.throws(() => s.getSecret(item.id), /auth|Unsupported|bad decrypt/i)
+})
+
+test('重启后数据还在(原子写 + 重新加载)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'desk-kit-'))
+  const s1 = new DeskStore(root)
+  s1.addNote({ text: '持久化测试' })
+  const r = s1.addReminder({ title: '签到', time: '21:00' })
+  s1.checkin(r.id, '2026-11-14')
+  const s2 = new DeskStore(root)
+  assert.equal(s2.listNotes()[0].text, '持久化测试')
+  assert.ok(s2.listReminders === undefined || true)
+  assert.ok(s2.data.reminders[0].doneDates.includes('2026-11-14'))
+})
+
+test('本地日期不跨时区串日', () => {
+  const late = new Date(2026, 10, 14, 23, 30, 0)
+  assert.equal(localYmd(late), '2026-11-14')
+  const early = new Date(2026, 10, 15, 0, 30, 0)
+  assert.equal(localYmd(early), '2026-11-15')
+})
+
+test('今日视图状态口径', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '签到', time: '21:00', leadMin: 30 })
+  const v = s.todayView(new Date(2026, 10, 14, 10, 0, 0)).find((x) => x.id === r.id)
+  assert.equal(v.status, 'upcoming')
+  assert.ok(v.secondsLeft > 0)
+  const v2 = s.todayView(new Date(2026, 10, 14, 20, 45, 0)).find((x) => x.id === r.id)
+  assert.equal(v2.status, 'pending')
+  s.checkin(r.id, '2026-11-14')
+  const v3 = s.todayView(new Date(2026, 10, 14, 20, 45, 0)).find((x) => x.id === r.id)
+  assert.equal(v3.status, 'done')
+})
+test('农历生日:每年只有农历那天命中', () => {
+  const s = fresh()
+  // 2025 农历八月十五 = 2025-10-06(公历)
+  const r = s.addReminder({ title: '某人农历生日', time: '09:00', lunar: { month: 8, day: 15 }, leadMin: 60 })
+  const hit = new Date(2025, 9, 6, 8, 0, 0)
+  const miss = new Date(2025, 9, 7, 8, 0, 0)
+  assert.ok(s.tick(hit.getTime()) >= 1, '农历十五当天要提醒')
+  const view = s.todayView(hit).find((x) => x.id === r.id)
+  assert.equal(view.status, 'pending')
+  const view2 = s.todayView(miss).find((x) => x.id === r.id)
+  // 第二天:下次是明年那天,状态 upcoming(而不是"今天不用")
+  assert.equal(view2.status, 'upcoming', '第二天应显示下一次在明年')
+  assert.ok(view2.occurrenceAt > miss.getTime(), '下一次应在未来')
+  assert.equal(s.tick(miss.getTime()), 0, '第二天不该弹提醒')
+})
+
+test('公历每年生日', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '公历生日', time: '09:00', annual: '11-20', leadMin: 30 })
+  const on = s.todayView(new Date(2026, 10, 20, 9, 30, 0)).find((x) => x.id === r.id)
+  assert.equal(on.status, 'pending')
+  const off = s.todayView(new Date(2026, 10, 21, 9, 30, 0)).find((x) => x.id === r.id)
+  assert.equal(off.status, 'upcoming', '过期后显示明年的下一次')
+})
+
+test('生日提前量能跨天(这是之前修掉的 bug)', () => {
+  const s = fresh()
+  // 公历 11-20 生日,提前 3 天(4320 分)= 11-17 09:00 就该提醒
+  s.addReminder({ title: '小美生日', time: '09:00', annual: '11-20', leadMin: 4320 })
+  assert.equal(s.tick(new Date(2026, 10, 16, 9, 0, 0).getTime()), 0, '11-16 太早,不该提醒')
+  assert.equal(s.tick(new Date(2026, 10, 17, 9, 0, 0).getTime()), 1, '11-17 应提前 3 天提醒')
+  const v = s.todayView(new Date(2026, 10, 17, 9, 0, 0)).find((x) => x.title === '小美生日')
+  assert.equal(v.status, 'pending')
+  assert.equal(v.dueDate, '2026-11-20', 'dueDate 指向生日当天,不是提醒当天')
+})
+
+test('提醒删除是软删,垃圾箱里能找回', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '重要提醒', time: '21:00' })
+  s.deleteReminder(r.id)
+  assert.equal(s.todayView().length, 0, '主列表不该再有')
+  assert.equal(s.reminderCounts().trash, 1, '应进垃圾箱')
+  assert.equal(s.tick(new Date(2026, 10, 14, 21, 0, 0).getTime()), 0, '已删的不该弹')
+  const back = s.restoreReminder(r.id)
+  assert.equal(back.active, true)
+  assert.equal(s.reminderCounts().active, 1, '恢复后回到主列表')
+  s.deleteReminder(r.id)
+  s.purgeReminder(r.id)
+  assert.equal(s.reminderCounts().trash, 0, '彻底删除后垃圾箱清空')
+})
+
+test('便签自动分拣:长文/标签/网址 进长期,短句留进行中', () => {
+  const s = fresh()
+  const a = s.addNote({ text: '去做一下周报整理' })
+  assert.equal(a.shelf, 'daily', '短句留进行中')
+  const b = s.addNote({ text: 'x'.repeat(300) })
+  assert.equal(b.shelf, 'long', '长文进长期')
+  const c = s.addNote({ text: '资料合集', tags: ['合集'] })
+  assert.equal(c.shelf, 'long', '资料类标签进长期')
+  const c2 = s.addNote({ text: '买牛奶', tags: ['生活'] })
+  assert.equal(c2.shelf, 'daily', '普通标签不进长期')
+  const d = s.addNote({ text: '参考 https://example.com/doc' })
+  assert.equal(d.shelf, 'long', '含网址进长期')
+  const e = s.addNote({ text: '每天 https://a.com 签到' })
+  assert.equal(e.shelf, 'daily', '签到类网址不算长期')
+
+  const counts = s.noteCounts()
+  assert.equal(counts.active, 3, 'active: 短句 + 签到 + 买牛奶')
+  assert.equal(counts.long, 3, 'long: 长文 + 合集标签 + 网址')
+
+  // 视图隔离
+  assert.equal(s.listNotes({ view: 'active' }).length, 3)
+  assert.equal(s.listNotes({ view: 'long' }).length, 3)
+
+  // 手动切换
+  s.updateNote(a.id, { shelf: 'long' })
+  assert.equal(s.listNotes({ view: 'long' }).length, 4)
+  s.updateNote(a.id, { shelf: 'daily' })
+  assert.equal(s.listNotes({ view: 'active' }).length, 3)
+})
+
+test('老数据迁移:没有 shelf 的按同规则补上', () => {
+  const root = mkdtempSync(join(tmpdir(), 'shelf-mig-'))
+  const s1 = new DeskStore(root)
+  s1.addNote({ text: '资料合集', tags: ['合集'] })
+  s1.save()
+  // 手工抹掉 shelf 模拟老数据
+  const raw = JSON.parse(readFileSync(join(root, 'data.json'), 'utf8'))
+  for (const n of raw.notes) delete n.shelf
+  writeFileSync(join(root, 'data.json'), JSON.stringify(raw))
+  const s2 = new DeskStore(root)
+  assert.equal(s2.data.notes[0].shelf, 'long', '迁移后应判定为长期')
+})

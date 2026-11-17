@@ -1,0 +1,8 @@
+# dsh-desk-kit bundle patch
+# 安装方式(桌面端 profile):
+#   dsh plugin --profile desktop add <本目录绝对路径或 github:用户名/仓库>
+# 或手动:把本包放进 profiles/desktop/node_modules/,在 profile package.json 的
+# dependencies 与 dsh.profile.bundles 里各加一项。
+- insert:
+    - id: dsh-desk-kit
+      name: 'dsh-desk-kit'

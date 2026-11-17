@@ -1,0 +1,649 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { pathToFileURL, fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+
+// 宿主(react / react-dom)可能装在 DSH 自带的 profile 里,也可能装在本仓库里。
+// 两处都找,找不到就报一句人话,而不是抛 ERR_MODULE_NOT_FOUND。
+const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
+const PROFILE = join(DSH_HOME, 'profiles', 'desktop')
+function hostRequire() {
+  const candidates = [join(PROFILE, 'package.json'), join(HERE, 'package.json')]
+  for (const from of candidates) {
+    try {
+      const r = createRequire(from)
+      r.resolve('react')
+      return r
+    } catch (error) { /* 这一步找不到就换下一个位置 */ }
+  }
+  throw new Error('找不到宿主 react:请在 DSH profile 或本仓库装好 react / react-dom 后再跑测试')
+}
+const req = hostRequire()
+const React = req('react')
+const { renderToString } = req('react-dom/server')
+
+let captured = null
+globalThis.window = { __ModuleLoader__: { load: (spec) => { captured = spec } } }
+await import(pathToFileURL(join(HERE, 'client.js')).href)
+const mod = captured.factory(req)
+const T = mod.__test
+const h = React.createElement
+
+const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F000}-\u{1F0FF}]/u
+
+const state = {
+  now: Date.now(), today: '2026-11-14',
+  notes: [{ id: 'n1', text: '资料合集:AAA / BBB', tags: ['资料'], pinned: true, archived: false, createdAt: 1, updatedAt: 2 }],
+  notesArchivedCount: 0,
+  reminders: [{ id: 'r1', title: '每日打卡', time: '21:00', weekdays: [], leadMin: 30, url: 'https://example.com/s', status: 'pending', done: false, occurrenceAt: Date.now() + 3600000, active: true }],
+  alerts: [],
+  secrets: [{ id: 's1', title: '示例站点', tags: [], createdAt: 5, updatedAt: 5, fieldCount: 0 }],
+  settings: { tickSeconds: 20, muted: false },
+  root: '/tmp/desk-kit',
+}
+const run = async () => ({ ok: true, state })
+
+test('底部导航:4 个分类 + 中间首页圆键 + 角标', () => {
+  const html = renderToString(h(T.TabBar, { page: 'notes', go: () => {}, due: 2 }))
+  for (const label of ['提醒', '便签', '保险库', '设置']) assert.ok(html.includes(label), '缺 ' + label)
+  assert.ok(html.includes('__dk_tabhome'), '缺中间圆键')
+  assert.ok(html.includes('__dk_tab on'), '当前页要高亮')
+  assert.ok(html.includes('__dk_dot'), '有待办要出角标')
+})
+
+test('图标是内联 SVG(黑白 stroke),不是 emoji', () => {
+  const html = renderToString(h(T.Ico, { name: 'bell' }))
+  assert.ok(html.startsWith('<svg'))
+  assert.ok(html.includes('stroke="currentColor"'))
+  assert.ok(html.includes('<path'))
+  assert.ok(!EMOJI.test(html))
+  for (const name of Object.keys(T.PATHS)) {
+    const one = renderToString(h(T.Ico, { name }))
+    assert.ok(one.includes('<svg') && one.includes('<path'), name + ' 不是 svg')
+  }
+})
+
+test('各页正文不含 emoji', () => {
+  const pages = [
+    h(T.Home, { state, run, onLink: () => {} }),
+    h(T.RemindersPage, { state, run }),
+    h(T.NotesPage, { state, run }),
+    h(T.VaultPage, { state, run }),
+    h(T.Settings, { state, run }),
+  ]
+  for (const p of pages) {
+    const html = renderToString(p)
+    const m = html.match(EMOJI)
+    assert.ok(!m, '发现 emoji: ' + (m && m[0]))
+  }
+})
+
+test('首页极简:今天 + 最近记的,不再有分类列表', () => {
+  const html = renderToString(h(T.Home, { state, run, onLink: () => {} }))
+  assert.ok(html.includes('今天'))
+  assert.ok(html.includes('每日打卡'))
+  assert.ok(html.includes('去签到'))
+  assert.ok(html.includes('最近记的'))
+  assert.ok(!html.includes('__dk_navrow'), '分类列表应交给底栏')
+})
+
+test('提醒页仍可手动新增/编辑', () => {
+  const html = renderToString(h(T.RemindersPage, { state, run }))
+  assert.ok(html.includes('新提醒'))
+  assert.ok(html.includes('每日打卡'))
+  assert.ok(html.includes('去签到'))
+  assert.ok(html.includes('<svg'), '要有 SVG 图标按钮')
+})
+
+test('便签页长文全文 + 标签', () => {
+  const html = renderToString(h(T.NotesPage, { state, run }))
+  assert.ok(html.includes('资料合集:AAA / BBB'))
+  assert.ok(html.includes('资料'))
+})
+
+test('设置显示版本号', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  const m = /const VERSION = '([0-9.]+)'/.exec(src)
+  assert.ok(m, '缺 VERSION 常量')
+  assert.ok(renderToString(h(T.Settings, { state, run })).includes(m[1]))
+})
+
+test('便签默认只显示前 8 条,不堆满屏', () => {
+  const many = Array.from({ length: 20 }, (_, i) => ({
+    id: 'n' + i, text: '便签' + i, tags: [], shelf: 'daily',
+    completedAt: 0, deletedAt: 0, createdAt: 1, updatedAt: 100 - i,
+  }))
+  const s2 = { ...state, notes: many, noteCounts: { active: 20, long: 0, done: 0, trash: 0 } }
+  const html = renderToString(h(T.NotesPage, { state: s2, run }))
+  assert.ok(html.includes('进行中'), '要有进行中段')
+  assert.ok(html.includes('便签0'))
+  assert.ok(!html.includes('便签19'), '默认不显示第 9 条之后')
+  assert.ok(html.includes('显示更多'), '超出要能点开继续看')
+})
+
+test('保险库新建是单个自由文本框', () => {
+  const html = renderToString(h(T.VaultPage, { state, run }))
+  assert.ok(html.includes('新条目'))
+  assert.ok(!html.includes('用户名 / 邮箱'), '不再逼用户拆字段')
+  assert.ok(!html.includes('密码 / 密钥'))
+})
+
+test('提醒表单支持公历/农历每年', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('公历每年') && src.includes('农历每年'), '缺周期选项')
+  const html = renderToString(h(T.RemindersPage, { state, run }))
+  assert.ok(html.includes('去签到'))
+})
+
+test('滑屏动画与触摸手势都写了', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('__dkSlideL') && src.includes('__dkSlideR'), '缺左右滑入动画')
+  assert.ok(src.includes('onPointerDown') && src.includes('onPointerUp'), '缺滑动手势')
+  assert.ok(src.includes('animation-duration'), '缺动画时长')
+})
+
+test('输入框是多行自适应 textarea(带 max-height 与 Shift+Enter)', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('function CaptureBar'), '缺 CaptureBar')
+  assert.ok(src.includes('CAPTURE_MAX_H'), '缺最大高度常量')
+  assert.ok(!src.includes("h('input', {\n          key: 'i', ref, className: '__dk_input'"), '不该还是单行 input')
+  // 渲染一次,确认是 textarea 且挂了 __dk_grow
+  const html = renderToString(h(T.CaptureBar, { run, onDone: () => {} }))
+  assert.ok(html.includes('<textarea'), '必须是 textarea')
+  assert.ok(html.includes('__dk_grow'), '缺自适应样式类')
+  assert.ok(src.includes('e.shiftKey'), 'Shift+Enter 要换行')
+})
+
+test('设置里有两个模型下拉(分类 + 识图)', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('classifyProvider') && src.includes('classifyModel'), '缺分类模型字段')
+  assert.ok(src.includes('recognizeProvider') && src.includes('recognizeModel'), '缺识图模型字段')
+  assert.ok(src.includes('分类模型'), '缺分类模型文案')
+  assert.ok(src.includes('识图模型'), '缺识图模型文案')
+})
+
+test('模型下拉通用化组件能独立渲染', () => {
+  const providers = [{ id: 'p1', name: '站A', models: [{ id: 'm1', name: '模型一', image: false }] }]
+  const html = renderToString(h(T.ModelPicker, {
+    label: '分类模型', hint: '纯文字就行', providerKey: 'classifyProvider', modelKey: 'classifyModel',
+    settings: {}, onUpdate: () => {}, initialProviders: providers,
+  }))
+  assert.ok(html.includes('分类模型'))
+  assert.ok(html.includes('纯文字就行'))
+  assert.ok(html.includes('站A'))
+})
+
+test('便签分「进行中 / 长期资料」两段,已完成折叠,垃圾箱独立入口', () => {
+  const st = {
+    ...state,
+    noteCounts: { active: 1, long: 1, done: 1, trash: 1 },
+    notes: [
+      { id: 'a1', text: '去做一下周报整理', tags: [], shelf: 'daily', completedAt: 0, deletedAt: 0, createdAt: 1, updatedAt: 9 },
+      { id: 'l1', text: '资料精选池 · 75 位', tags: ['资料'], shelf: 'long', completedAt: 0, deletedAt: 0, createdAt: 1, updatedAt: 8 },
+      { id: 'd1', text: '已完成的那条', tags: [], shelf: 'daily', completedAt: 5, deletedAt: 0, createdAt: 1, updatedAt: 7 },
+      { id: 't1', text: '垃圾箱里的那条', tags: [], shelf: 'daily', completedAt: 0, deletedAt: 6, createdAt: 1, updatedAt: 6 },
+    ],
+  }
+  const html = renderToString(h(T.NotesPage, { state: st, run }))
+  assert.ok(html.includes('进行中'), '缺进行中段')
+  assert.ok(html.includes('长期资料'), '缺长期段')
+  assert.ok(html.includes('去做一下周报整理'))
+  assert.ok(html.includes('资料精选池'), '长期条目要显示')
+  assert.ok(!html.includes('已完成的那条'), '已完成默认折叠')
+  assert.ok(!html.includes('垃圾箱里的那条'), '垃圾箱不在主列表')
+  assert.ok(html.includes('显示已完成'), '要有已完成折叠入口')
+  assert.ok(html.includes('垃圾箱 (1)'), '要有垃圾箱入口')
+})
+
+test('搜索跨进行中与长期一起搜,搜索框在最上面', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('buckets.active.concat(buckets.long)'), '搜索要跨两段')
+  // 渲染顺序:搜索框必须排在新便签按钮之前
+  const html = renderToString(h(T.NotesPage, { state, run }))
+  const iq = html.indexOf('搜所有便签')
+  const ib = html.indexOf('新便签')
+  assert.ok(iq >= 0 && ib >= 0 && iq < ib, '搜索框应在操作条之前')
+})
+
+test('图标表里有 undo 与 trash', () => {
+  for (const name of ['undo', 'trash']) {
+    const svg = renderToString(h(T.Ico, { name }))
+    assert.ok(svg.includes('<svg') && svg.includes('<path'), name + ' 不是 svg')
+  }
+})
+
+test('提醒页有垃圾箱入口,能恢复与彻底删', () => {
+  const st = {
+    ...state,
+    reminderCounts: { active: 1, trash: 1 },
+    trashedReminders: [{ id: 'rt1', title: '被删的签到', time: '21:00', deletedAt: Date.now() }],
+    reminders: [{ id: 'r1', title: '每日打卡', time: '21:00', weekdays: [], leadMin: 30, status: 'upcoming', done: false, active: true }],
+  }
+  const html = renderToString(h(T.RemindersPage, { state: st, run }))
+  assert.ok(html.includes('垃圾箱 (1)'), '要有垃圾箱入口')
+  assert.ok(html.includes('每日打卡'))
+  assert.ok(!html.includes('被删的签到'), '垃圾箱内容不该进主列表')
+})
+
+test('生日档位给出提前量天数和提示', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('天前'), '缺提前量换算')
+  assert.ok(src.includes('每年自动提醒'), '缺生日提示')
+  assert.ok(src.includes('4320'), '缺建议值')
+})
+
+test('浮标位置:默认右下,拖动后夹在视口内,松手吸边', () => {
+  const d = T.defaultFab()
+  assert.ok(d.x > 800 && d.y > 500, '默认应在右下角')
+  assert.equal(d.side, 'right')
+
+  const inside = T.clampFab(100, 200, 1280, 800)
+  assert.deepEqual(inside, { x: 100, y: 200 })
+
+  const tooFar = T.clampFab(99999, 99999, 1280, 800)
+  assert.ok(tooFar.x <= 1280 - T.FAB_SIZE && tooFar.y <= 800 - T.FAB_SIZE, '不能拖出屏幕')
+
+  const negative = T.clampFab(-500, -500, 1280, 800)
+  assert.ok(negative.x >= 4 && negative.y >= 4, '也不能拖进负坐标')
+
+  const snapRight = T.snapFab({ x: 900, y: 300 }, 1280, 800)
+  assert.equal(snapRight.side, 'right')
+  assert.equal(snapRight.x, 1280 - T.FAB_SIZE - T.FAB_PAD, '贴右边缘')
+  assert.equal(snapRight.y, 300, '垂直位置不动')
+
+  const snapLeft = T.snapFab({ x: 60, y: 320 }, 1280, 800)
+  assert.equal(snapLeft.side, 'left')
+  assert.equal(snapLeft.x, T.FAB_PAD, '贴左边缘')
+})
+
+test('浮标支持点击/拖动两件事,拖动阈值 4px', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('onFabDown') && src.includes('onFabMove') && src.includes('onFabUp'), '缺三段拖动处理')
+  assert.ok(src.includes('setPointerCapture'), '拖出按钮外也要跟手')
+  assert.ok(src.includes('d.moved'), '要有「点/拖」判定')
+  assert.ok(src.includes('saveFab'), '位置要能记住')
+  assert.ok(src.includes('localStorage'), '位置存 localStorage')
+})
+
+test('面板一律夹在视口内(任何时候都不出屏)', () => {
+  const VW = 1280; const VH = 800
+  const fab = (x, y) => T.fabRectOf({ x, y })
+
+  // 右下角:朝上开,面板不压浮标、不越过右边/上边
+  const br = T.layoutPanel(fab(1216, 736), VW, VH)
+  assert.ok(br.top >= 8, '上边要留白')
+  assert.ok(br.top + br.height <= 736, '不能压浮标')
+  assert.ok(br.left + br.width <= VW - 8, '不能出右边')
+
+  // 左上角:朝下开,面板贴着浮标往下
+  const tl = T.layoutPanel(fab(18, 18), VW, VH)
+  assert.ok(tl.top >= 18 + T.FAB_SIZE, '要在浮标下方')
+  assert.ok(tl.top + tl.height <= VH - 8, '不能出下边')
+  assert.ok(tl.left >= 8, '左边至少留 8px')
+
+  // 极端:浮标贴着右下角尖上,面板还得完整在屏幕内
+  const corner = T.layoutPanel(fab(VW - T.FAB_SIZE, VH - T.FAB_SIZE), VW, VH)
+  assert.ok(corner.left >= 0 && corner.top >= 0, '不能是负数')
+  assert.ok(corner.left + corner.width <= VW && corner.top + corner.height <= VH, '不能越界')
+
+  // 小窗口:不能宽过视口
+  const small = T.layoutPanel(fab(300, 200), 360, 640)
+  assert.ok(small.width <= 360 - 16, '窄窗口要跟着收窄')
+  assert.ok(small.left + small.width <= 360 - 8, '收回视口')
+})
+
+test('坐标系偏移换算:宿主祖先有 transform/缩放时也对得上', () => {
+  // 浮标按 (1216,736) 摆,实际量到 (1016,636):宿主容器整体偏了 -200
+  const rect = T.fabRectOf({ x: 1016, y: 636 })
+  const o = T.originOf(rect, { x: 1216, y: 736 })
+  assert.equal(o.ox, -200)
+  assert.equal(o.oy, -100)
+  assert.equal(o.s, 1, '没有缩放时比例是 1')
+  // 量不到真实矩形时不能瞎补,必须回到 0
+  assert.deepEqual(T.originOf(null, { x: 1, y: 2 }), { ox: 0, oy: 0, s: 1 })
+  assert.deepEqual(T.originOf(rect, null), { ox: 0, oy: 0, s: 1 })
+
+  // 祖先缩放 1.3 倍:浮标设 left=100,屏幕上量到 130(原点在 0)
+  const scaled = { left: 130, top: 65, right: 130 + T.FAB_SIZE * 1.3, bottom: 65 + T.FAB_SIZE * 1.3 }
+  const o2 = T.originOf(scaled, { x: 100, y: 50 })
+  assert.ok(Math.abs(o2.s - 1.3) < 1e-9, '要识别出 1.3 倍缩放')
+  assert.ok(Math.abs(o2.ox) < 1e-6 && Math.abs(o2.oy) < 1e-6, '原点不变')
+
+  // 视口坐标 → 本地坐标:面板要落在屏幕 (800,300) 宽 344,缩放 1.3 下本地应除回去
+  const local = T.toLocal({ left: 800, top: 300, width: 344, height: 500 }, o2)
+  assert.ok(Math.abs(local.left - 800 / 1.3) < 1e-6)
+  assert.ok(Math.abs(local.width - 344 / 1.3) < 1e-6)
+  // 无偏移无缩放时比例映射是恒等
+  assert.deepEqual(T.toLocal({ left: 12, top: 34, width: 56, height: 78 }, { ox: 0, oy: 0, s: 1 }), { left: 12, top: 34, width: 56, height: 78 })
+})
+
+test('第三层兜底:量完再挪,任何坐标系下都能拉回屏幕', () => {
+  const V = { vw: 1280, vh: 800 }
+  const r = (l, t, w, h) => ({ left: l, top: t, right: l + w, bottom: t + h })
+
+  // 完全在屏幕里:不动
+  assert.deepEqual(T.nudgeIntoView(r(100, 100, 344, 500), V.vw, V.vh, 8), { dx: 0, dy: 0 })
+  // 右边超出去 200:往左挪 200+(留白)
+  const right = T.nudgeIntoView(r(1200, 100, 344, 500), V.vw, V.vh, 8)
+  assert.equal(right.dx, 1280 - 8 - 1544)
+  // 左边是负的:往右推回 8
+  assert.equal(T.nudgeIntoView(r(-300, 100, 344, 500), V.vw, V.vh, 8).dx, 8 + 300)
+  // 下边超出去:往上推
+  assert.equal(T.nudgeIntoView(r(100, 700, 344, 500), V.vw, V.vh, 8).dy, 800 - 8 - 1200)
+  // 整块在屏幕外(那种「点开直接飞出去」的情况):两个方向一起拉回
+  const flying = T.nudgeIntoView(r(3000, 2000, 344, 500), V.vw, V.vh, 8)
+  assert.equal(flying.dx, 1280 - 8 - 3344)
+  assert.equal(flying.dy, 800 - 8 - 2500)
+  // 挪完必须真的在屏幕内(自证)
+  const moved = { left: 3000 + flying.dx, top: 2000 + flying.dy, right: 3344 + flying.dx, bottom: 2500 + flying.dy }
+  assert.ok(moved.left >= 8 && moved.right <= V.vw - 8 && moved.top >= 8 && moved.bottom <= V.vh - 8, '挪完必须落在屏幕内')
+})
+
+test('面板不靠 inherited CSS 定位:自己 fixed + 量真实矩形 + 兜底平移', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(/__dk_panel\{position:fixed/.test(src), '面板自己 fixed,不依赖祖先坐标系')
+  assert.ok(src.includes('getBoundingClientRect'), '要量浮标真实位置')
+  assert.ok(src.includes('measureFab'), '缺浮标测量')
+  assert.ok(src.includes('panelShift'), '缺最后的平移兜底')
+  assert.ok(!src.includes('style.bottom = FAB_SIZE'), '不该再用相对定位的 bottom 算法')
+})
+
+test('重要等级分四档,首页今天列表按 L1 加粗', () => {
+  assert.equal(T.LEVELS.home.code, 'L1')
+  assert.equal(T.LEVELS.reminders.code, 'L1')
+  assert.equal(T.LEVELS.notes.code, 'L2')
+  assert.equal(T.LEVELS.vault.code, 'L3')
+  assert.equal(T.LEVELS.settings.code, 'L4')
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('__dk_sec--act'), 'L1 段要有红点')
+  assert.ok(src.includes('__dk_row--act'), 'L1 行要加粗')
+  assert.ok(src.includes('__dk_sec--ref'), 'L3 段要压灰')
+  assert.ok(src.includes('__dk_item--ref'), 'L3 条目要压灰')
+  assert.ok(src.includes('__dk_lvl'), '标题旁要有等级胶囊')
+})
+
+test('顶栏侧门:浮标被挡住时也能打开', () => {
+  const html = renderToString(h(T.HeaderButton, {}))
+  assert.ok(html.includes('__dk_hbtn'), '缺顶栏按钮')
+  assert.ok(html.includes('<svg'), '顶栏按钮要带图标')
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes("'conversation.session.header.utilities'"), '要注册到会话顶栏槽')
+  assert.ok(src.includes('OPEN_EVENT') && src.includes('dispatchEvent'), '侧门统一走事件通知面板')
+  assert.ok(src.includes('Escape'), 'Esc 要能关面板')
+})
+
+test('待办数统一口径:待签到 + 未确认提示', () => {
+  assert.equal(T.dueCount(null), 0)
+  const st2 = {
+    settings: { muted: false },
+    alerts: [{ id: 'a1' }],
+    reminders: [{ status: 'pending', done: false }, { status: 'upcoming', done: false }, { status: 'pending', done: true }],
+  }
+  assert.equal(T.dueCount(st2), 2, '一待签到 + 一提示')
+  assert.equal(T.dueCount({ ...st2, settings: { muted: true } }), 1, '静音后只剩待签到')
+})
+
+// ---------------------------------------------------------------- 侧边栏(better-sidebar)
+test('better-sidebar:注册「随手台」侧栏标签页', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes("ctx.get('betterSidebar')"), '要软取 betterSidebar 服务')
+  assert.ok(src.includes('registerTab('), '要调 registerTab')
+  assert.ok(src.includes("id: 'desk-kit:main'"), '标签页 id 是 desk-kit:main')
+  assert.ok(src.includes('internal/service'), '要监听服务晚就绪(装插件顺序不定)')
+
+  const registered = []
+  const opened = []
+  const service = {
+    registerTab: (d) => { registered.push(d); return () => {} },
+    openTab: (seed) => { opened.push(seed) },
+  }
+  const ctx = {
+    slots: { inject: () => {}, register: () => () => {} },
+    get: (n) => (n === 'betterSidebar' ? service : undefined),
+    on: () => () => {},
+    effect: (fn) => fn(),
+  }
+  mod.apply(ctx)
+  assert.equal(registered.length, 1, '应注册且只注册一个标签页')
+  const d = registered[0]
+  assert.equal(d.id, 'desk-kit:main')
+  assert.equal(typeof d.title, 'function')
+  assert.equal(d.title(), '随手台')
+  assert.equal(d.single, true, '单实例:不重复开')
+  assert.equal(typeof d.component, 'function', '要有页面组件')
+  assert.ok(renderToString(h(d.component, { visible: false })).includes('__dk_sp'), '侧栏页面用整页布局')
+})
+
+test('侧栏页面分类条:五个页面都有标题和图标(不能是 undefined)', () => {
+  assert.deepEqual([...T.ORDER].sort(), ['home', 'notes', 'reminders', 'settings', 'vault'])
+  for (const id of T.ORDER) {
+    assert.equal(typeof T.PANEL_LABELS[id], 'string', id + ' 缺标题')
+    assert.ok(T.PANEL_LABELS[id].length > 0, id + ' 标题为空')
+    assert.equal(typeof T.PANEL_ICONS[id], 'string', id + ' 缺图标名')
+    assert.ok(T.PATHS[T.PANEL_ICONS[id]], id + ' 的图标 ' + T.PANEL_ICONS[id] + ' 不在图标表里')
+  }
+})
+
+test('侧栏页面渲染:标题条 + 五个分类 + 首页内容都在,没有 undefined 泄漏', () => {
+  const html = renderToString(h(T.SidebarView, {
+    state, page: 'home', seq: 0, reply: '', err: '', run,
+    onGo: () => {}, onCaptureDone: () => {}, onLink: () => {},
+  }))
+  assert.ok(html.includes('__dk_sp'), '整页容器')
+  assert.ok(html.includes('__dk_sphead'), '标题条')
+  assert.ok(html.includes('__dk_spnav'), '分类条')
+  for (const label of ['首页', '提醒', '便签', '保险库', '设置']) assert.ok(html.includes(label), '缺分类 ' + label)
+  assert.ok(html.includes('__dk_stab on'), '当前分类要高亮')
+  assert.ok(html.includes('随手台'), '标题')
+  assert.ok(!html.includes('undefined'), '不能把 undefined 写进页面')
+  // 每个分类页都要能渲染出来
+  for (const p of T.SIDEBAR_ORDER) {
+    const one = renderToString(h(T.SidebarView, {
+      state, page: p, seq: 1, reply: '', err: '', run,
+      onGo: () => {}, onCaptureDone: () => {}, onLink: () => {},
+    }))
+    assert.ok(one.includes('__dk_spbody'), p + ' 页正文缺失')
+    assert.ok(!one.includes('undefined'), p + ' 页泄漏了 undefined')
+  }
+  // 没数据时是「正在读取」,不是白屏
+  const loading = renderToString(h(T.SidebarView, { state: null, page: 'home', seq: 0, reply: '', err: '', run, onGo: () => {}, onCaptureDone: () => {}, onLink: () => {} }))
+  assert.ok(loading.includes('正在读取'), '加载态要有提示')
+})
+
+test('浮标让位:有侧栏标签页就不画浮标,显式开关能强制打开', () => {
+  // floatEnabled(state, sidebarReady) —— 纯函数,不读模块级状态
+  assert.equal(T.floatEnabled({ settings: {} }, true), false, '有侧栏服务时浮标默认让位')
+  assert.equal(T.floatEnabled({ settings: { floatFab: true } }, true), true, '显式打开要生效')
+  assert.equal(T.floatEnabled({ settings: { floatFab: false } }, true), false, '显式关闭要生效')
+  assert.equal(T.floatEnabled(null, true), false, '状态还没加载出来时不画浮标')
+  assert.equal(T.floatEnabled({ settings: {} }, false), true, '没有侧栏服务时浮标兜底')
+  assert.equal(T.floatEnabled({ settings: { floatFab: false } }, false), false, '没侧栏也可以显式关掉')
+})
+
+test('侧门监听归插件所有:apply 挂一个,dispose 必须摘掉', () => {
+  const added = []
+  const removed = []
+  const prev = globalThis.window
+  globalThis.window = {
+    __ModuleLoader__: prev.__ModuleLoader__,
+    addEventListener: (type, fn) => added.push([type, fn]),
+    removeEventListener: (type, fn) => removed.push([type, fn]),
+  }
+  try {
+    const service = { registerTab: () => () => {}, openTab: () => {} }
+    const disposers = []
+    const ctx = {
+      slots: { inject: () => {}, register: () => () => {} },
+      get: (n) => (n === 'betterSidebar' ? service : undefined),
+      on: () => () => {},
+      effect: (fn) => { const d = fn(); if (typeof d === 'function') disposers.push(d); return d },
+    }
+    mod.apply(ctx)
+    const openAdded = added.filter(([type]) => type === T.OPEN_EVENT)
+    assert.equal(openAdded.length, 1, '侧门只挂一个监听,重复 apply 不能叠加')
+    for (const dispose of disposers) dispose()
+    const openRemoved = removed.filter(([type]) => type === T.OPEN_EVENT)
+    assert.equal(openRemoved.length, 1, 'dispose 必须摘掉侧门监听')
+    assert.equal(openRemoved[0][1], openAdded[0][1], '摘掉的必须是同一个函数')
+  } finally {
+    globalThis.window = prev
+  }
+})
+
+test('提醒坞:最多 3 条,超出按页轮转,尾页不满也不空', () => {
+  const mk = (i) => ({ id: 'a' + i, refId: 'r' + i, title: 'T' + i, dueAt: 1, over: i === 0, dueDate: '2026-11-16' })
+  assert.equal(T.DOCK_MAX, 3, '一屏最多 3 条')
+  // 空
+  assert.deepEqual(T.dockSlice([], 0).shown, [])
+  assert.equal(T.dockSlice([], 0).pages, 1)
+  // 1 / 3 条:只有一页
+  assert.equal(T.dockSlice([mk(0)], 0).pages, 1)
+  assert.equal(T.dockSlice([mk(0), mk(1), mk(2)], 0).pages, 1)
+  assert.equal(T.dockSlice([mk(0), mk(1), mk(2)], 0).shown.length, 3)
+  // 5 条:2 页,第 2 页也要给满 3 格(取尾部 3 条)
+  const five = [mk(0), mk(1), mk(2), mk(3), mk(4)]
+  assert.equal(T.dockSlice(five, 0).pages, 2)
+  assert.deepEqual(T.dockSlice(five, 0).shown.map((a) => a.id), ['a0', 'a1', 'a2'])
+  assert.deepEqual(T.dockSlice(five, 1).shown.map((a) => a.id), ['a2', 'a3', 'a4'], '尾页填满 3 格')
+  assert.equal(T.dockSlice(five, 1).rest, 2, '提示「还有 N 条」')
+  // 越界页码夹回,不崩
+  assert.equal(T.dockSlice(five, 99).page, 1)
+  assert.equal(T.dockSlice(five, -3).page, 0)
+  // 轮转间隔合理(不闪)
+  assert.ok(T.DOCK_ROTATE_MS >= 4000 && T.DOCK_ROTATE_MS <= 12000)
+
+  // 渲染:3 条就是 3 个卡片,5 条也只渲染 3 个
+  const html3 = renderToString(h(T.AlertDock, { alerts: five.slice(0, 3), run, onOpen: () => {} }))
+  assert.equal((html3.match(/__dk_alert/g) || []).length >= 3, true, '渲染 3 个卡片')
+  const html5 = renderToString(h(T.AlertDock, { alerts: five, run, onOpen: () => {} }))
+  const cardCount = html5.split('class="__dk_alert').length - 1
+  assert.equal(cardCount, 3, '5 条也只渲染 3 个')
+  assert.ok(html5.includes('__dk_dockmore'), '要提示还有几条')
+  assert.ok(!html5.includes('undefined'), '不能泄漏 undefined')
+  // 空列表不渲染任何东西
+  assert.equal(renderToString(h(T.AlertDock, { alerts: [], run, onOpen: () => {} })), '')
+})
+
+test('日期格式化:侧栏头部用中文日期,脏输入不炸', () => {
+  assert.equal(T.fmtDay('2026-11-16'), '11月16日 周一')
+  assert.equal(T.fmtDay('2026-01-01'), '1月1日 周四')
+  for (const bad of [null, undefined, '', 'x', '2026', '2026-13-40']) {
+    assert.equal(typeof T.fmtDay(bad), 'string', '必须是字符串')
+    assert.ok(!T.fmtDay(bad).includes('undefined'), '不能泄漏 undefined')
+  }
+})
+
+test('提醒卡片:签到/稍后/知道了三个动作都在', () => {
+  const a = { id: 'a1', refId: 'r1', title: '每日打卡', dueAt: Date.now(), over: true, dueDate: '2026-11-16' }
+  const html = renderToString(h(T.AlertCard, { a, run, onOpen: () => {} }))
+  assert.ok(html.includes('已签到'), '缺签到按钮')
+  assert.ok(html.includes('10 分钟'), '缺稍后按钮')
+  assert.ok(html.includes('每日打卡'), '缺标题')
+  assert.ok(html.includes('__dk_aicon'), '缺状态图标')
+  assert.ok(html.includes('__dk_alert'), '缺卡片样式类')
+  const calm = renderToString(h(T.AlertCard, { a: { ...a, over: false }, run, onOpen: () => {} }))
+  assert.ok(calm.includes('__dk_alert--calm'), '未到点用另一档配色')
+})
+
+test('侧门事件优先把侧栏标签页叫到前面', () => {
+  const opened = []
+  const listeners = []
+  const prevWindow = globalThis.window
+  globalThis.window = {
+    __ModuleLoader__: prevWindow.__ModuleLoader__,
+    addEventListener: (type, fn) => { if (type === T.OPEN_EVENT) listeners.push(fn) },
+    removeEventListener: () => {},
+  }
+  try {
+    const service = { registerTab: () => () => {}, openTab: (seed) => { opened.push(seed) } }
+    const ctx = {
+      slots: { inject: () => {}, register: () => () => {} },
+      get: (n) => (n === 'betterSidebar' ? service : undefined),
+      on: () => () => {},
+      effect: (fn) => fn(),
+    }
+    mod.apply(ctx)
+    for (const fn of listeners) fn()
+    assert.equal(opened.length, 1, '顶栏图标/快捷键触发时应打开侧栏标签页')
+    assert.equal(opened[0].type, 'desk-kit:main')
+  } finally {
+    globalThis.window = prevWindow
+  }
+})
+
+
+// ---------------------------------------------------------------- 1.6.0 交互契约
+
+test('一句话输入:输入法选词时按 Enter 不能提交', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('isComposing'), '缺 IME 选词判定(nativeEvent.isComposing)')
+  assert.ok(src.includes('onCompositionStart') && src.includes('onCompositionEnd'), '缺 composition 事件')
+  assert.ok(src.includes('keyCode === 229'), '缺老浏览器 229 兜底')
+  const html = renderToString(h(T.CaptureBar, { run, onDone: () => {} }))
+  assert.ok(html.includes('<textarea'), '仍是 textarea')
+})
+
+test('反馈条:有撤销动作才出「撤销」按钮', () => {
+  const withUndo = renderToString(h(T.ReplyBar, {
+    reply: { text: '已移入垃圾箱', undo: { action: 'note.restore', payload: { id: 'n1' } } }, run, onClear: () => {},
+  }))
+  assert.ok(withUndo.includes('已移入垃圾箱'))
+  assert.ok(withUndo.includes('撤销'), '软删必须能一键撤回')
+  assert.ok(withUndo.includes('__dk_replybtn'))
+
+  const plain = renderToString(h(T.ReplyBar, { reply: { text: '已复制到剪贴板' }, run, onClear: () => {} }))
+  assert.ok(plain.includes('已复制到剪贴板'))
+  assert.ok(!plain.includes('撤销'), '单纯提示不该给撤销')
+
+  assert.equal(renderToString(h(T.ReplyBar, { reply: null, run, onClear: () => {} })), '')
+})
+
+test('便签超出 8 条:给「显示更多」而不是让人自己去搜', () => {
+  const many = Array.from({ length: 20 }, (_, i) => ({
+    id: 'n' + i, text: '便签' + i, tags: [], shelf: 'daily',
+    completedAt: 0, deletedAt: 0, createdAt: 1, updatedAt: 100 - i,
+  }))
+  const html = renderToString(h(T.NotesPage, { state: { ...state, notes: many, noteCounts: { active: 20, long: 0, done: 0, trash: 0 } }, run }))
+  assert.ok(html.includes('显示更多'),
+    '要有分页入口')
+  assert.ok(html.includes('还有 12 条'), '要报还剩多少条')
+  assert.ok(!html.includes('便签19'), '第一屏仍然只放 8 条')
+})
+
+test('首页超过 4 条提醒:给「查看全部」出口', () => {
+  const many = Array.from({ length: 7 }, (_, i) => ({
+    id: 'r' + i, title: '签到' + i, time: '21:00', weekdays: [], leadMin: 30,
+    status: 'upcoming', done: false, active: true, occurrenceAt: Date.now() + i * 1e6,
+  }))
+  const noGo = renderToString(h(T.Home, { state: { ...state, reminders: many, notes: [] }, run, onLink: () => {} }))
+  assert.ok(!noGo.includes('查看全部'), '没传 onGo 时不能渲染死按钮')
+  const html = renderToString(h(T.Home, { state: { ...state, reminders: many, notes: [] }, run, onLink: () => {}, onGo: () => {} }))
+  assert.ok(html.includes('查看全部 7 项'), '要能跳到提醒页看全量')
+})
+
+test('提醒坞轮播:鼠标停留时暂停,离开再继续', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('setPaused(true)') && src.includes('setPaused(false)'), '缺悬停暂停')
+  assert.ok(src.includes('[pages, paused]'), '暂停要真的停掉轮播定时器')
+  assert.ok(src.includes('onMouseEnter') && src.includes('onMouseLeave'), '悬停事件没挂上')
+  assert.ok(src.includes('onFocusCapture'), '键盘聚焦时也要停')
+})
+
+test('保险库明文会自动收起', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('VAULT_HIDE_MS'), '缺自动收起时长常量')
+  assert.ok(src.includes('30 秒后自动收起'), '要给用户一句说明')
+})
+
+test('表单按「什么时候 / 提前多久 / 链接」分块,提前量能点选', () => {
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('LEAD_PRESETS'), '缺常用提前量预设')
+  assert.ok(src.includes('提前多久提醒'), '缺提前量分组')
+  assert.ok(src.includes('签到网址'), '链接单独一块')
+  assert.ok(src.includes('__dk_group'), '缺分组样式类')
+})

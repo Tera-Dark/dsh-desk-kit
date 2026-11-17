@@ -1,0 +1,74 @@
+{
+  "name": "dsh-desk-kit",
+  "version": "1.6.0",
+  "description": "DSH 随手台:定时提醒(签到类)、随手便签、加密保险库三合一。入口是 better-sidebar 的标签页(没装则右下角浮标),19 个 Agent 工具,数据在 ~/.dsh/desk-kit。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "store.js",
+    "tool.js",
+    "capture.js",
+    "lunar.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "reminder",
+    "notes",
+    "vault",
+    "checkin",
+    "sidebar",
+    "agent-tools"
+  ],
+  "license": "MIT",
+  "engines": {
+    "dsh": ">=0.2.0-rc.2 <0.3.0-0",
+    "node": ">=20.11"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    },
+    "compatibility": {
+      "dsh": ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1 || 0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5",
+      "node": ">=20.18",
+      "profiles": [
+        "web",
+        "desktop"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tera-Dark/dsh-desk-kit.git"
+  },
+  "homepage": "https://github.com/Tera-Dark/dsh-desk-kit#readme",
+  "bugs": {
+    "url": "https://github.com/Tera-Dark/dsh-desk-kit/issues"
+  },
+  "author": "Tera-Dark",
+  "scripts": {
+    "test": "node --check index.js && node --check client.js && node test.mjs && node capture.test.mjs && node lunar.test.mjs && node client-test.mjs && node ownership.test.mjs && node ai-classify.test.mjs",
+    "test:host": "node harness.mjs",
+    "test:installed": "node verify-installed.mjs"
+  }
+}
