@@ -38,6 +38,7 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 - 提醒表单补上 **一次性（选日期）** 和 **每月 N 号**：以前一句话能排出来，手动表单里做不出，编辑一条「每月 1 号」的提醒还会显示成「每天」。
 - 改周期时互斥清字段：把「明天」改成「每月 1 号」，旧的日期不会压在上面。
 - 保险库标题不再是「未命名条目」：取自己写的名字 → 网址主机名 → 账号名。
+- Agent 工具转述周期时说真话：一次性给日期、每月给几号、生日给公历/农历每年，不再一律「每天」。
 
 ### 更少替用户做主
 
@@ -67,8 +68,8 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 
 ```
 node --check store.js capture.js index.js client.js
-node test.mjs           # 22 pass（新增 7 条：静音、稍后、全部撤销、过期、每月、去重、导出）
-node client-test.mjs    # 46 pass
+node test.mjs           # 26 pass（静音、稍后、撤销、过期、每月、去重、导出、未来一次性、周期互斥、时间线）
+node client-test.mjs    # 47 pass
 node capture.test.mjs   # 8 pass
 node lunar.test.mjs     # 4 pass
 node ai-classify.test.mjs / ownership.test.mjs / harness.mjs / verify-installed.mjs  全绿
