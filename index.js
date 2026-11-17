@@ -323,6 +323,19 @@ function fmtTime(ts) {
 
 const WEEK_LABEL = ['日', '一', '二', '三', '四', '五', '六']
 
+/**
+ * 一条提醒「什么时候响」的人话版本。
+ * 之前工具里一律用 weekText(weekdays):一次性、每月、每年的提醒全被说成「每天」,
+ * Agent 转述给用户就是错的。
+ */
+function whenText(r) {
+  if (r.lunar && Number.isFinite(r.lunar.month)) return '农历每年 ' + r.lunar.month + '月' + r.lunar.day + '日 ' + r.time
+  if (r.annual) return '公历每年 ' + r.annual + ' ' + r.time
+  if (Number.isFinite(r.monthly)) return '每月 ' + r.monthly + ' 号 ' + r.time
+  if (r.date) return r.date + ' ' + r.time
+  return weekText(r.weekdays) + ' ' + r.time
+}
+
 function weekText(days) {
   if (!Array.isArray(days) || !days.length) return '每天'
   return '周' + days.slice().sort().map((d) => WEEK_LABEL[d] || '?').join('、周')
@@ -570,7 +583,7 @@ export function apply(ctx) {
         payload.yearly = true
       }
       const r = s.addReminder(payload)
-      return out('已加提醒「' + r.title + '」: ' + weekText(r.weekdays) + ' ' + r.time + ' 前 ' + r.leadMin + ' 分钟提醒。id=' + r.id, r)
+      return out('已加提醒「' + r.title + '」: ' + whenText(r) + ' 前 ' + r.leadMin + ' 分钟提醒。id=' + r.id, r)
     },
   })))
 
@@ -582,7 +595,7 @@ export function apply(ctx) {
     async execute() {
       const items = s.todayView()
       const text = items.length
-        ? items.map((r) => '- ' + r.title + ' | ' + weekText(r.weekdays) + ' ' + r.time + ' | ' + statusLabel(r) + ' | id=' + r.id).join('\n')
+        ? items.map((r) => '- ' + r.title + ' | ' + whenText(r) + ' | ' + statusLabel(r) + ' | id=' + r.id).join('\n')
         : '还没有提醒。'
       return out(text, items)
     },

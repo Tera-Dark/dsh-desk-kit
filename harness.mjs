@@ -184,5 +184,16 @@ assert.equal(m2.result.item.length, 0, '重复提交应全部跳过')
 assert.ok(m2.result.reply.includes('跳过'))
 console.log('✓ 多站点批量签到:', m1.result.reply.slice(0, 40), '| 重复提交跳过:', m2.result.reply.includes('跳过'))
 
+// 12) 工具转述「什么时候」要按真实周期:一次性/每月/每年的提醒不能被说成「每天」
+const once = await tools.get('desk_reminder_add').execute({ title: '一次性的事', time: '10:00', date: '2030-01-01' })
+assert.ok(once.text.includes('2030-01-01'), '一次性要说日期,实际:' + once.text)
+const mon = await tools.get('desk_reminder_add').execute({ title: '每月的账', time: '09:00', monthly: 5 })
+assert.ok(mon.text.includes('每月 5 号'), '每月要说每月几号,实际:' + mon.text)
+const yearly = await tools.get('desk_reminder_add').execute({ title: '某人的生日', time: '09:00', annual: '05-03' })
+assert.ok(yearly.text.includes('公历每年 05-03'), '每年要说每年,实际:' + yearly.text)
+const listed = await tools.get('desk_reminder_list').execute({})
+assert.ok(listed.text.includes('每月 5 号') && listed.text.includes('2030-01-01'), '列表也要说对周期')
+console.log('✓ 工具周期文案:', once.text.slice(0, 24), '|', mon.text.slice(0, 24))
+
 server.close()
 console.log('\nALL HOST TESTS PASSED')
