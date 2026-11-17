@@ -159,12 +159,14 @@ test('输入框是多行自适应 textarea(带 max-height 与 Shift+Enter)', () 
   assert.ok(src.includes('e.shiftKey'), 'Shift+Enter 要换行')
 })
 
-test('设置里有两个模型下拉(分类 + 识图)', () => {
+test('设置里只留真正有入口的模型下拉(分类),并给导出备份', () => {
   const src = readFileSync(join(HERE, 'client.js'), 'utf8')
   assert.ok(src.includes('classifyProvider') && src.includes('classifyModel'), '缺分类模型字段')
-  assert.ok(src.includes('recognizeProvider') && src.includes('recognizeModel'), '缺识图模型字段')
   assert.ok(src.includes('分类模型'), '缺分类模型文案')
-  assert.ok(src.includes('识图模型'), '缺识图模型文案')
+  // 识图没有入口,留着只会让人以为能传图
+  const settings = src.slice(src.indexOf('function Settings('), src.indexOf('// ---------------------------------------------------------------- 主体'))
+  assert.ok(!settings.includes('recognizeProvider'), '设置里不该再有悬空的识图模型')
+  assert.ok(src.includes('/export'), '缺导出备份入口')
 })
 
 test('模型下拉通用化组件能独立渲染', () => {
@@ -538,11 +540,14 @@ test('日期格式化:侧栏头部用中文日期,脏输入不炸', () => {
   }
 })
 
-test('提醒卡片:签到/稍后/知道了三个动作都在', () => {
+test('提醒卡片:完成/稍后/知道了三个动作都在,稍后能选时长', () => {
   const a = { id: 'a1', refId: 'r1', title: '每日打卡', dueAt: Date.now(), over: true, dueDate: '2026-11-16' }
   const html = renderToString(h(T.AlertCard, { a, run, onOpen: () => {} }))
-  assert.ok(html.includes('已签到'), '缺签到按钮')
-  assert.ok(html.includes('10 分钟'), '缺稍后按钮')
+  assert.ok(html.includes('完成'), '缺完成按钮')
+  assert.ok(html.includes('稍后'), '缺稍后按钮')
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('SNOOZE_CHOICES'), '缺稍后时长选项')
+  assert.ok(src.includes("'30 分钟'") && src.includes("'1 小时'"), '稍后不该只有 10 分钟一种')
   assert.ok(html.includes('每日打卡'), '缺标题')
   assert.ok(html.includes('__dk_aicon'), '缺状态图标')
   assert.ok(html.includes('__dk_alert'), '缺卡片样式类')

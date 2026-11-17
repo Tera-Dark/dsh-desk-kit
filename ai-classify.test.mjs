@@ -58,10 +58,14 @@ assert.equal(llmCalls, before, '没配模型时不该调 llm')
 assert.equal(r1.result.parsed.kind, 'reminder')
 console.log('✓ 未配模型:走本地规则,未调 llm →', r1.result.reply)
 
-// --- 2) 配了模型:走 AI 结果 ---
+// --- 2) 配了模型:本地判成便签、但话里像有待办/时间时,才去问模型 ---
 await post('settings.update', { classifyProvider: 'p1', classifyModel: 'm1' })
 llmReply = '{"kind":"note","text":"这是模型判断的结果"}'
-const r2 = await post('capture', { text: '随便说点什么' })
+const before2 = llmCalls
+const r2a = await post('capture', { text: '随便说点什么' })
+assert.equal(llmCalls, before2, '一眼就是便签的话不必问模型')
+assert.equal(r2a.result.parsed.kind, 'note')
+const r2 = await post('capture', { text: '这周五前得把稿子交了' })
 assert.ok(llmCalls > before, '配了模型后应调用 llm')
 assert.equal(r2.result.parsed.kind, 'note')
 assert.equal(r2.result.item.text, '这是模型判断的结果')
@@ -70,7 +74,7 @@ console.log('✓ 配了模型:走 AI →', r2.result.item.text.slice(0, 20), '| 
 
 // --- 3) AI 判成提醒:字段要能落成提醒 ---
 llmReply = '{"kind":"reminder","title":"吃药","time":"8:00","leadMin":15}'
-const r3 = await post('capture', { text: '每天八点吃药' })
+const r3 = await post('capture', { text: '早饭后一小时吃降压药' })
 assert.equal(r3.result.parsed.kind, 'reminder')
 assert.equal(r3.result.item.time, '08:00', '9:00 要补零成 08:00')
 assert.equal(r3.result.item.leadMin, 15)
@@ -78,7 +82,8 @@ console.log('✓ AI 提醒:time =', r3.result.item.time, '| leadMin =', r3.resul
 
 // --- 4) AI 生日:annual 走每年 ---
 llmReply = '{"kind":"reminder","title":"小美生日","time":"09:00","annual":"05-03","leadMin":4320}'
-const r4 = await post('capture', { text: '小美生日五月三号' })
+// 只说了月份、没说日子,本地排不出来 —— 正好交给模型补
+const r4 = await post('capture', { text: '记一下,小美生日在五月' })
 assert.equal(r4.result.item.annual, '05-03')
 console.log('✓ AI 生日:', r4.result.item.annual)
 

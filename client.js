@@ -16,12 +16,42 @@ window.__ModuleLoader__.load({
    const { useState, useEffect, useCallback, useRef } = React
 
    const API = '/desk-kit-api'
+
+   /**
+    * 面板轮询。页面藏起来(切到别的标签/窗口最小化)时,20 秒拉一次全量快照纯属浪费 ——
+    * 300 条便签的快照快 90KB。可见 20 秒,不可见 60 秒,切回来立刻补一次。
+    */
+   function usePoll(load, activeMs = 20000, idleMs = 60000) {
+     useEffect(() => {
+       let timer = null
+       let stopped = false
+       const visible = () => !(typeof document !== 'undefined' && document && document.hidden)
+       const schedule = () => {
+         if (stopped) return
+         if (timer) clearTimeout(timer)
+         timer = setTimeout(async () => {
+           if (stopped) return
+           if (visible()) { try { await load() } catch { /* 由 load 自己记错误 */ } }
+           schedule()
+         }, visible() ? activeMs : idleMs)
+       }
+       if (visible()) load()
+       schedule()
+       const onVis = () => { if (visible()) load(); schedule() }
+       try { document.addEventListener('visibilitychange', onVis) } catch { /* SSR */ }
+       return () => {
+         stopped = true
+         if (timer) clearTimeout(timer)
+         try { document.removeEventListener('visibilitychange', onVis) } catch { /* SSR */ }
+       }
+     }, [load, activeMs, idleMs])
+   }
    // 浮标:尺寸、贴边间距、位置存档键
    const FAB_SIZE = 46
    const FAB_PAD = 18
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-   const VERSION = '1.6.0'
+   const VERSION = '1.7.0'
    const ORDER = ['reminders', 'notes', 'home', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
    const SIDEBAR_ORDER = ['home', 'reminders', 'notes', 'vault', 'settings']
@@ -48,6 +78,9 @@ window.__ModuleLoader__.load({
      undo: ['M9 14L4 9l5-5', 'M4 9h9a7 7 0 0 1 0 14H8'],
      trash: ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'],
      clock: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18', 'M12 7v5l3.5 2'],
+     pause: ['M9 5v14', 'M15 5v14'],
+     play: ['M8 5l11 7-11 7z'],
+     download: ['M12 4v11', 'M8 11l4 4 4-4', 'M5 20h14'],
    }
    function Ico({ name, size, className }) {
      const paths = PATHS[name] || []
@@ -154,6 +187,10 @@ window.__ModuleLoader__.load({
      '.__dk_row--act .__dk_check{border-color:#e5484d}',
      '.__dk_sec--ref{color:var(--dsw-alias-label-tertiary,#8b949e);font-weight:400}',
      '.__dk_item--ref .__dk_itext{opacity:.82}',
+     '.__dk_item--dim .__dk_itext,.__dk_item--dim .__dk_imeta{opacity:.55}',
+     '.__dk_dotsep{display:inline-block;width:8px;height:8px;margin:0 12px 0 8px;border-radius:50%;background:var(--dsw-alias-border-l1,rgba(255,255,255,.25));flex:none}',
+     '.__dk_row--act .__dk_rt{font-weight:600}',
+     '.__dk_row--act .__dk_dotsep{background:#e5484d}',
      '.__dk_lvl{display:inline-flex;align-items:center;gap:4px;margin-left:7px;padding:0 6px;height:16px;border-radius:8px;font-size:9.5px;font-weight:600;letter-spacing:.04em;border:1px solid currentColor;opacity:.85;vertical-align:1px}',
      '.__dk_lvl i{width:5px;height:5px;border-radius:50%;background:currentColor;display:block}',
      '.__dk_hbtn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary,#9aa4b2);cursor:pointer}',
@@ -447,11 +484,14 @@ window.__ModuleLoader__.load({
      let base
      if (r.lunar) base = '农历每年 ' + r.lunar.month + '月' + r.lunar.day + '日 ' + r.time
      else if (r.annual) base = '公历每年 ' + r.annual + ' ' + r.time
+     else if (Number.isFinite(r.monthly)) base = '每月 ' + r.monthly + ' 号 ' + r.time
      else if (r.date) base = r.date + ' ' + r.time
      else base = weekText(r.weekdays) + ' ' + r.time
      if (r.status === 'paused') return base + ' · 已暂停'
-     if (r.done) return base + ' · 已签到'
-     if (r.status === 'pending') return base + ' · 待签到'
+     // 一次性提醒过了那天就不该再装成「进行中」:列表里明说已过期
+     if (r.status === 'expired') return base + ' · 已过期'
+     if (r.done) return base + ' · 今天已完成'
+     if (r.status === 'pending') return base + ' · 到点了'
      if (r.status === 'upcoming') return base + (r.occurrenceAt ? ' · ' + fmtClock(r.occurrenceAt - (r.leadMin || 0) * 60000) + ' 提醒' : '')
      if (r.status === 'not-today') return base + ' · 今天不用'
      return base
@@ -461,8 +501,8 @@ window.__ModuleLoader__.load({
    const CAPTURE_MAX_H = 168   // 约 7 行,再多就自己滚
 
    /** 一句话输入:多行自适应。内容多就长高,到上限后内部滚动。 */
-   function CaptureBar({ run, onDone }) {
-     const [text, setText] = useState('')
+   function CaptureBar({ run, onDone, seed, onSeedUsed }) {
+     const [text, setText] = useState(seed || '')
      const [busy, setBusy] = useState(false)
      const ref = useRef(null)
      // 中文/日文输入法正在选词时按 Enter 只是「确认候选词」,不是「发送」。
@@ -479,6 +519,13 @@ window.__ModuleLoader__.load({
        el.style.overflowY = el.scrollHeight > CAPTURE_MAX_H ? 'auto' : 'hidden'
      }, [])
      useEffect(() => { resize() }, [text, resize])
+     // 撤销「存错类别」时把原话塞回输入框,接着改说法重说一遍
+     useEffect(() => {
+       if (!seed) return
+       setText(seed)
+       if (onSeedUsed) onSeedUsed()
+       if (ref.current) { try { ref.current.focus() } catch { /* 老浏览器 */ } }
+     }, [seed, onSeedUsed])
 
      const submit = async () => {
        const v = text.trim()
@@ -492,8 +539,8 @@ window.__ModuleLoader__.load({
 
      return h('div', { className: '__dk_capture' }, [
        h('textarea', {
-         key: 'i', ref: ref, rows: 1, className: '__dk_input __dk_grow',
-         placeholder: '说一句:明天10点提醒我交电费 / 把这段当合集存起来\n(Shift+Enter 换行)',
+         key: 'i', ref: ref, rows: 1, className: '__dk_input __dk_grow', autoFocus: true,
+         placeholder: '说一句:10分钟后提醒我关火 / 明天10点交电费 / 把这段存起来\n(Shift+Enter 换行)',
          value: text,
          onChange: (e) => setText(e.target.value),
          onCompositionStart: () => { composing.current = true },
@@ -526,7 +573,11 @@ window.__ModuleLoader__.load({
        undo
          ? h('button', {
            key: 'u', className: '__dk_replybtn', title: '撤销刚才那一步',
-           onClick: async () => { await run(undo.action, undo.payload); if (onClear) onClear() },
+           onClick: async () => {
+             await run(undo.action, undo.payload)
+             if (typeof undo.after === 'function') undo.after()
+             if (onClear) onClear()
+           },
          }, '撤销')
          : null,
      ])
@@ -534,45 +585,67 @@ window.__ModuleLoader__.load({
 
    // ---------------------------------------------------------------- 首页
    function Home({ state, run, onLink, onGo, notify }) {
-     const list = (state.reminders || []).filter((r) => r.active !== false)
+     const list = (state.reminders || []).filter((r) => r.active !== false && r.status !== 'paused')
      const rank = (r) => (r.done ? 3 : r.status === 'pending' ? 0 : r.status === 'upcoming' ? 1 : 2)
      const sorted = list.slice().sort((a, b) => rank(a) - rank(b) || (a.occurrenceAt || 0) - (b.occurrenceAt || 0))
-     // 首页只露「进行中」,长期资料不占首页(那是备查用的)
+     // 「今天」只放真的落在今天/已过点的;以后的事进「接下来」—— 标题得跟内容对得上
+     const todays = sorted.filter((r) => r.status === 'pending' || r.status === 'done')
+     const expired = sorted.filter((r) => r.status === 'expired')
+     const upcoming = sorted.filter((r) => r.status === 'upcoming' || r.status === 'not-today')
+     const doneCount = todays.filter((r) => r.done).length
      const activeNotes = (state.notes || []).filter((n) => !n.archived
        && !((n.deletedAt || 0) > 0) && !((n.completedAt || 0) > 0) && n.shelf !== 'long')
      const latest = activeNotes.slice(0, 3)
-     const shown = sorted.slice(0, 4)
+
+     const row = (r, withCheck) => h('div', { key: r.id, className: '__dk_row' + (r.done ? ' __dk_done' : '') + (r.status === 'pending' && !r.done ? ' __dk_row--act' : '') }, [
+       withCheck
+         ? h('button', {
+           key: 'c', className: '__dk_check' + (r.done ? ' on' : ''),
+           onClick: () => run(r.done ? 'reminder.uncheckin' : 'reminder.checkin', { id: r.id }),
+           title: r.done ? '取消完成' : '标记完成',
+         }, r.done ? h(Ico, { name: 'check', size: 12 }) : null)
+         : h('span', { key: 'c', className: '__dk_dotsep' }),
+       h('div', { key: 'm', className: '__dk_rowmain' }, [
+         h('div', { key: 't', className: '__dk_rt' }, r.title),
+         h('div', { key: 's', className: '__dk_rm' }, reminderMeta(r)),
+       ]),
+       r.url ? h('a', { key: 'go', className: '__dk_go', href: r.url, target: '_blank', rel: 'noreferrer' }, '去签到') : null,
+       withCheck
+         ? h('div', { key: 'act', className: '__dk_iact' }, [
+           h('button', { key: 'k', className: '__dk_mini', title: '设置网址', 'aria-label': '设置签到网址', onClick: () => onLink(r) }, h(Ico, { name: 'link', size: 15 })),
+         ])
+         : null,
+     ])
 
      return h(React.Fragment, null, [
-       // L1:今天要动手的。过点/待签到的行加粗 + 左侧红条,一眼能扫出来。
+       // L1:今天要动手的。标题后面直接给完成度,不用点进去数
        h('div', { key: 's1', className: '__dk_sec __dk_sec--act' }, [
          h('span', { key: 'a' }, '今天'),
-         h('span', { key: 'b' }, sorted.length ? sorted.length + ' 项' : ''),
+         h('span', { key: 'b' }, todays.length ? doneCount + '/' + todays.length + ' 已完成' : ''),
        ]),
-       sorted.length
-         ? shown.map((r) => h('div', { key: r.id, className: '__dk_row' + (r.done ? ' __dk_done' : '') + (r.status === 'pending' ? ' __dk_row--act' : '') }, [
-           h('button', {
-             key: 'c', className: '__dk_check' + (r.done ? ' on' : ''),
-             onClick: () => run(r.done ? 'reminder.uncheckin' : 'reminder.checkin', { id: r.id }),
-             title: r.done ? '取消签到' : '签到完成',
-           }, r.done ? h(Ico, { name: 'check', size: 12 }) : null),
-           h('div', { key: 'm', className: '__dk_rowmain' }, [
-             h('div', { key: 't', className: '__dk_rt' }, r.title),
-             h('div', { key: 's', className: '__dk_rm' }, reminderMeta(r)),
-           ]),
-           r.url ? h('a', { key: 'go', className: '__dk_go', href: r.url, target: '_blank', rel: 'noreferrer' }, '去签到') : null,
-           h('div', { key: 'act', className: '__dk_iact' }, [
-             h('button', { key: 'k', className: '__dk_mini', title: '设置签到网址', 'aria-label': '设置签到网址', onClick: () => onLink(r) }, h(Ico, { name: 'link', size: 15 })),
-           ]),
-         ]))
+       todays.length
+         ? todays.slice(0, 6).map((r) => row(r, true))
          : h('div', { key: 'e', className: '__dk_empty' }, [
-           h('div', { key: 't', className: '__dk_emptytitle' }, '今天没有要签到的'),
-           h('div', { key: 'h', className: '__dk_note' }, '在上面的输入框说一句「每天 21 点提醒我签到」,或者点下方「提醒」手动加一条。'),
+           h('div', { key: 't', className: '__dk_emptytitle' }, '今天没有要处理的'),
+           h('div', { key: 'h', className: '__dk_note' }, '在上面的输入框说一句「10分钟后提醒我关火」,或者点下方「提醒」手动加一条。'),
          ]),
-       // 超过 4 条就别把首页撑长,给个明确出口(人不会自己去猜「点下面那个标签」)
-       sorted.length > shown.length && onGo
+
+       upcoming.length
+         ? h('div', { key: 's2', className: '__dk_sec' }, [h('span', { key: 'a' }, '接下来'), h('span', { key: 'b' }, String(upcoming.length))])
+         : null,
+       upcoming.length ? upcoming.slice(0, 3).map((r) => row(r, false)) : null,
+
+       expired.length
+         ? h('div', { key: 's4', className: '__dk_sec __dk_sec--ref' }, [h('span', { key: 'a' }, '已过期'), h('span', { key: 'b' }, String(expired.length))])
+         : null,
+       expired.length
+         ? h('div', { key: 'exp', className: '__dk_hint', style: { padding: '2px 4px 0' } }, '一次性提醒过了那天就不再响;要清理点下方「提醒」进列表删。')
+         : null,
+
+       // 超过一屏就别把首页撑长,给个明确出口
+       list.length > Math.min(todays.length, 6) && onGo
          ? h('div', { key: 'more', className: '__dk_more' }, [
-           h('button', { key: 'b', className: '__dk_morebtn', onClick: () => onGo('reminders') }, '查看全部 ' + sorted.length + ' 项'),
+           h('button', { key: 'b', className: '__dk_morebtn', onClick: () => onGo('reminders') }, '查看全部 ' + list.length + ' 项'),
          ])
          : null,
 
@@ -754,7 +827,7 @@ window.__ModuleLoader__.load({
        ]),
        adding ? h(ReminderForm, { key: 'new', title: '新提醒', initial: {}, onSave: (v) => save(null, v), onCancel: () => setAdding(false) }) : null,
        sorted.length
-         ? sorted.map((r) => h('div', { key: r.id, className: '__dk_item' }, [
+         ? sorted.map((r) => h('div', { key: r.id, className: '__dk_item' + (r.status === 'expired' || r.status === 'paused' ? ' __dk_item--dim' : '') }, [
            editing === r.id
              ? h(ReminderForm, { key: 'f', title: '编辑', initial: r, onSave: (v) => save(r, v), onCancel: () => setEditing('') })
              : h(React.Fragment, { key: 'v' }, [
@@ -766,6 +839,16 @@ window.__ModuleLoader__.load({
                  ]),
                  r.url ? h('a', { key: 'go', className: '__dk_go', href: r.url, target: '_blank', rel: 'noreferrer' }, '去签到') : null,
                  h('div', { key: 'act', className: '__dk_iact' }, [
+                   // 暂停 = 暂时不想收到提醒,但记录留着。以前只有改时间或者删掉这两条路。
+                   h('button', {
+                     key: 'p', className: '__dk_mini',
+                     title: r.active === false ? '继续提醒' : '暂停提醒',
+                     'aria-label': r.active === false ? '继续提醒' : '暂停提醒',
+                     onClick: async () => {
+                       await run('reminder.update', { id: r.id, active: r.active === false })
+                       say(r.active === false ? '已继续提醒' : '已暂停,不再弹提醒')
+                     },
+                   }, h(Ico, { name: r.active === false ? 'play' : 'pause', size: 15 })),
                    h('button', { key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑', onClick: () => { setEditing(r.id); setAdding(false) } }, h(Ico, { name: 'edit', size: 15 })),
                    h('button', {
                      key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
@@ -802,6 +885,7 @@ window.__ModuleLoader__.load({
      const [editText, setEditText] = useState('')
      const [expanded, setExpanded] = useState('')
      const [showDone, setShowDone] = useState(false)
+     const [showArchived, setShowArchived] = useState(false)
      const [limit, setLimit] = useState(8)
      const [view, setView] = useState('main')      // main | trash
      const PAGE = 8
@@ -813,18 +897,22 @@ window.__ModuleLoader__.load({
        return () => clearTimeout(t)
      }, [q])
 
-     const counts = state.noteCounts || { active: 0, long: 0, done: 0, trash: 0 }
-     const buckets = { active: [], long: [], done: [], trash: [] }
+     const counts = state.noteCounts || { active: 0, long: 0, done: 0, trash: 0, archived: 0 }
+     const buckets = { active: [], long: [], done: [], trash: [], archived: [] }
      for (const n of (state.notes || [])) {
        const b = (n.deletedAt || 0) > 0 ? 'trash'
          : (n.completedAt || 0) > 0 ? 'done'
-           : n.shelf === 'long' ? 'long'
-             : 'active'
+           : n.archived ? 'archived'
+             : n.shelf === 'long' ? 'long'
+               : 'active'
        buckets[b].push(n)
      }
      const hit = (n) => !kw || (n.text + ' ' + (n.tags || []).join(' ')).toLowerCase().includes(kw)
      // 搜索时跨「进行中 + 长期」一起搜,平铺显示;不搜索时分成两段
-     const searched = kw ? buckets.active.concat(buckets.long).filter(hit) : []
+     const searched = kw ? buckets.active.concat(buckets.long, buckets.archived).filter(hit) : []
+     // 便签页的搜索框也顺手当全局搜:提醒和保险库的标题一起找
+     const remHits = kw ? (state.reminders || []).filter((r) => !((r.deletedAt || 0) > 0) && String(r.title || '').toLowerCase().includes(kw)) : []
+     const secHits = kw ? (state.secrets || []).filter((x) => String(x.title || '').toLowerCase().includes(kw)) : []
 
      const add = async () => {
        const text = draft.trim()
@@ -976,14 +1064,38 @@ window.__ModuleLoader__.load({
          ]),
        ]) : null,
 
-       // 搜索:平铺结果
+       // 搜索:平铺结果(便签 + 提醒标题 + 保险库标题)
        kw
          ? (searched.length
-           ? searched.map((n) => row(n, n.shelf === 'long' ? 'long' : 'daily'))
-           : h('div', { key: 'e', className: '__dk_empty' }, [
-             h('div', { key: 't', className: '__dk_emptytitle' }, '没搜到「' + q.trim() + '」'),
-             h('div', { key: 'h', className: '__dk_note' }, '换个词试试,或者把搜索清空看全部。'),
-           ]))
+           ? searched.map((n) => row(n, n.shelf === 'long' && !n.archived ? 'long' : 'daily'))
+           : (remHits.length || secHits.length
+             ? null
+             : h('div', { key: 'e', className: '__dk_empty' }, [
+               h('div', { key: 't', className: '__dk_emptytitle' }, '没搜到「' + q.trim() + '」'),
+               h('div', { key: 'h', className: '__dk_note' }, '换个词试试,或者把搜索清空看全部。'),
+             ])))
+         : null,
+       kw && remHits.length
+         ? h('div', { key: 'sr' }, [
+           h('div', { key: 'h', className: '__dk_sec' }, [h('span', { key: 'a' }, '提醒里命中'), h('span', { key: 'b' }, String(remHits.length))]),
+           ...remHits.slice(0, 5).map((r) => h('div', { key: r.id, className: '__dk_row' }, [
+             h('div', { key: 'm', className: '__dk_rowmain' }, [
+               h('div', { key: 't', className: '__dk_rt' }, r.title),
+               h('div', { key: 's', className: '__dk_rm' }, reminderMeta(r)),
+             ]),
+           ])),
+         ])
+         : null,
+       kw && secHits.length
+         ? h('div', { key: 'ss' }, [
+           h('div', { key: 'h', className: '__dk_sec __dk_sec--ref' }, [h('span', { key: 'a' }, '保险库里命中'), h('span', { key: 'b' }, String(secHits.length))]),
+           ...secHits.slice(0, 5).map((x) => h('div', { key: x.id, className: '__dk_row' }, [
+             h('div', { key: 'm', className: '__dk_rowmain' }, [
+               h('div', { key: 't', className: '__dk_rt' }, x.title),
+               h('div', { key: 's', className: '__dk_rm' }, '点「保险库」查看明文'),
+             ]),
+           ])),
+         ])
          : null,
        // 不搜索:两段
        kw ? null : seg('active', '进行中', buckets.active),
@@ -1001,11 +1113,16 @@ window.__ModuleLoader__.load({
            ? h('button', { key: 'd', className: '__dk_chip', onClick: () => setShowDone((v) => !v) },
              (showDone ? '收起已完成' : '显示已完成') + ' (' + (counts.done || 0) + ')')
            : null,
+         buckets.archived.length
+           ? h('button', { key: 'ar', className: '__dk_chip', onClick: () => setShowArchived((v) => !v) },
+             (showArchived ? '收起归档' : '已归档') + ' (' + buckets.archived.length + ')')
+           : null,
          h('span', { key: 'sp', className: '__dk_spacer' }),
          h('button', { key: 't', className: '__dk_chip', onClick: () => { setView('trash'); setQ('') } },
            '垃圾箱 (' + (counts.trash || 0) + ')'),
        ]),
        showDone && !kw ? buckets.done.map((n) => row(n, 'done')) : null,
+       showArchived && !kw ? buckets.archived.map((n) => row(n, 'daily')) : null,
      ])
    }
 
@@ -1013,11 +1130,21 @@ window.__ModuleLoader__.load({
    /** 明文在屏幕上停留多久自动收起。人看一眼就够,不该一直亮着。 */
    const VAULT_HIDE_MS = 30000
 
+   /** 把解密后的条目摊平成一整段文本,给编辑用。 */
+   function secretText(entry) {
+     const fields = (entry && entry.fields) || {}
+     if (fields['内容'] && Object.keys(fields).length === 1) return fields['内容']
+     const lines = Object.entries(fields).map(([k, v]) => k + ': ' + v)
+     if (entry && entry.note) lines.push(entry.note)
+     return lines.join('\n')
+   }
+
    function VaultPage({ state, run, notify }) {
      const [openAdd, setOpenAdd] = useState(false)
      const [title, setTitle] = useState('')
      const [body, setBody] = useState('')
      const [revealed, setRevealed] = useState({})
+     const [editing, setEditing] = useState(null)   // { id, title, body }
      const timers = useRef({})
      const secrets = state.secrets || []
      const say = (text, undo) => { if (notify) notify(text, undo) }
@@ -1054,6 +1181,34 @@ window.__ModuleLoader__.load({
          h('button', { key: 'a', className: '__dk_btn p', onClick: () => setOpenAdd((v) => !v) }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), openAdd ? ' 收起' : ' 新条目']),
          h('span', { key: 'h', className: '__dk_hint' }, '共 ' + secrets.length + ' 条 · AES-256-GCM'),
        ]),
+       editing ? h('div', { key: 'edit', className: '__dk_form' }, [
+         h('div', { key: 'g', className: '__dk_group' }, [
+           h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '编辑条目'), h('span', { key: 'b' }, '保存后重新加密')]),
+           h('input', {
+             key: 't', className: '__dk_input', autoFocus: true,
+             value: editing.title,
+             onChange: (e) => setEditing((cur) => ({ ...cur, title: e.target.value })),
+           }),
+           h('textarea', {
+             key: 'b', className: '__dk_input', rows: 7,
+             style: { resize: 'vertical', fontFamily: 'inherit' },
+             value: editing.body,
+             onChange: (e) => setEditing((cur) => ({ ...cur, body: e.target.value })),
+           }),
+           h('div', { key: 'tip', className: '__dk_gtip' }, '整段替换原内容(字段会合并成一段文本),标题可以单独改。'),
+         ]),
+         h('div', { key: 'r', className: '__dk_frow' }, [
+           h('button', {
+             key: 's', className: '__dk_btn p', disabled: !editing.title.trim() || !String(editing.body || '').trim(),
+             onClick: async () => {
+               await run('secret.update', { query: editing.id, title: editing.title.trim(), body: editing.body })
+               setEditing(null)
+               say('已更新并重新加密')
+             },
+           }, '保存'),
+           h('button', { key: 'c', className: '__dk_btn', onClick: () => setEditing(null) }, '取消'),
+         ]),
+       ]) : null,
        openAdd ? h('div', { key: 'form', className: '__dk_form' }, [
          h('div', { key: 'g', className: '__dk_group' }, [
            h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '新条目'), h('span', { key: 'b' }, '整段加密')]),
@@ -1086,6 +1241,15 @@ window.__ModuleLoader__.load({
              }, revealed[s.id] ? '收起' : '显示'),
              h('div', { key: 'act', className: '__dk_iact' }, [
                h('button', {
+                 key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑',
+                 onClick: async () => {
+                   const full = await run('secret.get', { query: s.id })
+                   if (!full || !full.result) return
+                   hide(s.id)
+                   setEditing({ id: s.id, title: s.title, body: secretText(full.result) })
+                 },
+               }, h(Ico, { name: 'edit', size: 14 })),
+               h('button', {
                  key: 'd', className: '__dk_mini', title: '删除', 'aria-label': '删除',
                  onClick: async () => {
                    // 保险库不进垃圾箱,所以这里必须确认
@@ -1101,6 +1265,9 @@ window.__ModuleLoader__.load({
                h('span', { key: 'v', className: 'v' }, String(v)),
                h('button', { key: 'c', className: '__dk_mini', title: '复制', onClick: () => { if (copy(v)) say('已复制') } }, h(Ico, { name: 'copy', size: 13 })),
              ]))) : null,
+           revealed[s.id] && revealed[s.id].note
+             ? h('div', { key: 'n', className: '__dk_note', style: { whiteSpace: 'pre-wrap', padding: '2px 4px 0' } }, revealed[s.id].note)
+             : null,
            h('div', { key: 'm', className: '__dk_imeta' }, [
              h('span', { key: 'd' }, fmtWhen(s.updatedAt || s.createdAt)),
              revealed[s.id] ? h('span', { key: 't' }, '30 秒后自动收起') : null,
@@ -1247,14 +1414,40 @@ window.__ModuleLoader__.load({
          modelKey: 'classifyModel',
          settings: s, onUpdate: update,
        }),
-       h(ModelPicker, {
-         key: 'mp-recognize',
-         label: '识图模型(截图/上传图片用)',
-         hint: '需要能看图的模型;标 ✓识图 的才可选。',
-         providerKey: 'recognizeProvider',
-         modelKey: 'recognizeModel',
-         settings: s, onUpdate: update,
-       }),
+       h('div', { key: 's3', className: '__dk_sec' }, [h('span', { key: 'a' }, '数据'), h('span', { key: 'b' })]),
+       h('div', { key: 'cnt', className: '__dk_setrow' }, [
+         h('span', { key: 'l' }, '现在存了'),
+         h('span', { key: 'r', className: '__dk_hint' },
+           (state.reminderCounts ? state.reminderCounts.active : (state.reminders || []).length) + ' 条提醒 · '
+           + (state.notes || []).filter((n) => !((n.deletedAt || 0) > 0)).length + ' 条便签 · '
+           + (state.secrets || []).length + ' 条保险库'),
+       ]),
+       h('div', { key: 'bk', className: '__dk_setrow __dk_setrow--col' }, [
+         h('span', { key: 'l' }, '导出备份'),
+         h('div', { key: 'r', className: '__dk_frow' }, [
+           h('button', {
+             key: 'b', className: '__dk_btn',
+             onClick: async () => {
+               try {
+                 const r = await fetch(API + '/export')
+                 const body = await r.json()
+                 if (!body || !body.ok) throw new Error((body && body.error) || '导出失败')
+                 const text = JSON.stringify(body.backup, null, 2)
+                 const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+                 const a = document.createElement('a')
+                 a.href = url
+                 a.download = 'desk-kit-' + new Date().toISOString().slice(0, 10) + '.json'
+                 document.body.appendChild(a)
+                 a.click()
+                 setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 0)
+               } catch (e) {
+                 if (window.alert) window.alert('导出没成功:' + (e && e.message ? e.message : e))
+               }
+             },
+           }, [h(Ico, { key: 'i', name: 'download', size: 14 }), ' 导出为 JSON']),
+         ]),
+         h('span', { key: 'h', className: '__dk_hint' }, '提醒和便签是明文;保险库导出的是密文,换机器要连 vault.key 一起拷才解得开。'),
+       ]),
      ])
    }
 
@@ -1320,8 +1513,17 @@ window.__ModuleLoader__.load({
      return a.text || ('计划 ' + fmtClock(a.dueAt))
    }
 
+   const SNOOZE_CHOICES = [[10, '10 分钟'], [30, '30 分钟'], [60, '1 小时']]
+
    function AlertCard({ a, run, onOpen, quiet }) {
      const over = !!a.over
+     const [menu, setMenu] = useState(false)
+     // 先 ack 再 snooze:ack 会把当天记成静音,snooze 要把静音解除 —— 顺序反了就永远不响
+     const snooze = async (minutes) => {
+       await run('alert.ack', { id: a.id })
+       await run('reminder.snooze', { id: a.refId, minutes })
+       setMenu(false)
+     }
      return h('div', { className: '__dk_alert' + (over ? '' : ' __dk_alert--calm') }, [
        h('div', { key: 'hd', className: '__dk_ahead' }, [
          h('span', { key: 'i', className: '__dk_aicon' }, h(Ico, { name: over ? 'bell' : 'clock', size: 13 })),
@@ -1336,15 +1538,18 @@ window.__ModuleLoader__.load({
        ]),
        h('div', { key: 'r', className: '__dk_trow' }, [
          h('button', {
-           key: 'c', className: '__dk_tbtn p', title: '标记今天已签到',
+           key: 'c', className: '__dk_tbtn p', title: '标记今天已完成',
            onClick: async () => { await run('reminder.checkin', { id: a.refId, date: a.dueDate }); await run('alert.ack', { id: a.id }) },
-         }, '已签到'),
+         }, '完成'),
          h('button', {
-           key: 's', className: '__dk_tbtn', title: '10 分钟后再提醒',
-           onClick: async () => { await run('reminder.snooze', { id: a.refId, minutes: 10 }); await run('alert.ack', { id: a.id }) },
-         }, '10 分钟'),
+           key: 's', className: '__dk_tbtn', title: '晚点再提醒', onClick: () => setMenu((v) => !v),
+         }, menu ? '稍后 ▴' : '稍后 ▾'),
          onOpen ? h('button', { key: 'o', className: '__dk_tbtn', title: '打开随手台', onClick: onOpen }, '打开') : null,
        ]),
+       menu
+         ? h('div', { key: 'menu', className: '__dk_chips' }, SNOOZE_CHOICES.map(([m, label]) =>
+           h('button', { key: m, className: '__dk_chip', onClick: () => snooze(m) }, label)))
+         : null,
      ])
    }
 
@@ -1352,7 +1557,7 @@ window.__ModuleLoader__.load({
     * 右下角提醒坞:多条时按页轮转。
     * model 是纯函数式的:page 由 effect 每 DOCK_ROTATE_MS 推一格,切换前先 fade 300ms。
     */
-   function AlertDock({ alerts, run, onOpen, offsetBottom }) {
+   function AlertDock({ alerts, run, onOpen, offsetBottom, onAllAck }) {
      const [page, setPage] = useState(0)
      const [fading, setFading] = useState(false)
      // 人正在读的时候不能把卡片换掉。鼠标移上去 / 键盘聚焦 / 指头按着,都算「正在看」。
@@ -1393,7 +1598,10 @@ window.__ModuleLoader__.load({
        rest > 0 || pages > 1
          ? h('button', {
            key: 'more', className: '__dk_dockmore', title: '把所有提醒标为已读',
-           onClick: () => { run('alert.ackAll') },
+           onClick: () => {
+             run('alert.ackAll')
+             if (onAllAck) onAllAck()
+           },
          }, rest > 0 ? '还有 ' + rest + ' 条 · 全部知道了' : '全部知道了')
          : null,
        ...shown.map((a) => h(AlertCard, { key: a.id, a, run, onOpen })),
@@ -1471,13 +1679,15 @@ window.__ModuleLoader__.load({
      const [state, setState] = useState(null)
      const [err, setErr] = useState('')
      const [reply, setReply] = useState(null)
+     // 撤销后回填到输入框的原话
+     const [seed, setSeed] = useState('')
      const touch = useRef({ x: 0, y: 0, t: 0 })
      const timer = useRef(null)
 
      const load = useCallback(async () => {
        try { setState(await apiGet()); setErr('') } catch (e) { setErr(String((e && e.message) || e)) }
      }, [])
-     useEffect(() => { load(); const t = setInterval(load, 20000); return () => clearInterval(t) }, [load])
+     usePoll(load)
 
      // 位置:首屏读存档,改窗口大小时别把它挤到屏幕外
      useEffect(() => {
@@ -1649,9 +1859,19 @@ window.__ModuleLoader__.load({
        if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.4) move(dx < 0 ? 1 : -1)
      }
 
+     /**
+      * 存完给一条回执,并且允许撤销 —— 存错类别是最常见的一次性失误:
+      * 撤销会删掉刚建的那条,把原话塞回输入框,改个说法就能重来。
+      */
      const onCaptureDone = useCallback((r) => {
        if (!r) return
-       showReply(r.reply || '已保存')
+       const c = r.created
+       const raw = (r.parsed && (r.parsed.raw || r.parsed.text)) || ''
+       let undo = null
+       if (c && c.kind === 'note' && c.id) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       else if (c && c.kind === 'reminder' && c.id) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
+       showReply(r.reply || '已保存', undo)
        if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setDir('left'); setPage('notes'); setSeq((s) => s + 1) }
        else setPage('home')
@@ -1690,7 +1910,7 @@ window.__ModuleLoader__.load({
      const lv = LEVELS[page] || LEVELS.home
      const body = (() => {
        const notify = showReply
-       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
+       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify })]
        if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify })]
@@ -1699,7 +1919,12 @@ window.__ModuleLoader__.load({
 
      return h(React.Fragment, null, [
        // 浮标开着时把坞抬高,别跟它叠在同一个角落
-       h(AlertDock, { key: 'dock', alerts, run, onOpen: () => { if (sidebar.open) { sidebar.open(); return } setOpen(true) }, offsetBottom: showFab ? 62 : 0 }),
+       h(AlertDock, {
+         key: 'dock', alerts, run,
+         onOpen: () => { if (sidebar.open) { sidebar.open(); return } setOpen(true) },
+         offsetBottom: showFab ? 62 : 0,
+         onAllAck: () => showReply('全部标为已读', { action: 'alert.unackAll', payload: {} }),
+       }),
 
        showFab ? h('div', { key: 'root', className: '__dk_root', style: fabStyle }, [
          open ? h('div', {
@@ -1789,13 +2014,20 @@ window.__ModuleLoader__.load({
      const [page, setPage] = useState('home')
      const [seq, setSeq] = useState(0)
      const [reply, setReply] = useState(null)
+     // 撤销后回填到输入框的原话
+     const [seed, setSeed] = useState('')
      const timer = useRef(null)
 
      const load = useCallback(async () => {
        try { setState(await apiGet()); setErr('') } catch (e) { setErr(String((e && e.message) || e)) }
      }, [])
-     useEffect(() => { load(); const t = setInterval(load, 20000); return () => clearInterval(t) }, [load])
-     useEffect(() => { if (visible) load() }, [visible, load])
+     // 侧栏标签页没打开时完全不轮询(以前后台也每 20 秒拉一遍全量)
+     useEffect(() => {
+       if (!visible) return undefined
+       load()
+       const t = setInterval(load, 20000)
+       return () => clearInterval(t)
+     }, [visible, load])
 
      const run = useCallback(async (action, payload) => {
        try {
@@ -1819,7 +2051,13 @@ window.__ModuleLoader__.load({
 
      const onCaptureDone = useCallback((r) => {
        if (!r) return
-       showReply(r.reply || '已保存')
+       const c = r.created
+       const raw = (r.parsed && (r.parsed.raw || r.parsed.text)) || ''
+       let undo = null
+       if (c && c.kind === 'note' && c.id) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       else if (c && c.kind === 'reminder' && c.id) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
+       showReply(r.reply || '已保存', undo)
        if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setPage('notes'); setSeq((s) => s + 1) }
        else setPage('home')
@@ -1837,11 +2075,13 @@ window.__ModuleLoader__.load({
        onGo: go, onCaptureDone, onLink,
        notify: showReply,
        onClearReply: () => showReply(''),
+       seed,
+       onSeedUsed: () => setSeed(''),
      })
    }
 
    /** 侧栏页面的纯展示部分:状态由 SidebarPage 喂进来(这样能脱离浏览器直接测)。 */
-   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, bridge }) {
+   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge }) {
      const sidebar = useSidebarBridge(bridge)
      const goTo = onGo
      if (!state) {
@@ -1855,7 +2095,7 @@ window.__ModuleLoader__.load({
      const alerts = (state.alerts || []).filter(() => !(state.settings && state.settings.muted))
      const body = (() => {
        // notify 由 SidebarPage 注入(这里没有自己的 showReply)
-       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
+       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify })]
        if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify })]

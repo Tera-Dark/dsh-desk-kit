@@ -50,7 +50,8 @@ test('分类:提醒', () => {
 test('分类:便签', () => {
   const a = parseCapture('记一下 周末去修耳机', now)
   assert.equal(a.kind, 'note')
-  assert.equal(a.text, '记一下 周末去修耳机')
+  assert.equal(a.text, '周末去修耳机', '正文去掉「记一下」这类前缀')
+  assert.equal(a.raw, '记一下 周末去修耳机', '原话留在 raw 里')
   assert.equal(parseCapture('今天好累', now).kind, 'note')
   assert.equal(parseCapture('提醒我下周弄这个', now).missingTime, true)
 })

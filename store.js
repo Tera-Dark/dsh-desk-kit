@@ -61,6 +61,12 @@ export function occurrenceOf(reminder, now = new Date()) {
     return reminder.annual === mmdd ? at : null
   }
 
+  // 每月 N 号:月末没有这一天(31 号遇到 4 月)按当月最后一天算
+  if (Number.isFinite(reminder.monthly)) {
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    return Math.min(reminder.monthly, lastDay) === now.getDate() ? at : null
+  }
+
   const days = Array.isArray(reminder.weekdays) ? reminder.weekdays : []
   if (days.length && !days.includes(now.getDay())) return null
   return at
@@ -91,6 +97,15 @@ export function nextOccurrence(reminder, now = new Date()) {
         hit = (String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')) === reminder.annual
       }
       if (hit) return at(d)
+    }
+    return null
+  }
+
+  if (Number.isFinite(reminder.monthly)) {
+    for (let i = 0; i < 62; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i)
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+      if (d.getDate() === Math.min(reminder.monthly, lastDay)) return at(d)
     }
     return null
   }
@@ -189,6 +204,18 @@ export class DeskStore {
     const text = String(input.text || '').trim()
     if (!text) throw new Error('便签内容不能为空')
     const now = Date.now()
+    // 同一句话 10 分钟内又存一次:不新增重复条目,只把它顶上来
+    const dup = this.data.notes.find((n) => !n.deletedAt && !n.completedAt && n.text === text
+      && now - (n.updatedAt || n.createdAt || 0) < 10 * 60000)
+    if (dup) {
+      // 重复提交时如果带了新标签,并进去(别让标签白白丢掉)
+      const extra = Array.isArray(input.tags) ? input.tags.map(String).filter(Boolean) : []
+      if (extra.length) dup.tags = [...new Set([...(dup.tags || []), ...extra])].slice(0, 12)
+      if (input.pinned) dup.pinned = true
+      dup.updatedAt = now
+      this.save()
+      return { ...dup, deduped: true }
+    }
     const note = {
       id: uid('n-'),
       text: text.slice(0, 20000),
@@ -203,7 +230,12 @@ export class DeskStore {
       updatedAt: now,
     }
     this.data.notes.unshift(note)
-    if (this.data.notes.length > MAX_NOTES) this.data.notes.length = MAX_NOTES
+    // 到上限不再静默截断(以前直接丢掉最旧的):转成归档,还在快照里、还能搜到
+    if (this.data.notes.length > MAX_NOTES) {
+      const overflow = this.data.notes.splice(MAX_NOTES)
+      for (const old of overflow) old.archived = true
+      this.data.notes.push(...overflow)
+    }
     this.save()
     return note
   }
@@ -326,6 +358,10 @@ export class DeskStore {
         : undefined,
       // 公历每年:'MM-DD'
       annual: typeof input.annual === 'string' && /^\d{2}-\d{2}$/.test(input.annual) ? input.annual : undefined,
+      // 每月 N 号(交房租/信用卡这类)
+      monthly: Number.isFinite(Number(input.monthly)) && Number(input.monthly) >= 1 && Number(input.monthly) <= 31
+        ? Number(input.monthly)
+        : undefined,
       // 每年重复标记(生日类),只用于展示
       yearly: !!input.yearly,
       // 上限 7 天:生日这类要提前几天提醒,原来卡在 720 分钟(12h)会让提前量失效
@@ -334,6 +370,8 @@ export class DeskStore {
       url: typeof input.url === 'string' && /^https?:\/\//i.test(input.url.trim()) ? input.url.trim().slice(0, 600) : '',
       active: true,
       doneDates: [],
+      // 点过「知道了」的日期(YYYY-MM-DD):这一天不再提醒,但不是删掉
+      silencedDates: [],
       snoozeUntil: 0,
       createdAt: now,
       updatedAt: now,
@@ -367,6 +405,14 @@ export class DeskStore {
     }
     if (patch.annual === null) r.annual = undefined
     else if (typeof patch.annual === 'string' && /^\d{2}-\d{2}$/.test(patch.annual)) r.annual = patch.annual
+    if (patch.monthly === null) r.monthly = undefined
+    else if (Number.isFinite(patch.monthly) && patch.monthly >= 1 && patch.monthly <= 31) r.monthly = Number(patch.monthly)
+    if (typeof patch.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(patch.date)) { r.date = patch.date; r.weekdays = []; r.annual = undefined; r.lunar = undefined; r.monthly = undefined }
+    if (patch.date === null) r.date = undefined
+    // 改了时间点/周期 = 用户还想让它响,今天的静音作废
+    const touchedSchedule = patch.time !== undefined || Array.isArray(patch.weekdays) || patch.date !== undefined
+      || patch.monthly !== undefined || patch.annual !== undefined || patch.lunar !== undefined
+    if (touchedSchedule) r.silencedDates = []
     if (typeof patch.yearly === 'boolean') r.yearly = patch.yearly
     if (typeof patch.calendar === 'string') r.calendar = patch.calendar === 'lunar' ? 'lunar' : 'solar'
     r.updatedAt = Date.now()
@@ -422,6 +468,7 @@ export class DeskStore {
     const day = date ? String(date).slice(0, 10) : localYmd()
     if (!r.doneDates.includes(day)) r.doneDates.push(day)
     if (r.doneDates.length > MAX_CHECKINS) r.doneDates = r.doneDates.slice(-MAX_CHECKINS)
+    r.silencedDates = (r.silencedDates || []).filter((d) => d !== day)
     r.snoozeUntil = 0
     r.updatedAt = Date.now()
     this.data.alerts = this.data.alerts.filter((a) => !(a.refId === id && a.date === day))
@@ -447,6 +494,8 @@ export class DeskStore {
     if (!r) throw new Error('找不到提醒 ' + id)
     const min = Number.isFinite(minutes) ? Math.max(1, Math.min(720, minutes)) : r.snoozeMin || 20
     r.snoozeUntil = nowMs + min * 60000
+    // 点「稍后」就是要它再响一次,今天的静音先解除
+    r.silencedDates = (r.silencedDates || []).filter((d) => d !== localYmd(new Date(nowMs)))
     this.save()
     return r
   }
@@ -465,7 +514,7 @@ export class DeskStore {
         let status = 'idle'
         if (!r.active) status = 'paused'
         else if (done) status = 'done'
-        else if (!occ) status = 'no-next'
+        else if (!occ) status = r.date && r.date < today ? 'expired' : 'no-next'
         else if (now.getTime() >= occ.getTime() - (r.leadMin || 0) * 60000) status = 'pending'
         else status = 'upcoming'
         return {
@@ -497,6 +546,9 @@ export class DeskStore {
       if (!occ) continue
       const dueDate = localYmd(occ)
       if ((r.doneDates || []).includes(dueDate) || (r.doneDates || []).includes(today)) continue
+      // 「知道了」= 今天这条不再提。之前 ack 只标记那条 alert,tick 20 分钟后又造一条新的,
+      // 按钮写着「不再提醒」却在弹 —— 现在按日期记在提醒上。
+      if ((r.silencedDates || []).includes(today)) continue
       const dueFrom = occ.getTime() - (r.leadMin || 0) * 60000
       if (nowMs < dueFrom) continue
       if (r.snoozeUntil && nowMs < r.snoozeUntil) continue
@@ -550,14 +602,64 @@ export class DeskStore {
     if (!a) return { acked: false }
     a.acked = true
     a.ackedAt = Date.now()
+    // 同一天的其它未读也一起收掉,否则点一条还剩三条同标题的
+    for (const other of this.data.alerts) {
+      if (other.refId && other.refId === a.refId && other.date === a.date && !other.acked) {
+        other.acked = true
+        other.ackedAt = a.ackedAt
+      }
+    }
+    if (a.refId && a.date) {
+      const r = this.data.reminders.find((x) => x.id === a.refId)
+      if (r) {
+        r.silencedDates = Array.isArray(r.silencedDates) ? r.silencedDates : []
+        if (!r.silencedDates.includes(a.date)) r.silencedDates.push(a.date)
+        if (r.silencedDates.length > MAX_CHECKINS) r.silencedDates = r.silencedDates.slice(-MAX_CHECKINS)
+      }
+    }
     this.save()
-    return { acked: true }
+    return { acked: true, id, date: a.date || null }
   }
 
   ackAll() {
-    for (const a of this.data.alerts) a.acked = true
+    const now = Date.now()
+    const today = localYmd()
+    for (const a of this.data.alerts) {
+      if (a.acked) continue
+      a.acked = true
+      a.ackedAt = now
+      // 「全部知道了」和单条 X 一样:今天不再提这些(否则 20 分钟后又是一堆卡片)
+      if (a.refId && a.date) {
+        const r = this.data.reminders.find((x) => x.id === a.refId)
+        if (r) {
+          r.silencedDates = Array.isArray(r.silencedDates) ? r.silencedDates : []
+          if (!r.silencedDates.includes(a.date)) r.silencedDates.push(a.date)
+          if (r.silencedDates.length > MAX_CHECKINS) r.silencedDates = r.silencedDates.slice(-MAX_CHECKINS)
+        }
+      }
+    }
+    this.data.alerts = this.data.alerts.filter((a) => a.at >= now - ALERT_KEEP_MS).slice(-300)
+    void today
     this.save()
-    return { acked: true }
+    return { acked: true, at: now }
+  }
+
+  /** 「全部知道了」的撤销:5 分钟内点撤销,把刚确认的那批恢复未读并解除当天静音。 */
+  unackAll() {
+    const now = Date.now()
+    let restored = 0
+    for (const a of this.data.alerts) {
+      if (!a.acked || now - (a.ackedAt || 0) > 5 * 60000) continue
+      a.acked = false
+      a.ackedAt = 0
+      restored++
+      if (a.refId && a.date) {
+        const r = this.data.reminders.find((x) => x.id === a.refId)
+        if (r) r.silencedDates = (r.silencedDates || []).filter((d) => d !== a.date)
+      }
+    }
+    this.save()
+    return { restored }
   }
 
   pendingAlerts() {
@@ -695,6 +797,13 @@ export class DeskStore {
         else fields[String(k)] = String(v).slice(0, 8000)
       }
     }
+    // 编辑正文:整段替换字段(自由正文条目编辑后仍是一条「内容」)
+    if (typeof patch.body === 'string') {
+      const body = patch.body.trim()
+      if (!body) throw new Error('内容不能为空')
+      for (const k of Object.keys(fields)) delete fields[k]
+      fields['内容'] = body.slice(0, 8000)
+    }
     if (patch.title) entry.title = String(patch.title).slice(0, 120)
     if (Array.isArray(patch.tags)) entry.tags = patch.tags.map(String).filter(Boolean).slice(0, 12)
     const note = typeof patch.note === 'string' ? patch.note.slice(0, 4000) : current.note || ''
@@ -702,6 +811,20 @@ export class DeskStore {
     entry.updatedAt = Date.now()
     writeJson(this.vaultFile, vault)
     return { id: entry.id, title: entry.title }
+  }
+
+  /** 整库导出(给「备份」按钮用)。vault 是密文,key 不在这里,要单独拷。 */
+  exportAll(now = new Date()) {
+    let vault = null
+    try { vault = readJson(this.vaultFile, null) } catch { vault = null }
+    return {
+      kind: 'dsh-desk-kit-backup',
+      version: 1,
+      exportedAt: now.toISOString(),
+      data: this.data,
+      vault,
+      note: 'vault.json 是密文,要还原保险库还需要 ~/.dsh/desk-kit/vault.key',
+    }
   }
 
   // ---------------- 汇总 ----------------

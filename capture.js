@@ -48,8 +48,57 @@ export function parseClock(text) {
   return { h, m: mi }
 }
 
-/** 抽日期/重复:{date?, weekdays, repeat}。 */
+/** 中文数字/「半」→ 数字;认不出返回 null。 */
+function numOrHalf(text) {
+  if (text === '半') return 0.5
+  const n = cnToNum(text)
+  return n === null ? null : n
+}
+
+/**
+ * 相对时间:「10 分钟后」「半小时后」「一个半小时后」「2 小时后」「90 分钟内」。
+ * 这是口语里最常见的说法,以前一律落成便签。
+ * @returns {{date:string,time:string,at:number}|null}
+ */
+export function parseRelative(text, now = new Date()) {
+  const t = String(text || '')
+  const m = /(\d{1,3}|半|[一两二三四五六七八九十]{1,3})\s*个?\s*(?:半\s*)?(分钟|分|小时|钟头)\s*(?:之?后|以后|之内|以内)/.exec(t)
+  if (!m) return null
+  let n = numOrHalf(m[1])
+  if (n === null) return null
+  // 「一个半小时」= 1.5 小时
+  const halfAfter = /个?\s*半\s*(?:分钟|分|小时|钟头)/.test(m[0])
+  const unit = m[2] === '分钟' || m[2] === '分' ? 60000 : 3600000
+  if (halfAfter) n = Math.floor(n) + 0.5
+  const at = new Date(now.getTime() + Math.round(n * unit))
+  return {
+    date: localYmd(at),
+    time: String(at.getHours()).padStart(2, '0') + ':' + String(at.getMinutes()).padStart(2, '0'),
+    at: at.getTime(),
+  }
+}
+
+/** 抽日期/重复:{date?, weekdays, repeat, monthly?}。 */
 export function parseWhen(text, now = new Date()) {
+  // 「下周三」按「下一个自然周的周三」算(周一为一周之始),不是「最近的周三」
+  const nextWeek = /下(?:个)?(?:周|星期)([日一二三四五六天])/.exec(text)
+  if (nextWeek) {
+    const idx = weekdayIndex(nextWeek[1])
+    if (idx !== null) {
+      const mondayDelta = ((8 - now.getDay()) % 7) || 7
+      const offsetInWeek = idx === 0 ? 6 : idx - 1
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayDelta + offsetInWeek)
+      return { date: localYmd(d), weekdays: [], repeat: false, monthly: null }
+    }
+  }
+
+  // 「每月 1 号」「每个月 15 日」
+  const monthlyAt = /每(?:个)?月\s*(\d{1,2})\s*[号日]/.exec(text)
+  if (monthlyAt) {
+    const day = Number(monthlyAt[1])
+    if (day >= 1 && day <= 31) return { date: null, weekdays: [], repeat: true, monthly: day }
+  }
+
   const weekdays = []
   let repeat = /每[天日晚]|每日|天天/.test(text)
   if (/工作日/.test(text)) weekdays.push(1, 2, 3, 4, 5)
@@ -83,7 +132,7 @@ export function parseWhen(text, now = new Date()) {
     }
   }
   const uniq = [...new Set(weekdays)].sort((a, b) => a - b)
-  return { date, weekdays: uniq, repeat }
+  return { date, weekdays: uniq, repeat, monthly: null }
 }
 
 /** 去掉口语祈使词,留事项本体。 */
@@ -177,6 +226,19 @@ export function parseMultiSite(text) {
   return { kind: 'multi', sites: urls.map((url) => ({ url, title: siteTitle(url) + ' 签到' })) }
 }
 
+/**
+ * 便签正文:去掉口语前缀,但整句都是前缀时原样保留。
+ * 以前「记一下:周末去修耳机」会把「记一下:」一起存进去,几百条之后搜什么都命中。
+ */
+export function stripNotePrefix(text) {
+  const raw = String(text || '')
+  const out = raw
+    .replace(/^\s*(?:请|帮我|麻烦你?|你)?\s*(?:记一下|记下|记录一下|记录|存一下|存起来|保存一下|保存|存档|备忘(?:一下)?|备注一下)\s*[:：,，]?\s*/, '')
+    .replace(/^\s*(?:请|帮我|麻烦你?)\s*/, '')
+    .trim()
+  return out || raw.trim()
+}
+
 /** 一句话 → 分类 + 字段。 */
 export function parseCapture(raw, now = new Date()) {
   const text = String(raw || '').trim()
@@ -187,6 +249,7 @@ export function parseCapture(raw, now = new Date()) {
   if (multi) return multi
 
   const clock = parseClock(text)
+  const rel = parseRelative(text, now)
   const when = parseWhen(text, now)
   const link = (/(https?:\/\/[^\s,，]+)/i.exec(text) || [])[1] || ''
   const birthday = parseBirthday(text, now)
@@ -226,31 +289,44 @@ export function parseCapture(raw, now = new Date()) {
     }
   }
 
-  // 2) 提醒
-  if (clock && (wantsReminder || when.date || when.repeat || when.weekdays.length)) {
+  // 2) 提醒:有明确时间点、相对时间、或「明天/周三/每月几号」这类有日期的说法
+  const hasClock = !!clock
+  const hasDate = !!rel || !!when.date || !!when.monthly || when.weekdays.length > 0
+  const scheduled = hasClock || hasDate
+  if (scheduled && (wantsReminder || (hasClock && (when.repeat || when.weekdays.length)) || when.monthly || rel)) {
     const stripped = text
       .replace(/(凌晨|早上|早晨|上午|中午|下午|傍晚|晚上)?\s*(\d{1,2}|[一二两三四五六七八九十]{1,3})\s*[:：点时]\s*(半|一刻|三刻|\d{1,2})?/g, '')
       .replace(/(每天|每日|天天|工作日|大后天|后天|明天|明日|今天|今日)/g, '')
+      .replace(/下(?:个)?(?:周|星期)[日一二三四五六天]/g, '')
       .replace(/周[日一二三四五六天](?:\s*(?:到|至|-|~)\s*周?[日一二三四五六天])?/g, '')
       .replace(/https?:\/\/[^\s,，]+/gi, '')
       .replace(/星期[日一二三四五六天]/g, '')
+      .replace(/(\d{1,3}|半|[一两二三四五六七八九十]{1,3})\s*个?\s*(?:半\s*)?(?:分钟|分|小时|钟头)\s*(?:之?后|以后|之内|以内)/g, '')
+      .replace(/下(?:个)?(?:周|星期)[日一二三四五六天]/g, '')
+      .replace(/每(?:个)?月\s*\d{1,2}\s*[号日]/g, '')
+    // 没给钟点(「明天提醒我打电话」「周三复盘」)默认上午 9 点,总比掉进便签强
+    const time = clock
+      ? String(clock.h).padStart(2, '0') + ':' + String(clock.m).padStart(2, '0')
+      : (rel ? rel.time : '09:00')
     return {
       kind: 'reminder',
       title: cleanTitle(stripped) || '提醒',
-      time: String(clock.h).padStart(2, '0') + ':' + String(clock.m).padStart(2, '0'),
-      date: when.date,
+      time,
+      date: rel ? rel.date : when.date,
       weekdays: when.weekdays,
-      leadMin: 30,
+      monthly: when.monthly || undefined,
+      leadMin: rel ? 0 : 30,
       url: link,
       note: '',
       raw: text,
+      dateGuessed: !clock && !rel,
     }
   }
 
-  if (wantsReminder && !clock) return { kind: 'note', text, missingTime: true }
+  if (wantsReminder && !scheduled) return { kind: 'note', text: stripNotePrefix(text), raw: text, missingTime: true }
 
-  // 3) 便签
-  return { kind: 'note', text }
+  // 3) 便签:去掉「记一下 / 存档」这类前缀,但保留原话
+  return { kind: 'note', text: stripNotePrefix(text), raw: text }
 }
 
 /** 给用户看的一句回执。 */
@@ -268,13 +344,19 @@ export function describeCapture(parsed) {
       : (parsed.annual || '')
     return '已排成每年提醒:' + parsed.title + ' · ' + when
   }
+  if (parsed.kind === 'reminder' && parsed.monthly) {
+    return '已排成每月提醒:' + parsed.title + ' · 每月 ' + parsed.monthly + ' 号 ' + parsed.time
+      + (parsed.dateGuessed ? '(没说几点,先按 ' + parsed.time + ')' : '')
+  }
   if (parsed.kind === 'reminder') {
-    const days = parsed.date
+    const when = parsed.date
       ? parsed.date
       : parsed.weekdays.length
         ? '周' + parsed.weekdays.map((d) => WEEK_CHARS[d]).join('、周')
         : '每天'
-    return '已排成提醒:' + parsed.title + ' · ' + days + ' ' + parsed.time
+    // 只说了哪天、没说几点:得让人知道 9 点是我替你补的,不然到点没反应会以为没存上
+    const tail = parsed.dateGuessed ? ' · 没说几点,先按 ' + parsed.time : ' ' + parsed.time
+    return '已排成提醒:' + parsed.title + ' · ' + when + tail
   }
   return '已记成便签'
 }

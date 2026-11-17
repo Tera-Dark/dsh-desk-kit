@@ -229,3 +229,93 @@ test('老数据迁移:没有 shelf 的按同规则补上', () => {
   const s2 = new DeskStore(root)
   assert.equal(s2.data.notes[0].shelf, 'long', '迁移后应判定为长期')
 })
+
+// ---------------------------------------------------------------- 1.7.0 行为契约
+
+const fixedNow = (iso) => new Date(iso)
+
+test('点了「知道了」:当天不再造新告警,次日照常', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '每日打卡', time: '21:00', weekdays: [], leadMin: 30 })
+  const at = fixedNow('2026-11-17T21:30:00')
+  s.tick(at.getTime())
+  assert.equal(s.pendingAlerts().length, 1, '到点先弹一条')
+  s.ackAlert(s.pendingAlerts()[0].id)
+  assert.equal(s.pendingAlerts().length, 0, '点了知道了就该清掉')
+  for (const m of [20, 40, 60, 180]) {
+    s.tick(at.getTime() + m * 60000)
+    assert.equal(s.pendingAlerts().length, 0, '+' + m + ' 分钟不该再弹')
+  }
+  // 次日同一时间:静音只对当天有效
+  s.tick(fixedNow('2026-11-18T21:00:00').getTime())
+  assert.ok(s.pendingAlerts().length >= 1, '第二天要照常提醒')
+  assert.equal(s.data.reminders[0].id, r.id)
+})
+
+test('点了「稍后」:解除当天静音,到点再响', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '开会', time: '10:00', weekdays: [], leadMin: 0 })
+  const at = fixedNow('2026-11-17T10:05:00')
+  s.tick(at.getTime())
+  s.ackAlert(s.pendingAlerts()[0].id)
+  s.snooze(r.id, 30, at.getTime())
+  s.tick(at.getTime() + 10 * 60000)
+  assert.equal(s.pendingAlerts().length, 0, '还没到 30 分钟,别响')
+  s.tick(at.getTime() + 31 * 60000)
+  assert.equal(s.pendingAlerts().length, 1, '稍后到点要再响一次')
+})
+
+test('「全部知道了」可撤销', () => {
+  const s = fresh()
+  s.addReminder({ title: 'A', time: '09:00', weekdays: [], leadMin: 0 })
+  s.addReminder({ title: 'B', time: '09:00', weekdays: [], leadMin: 0 })
+  s.tick(fixedNow('2026-11-17T09:10:00').getTime())
+  assert.equal(s.pendingAlerts().length, 2)
+  s.ackAll()
+  assert.equal(s.pendingAlerts().length, 0)
+  s.tick(fixedNow('2026-11-17T10:00:00').getTime())
+  assert.equal(s.pendingAlerts().length, 0, '全部知道了也要停当天的提醒')
+  s.unackAll()
+  assert.equal(s.pendingAlerts().length, 2, '撤销要恢复成未读')
+})
+
+test('一次性提醒过期后状态是 expired,不再装成进行中', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '交电费', time: '10:00', date: '2026-11-17' })
+  const today = s.todayView(fixedNow('2026-11-17T12:00:00')).find((x) => x.id === r.id)
+  assert.equal(today.status, 'pending', '当天过点 = 待处理')
+  const next = s.todayView(fixedNow('2026-11-18T12:00:00')).find((x) => x.id === r.id)
+  assert.equal(next.status, 'expired', '次日应标记已过期')
+})
+
+test('每月 N 号:下个月没有这一天时按月末算', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '交房租', time: '09:00', monthly: 31 })
+  const occ = s.todayView(fixedNow('2026-11-30T08:00:00')).find((x) => x.id === r.id)
+  assert.equal(occ.status, 'upcoming')
+  assert.equal(new Date(occ.occurrenceAt).getDate(), 30, '11 月只有 30 天')
+})
+
+test('同一句话 10 分钟内重复存:合并而不是堆两条', () => {
+  const s = fresh()
+  const a = s.addNote({ text: '买牛奶' })
+  const b = s.addNote({ text: '买牛奶' })
+  assert.equal(b.id, a.id, '应返回同一条')
+  assert.ok(b.deduped, '要标记为去重')
+  assert.equal(s.listNotes().length, 1)
+  const c = s.addNote({ text: '买牛奶', tags: ['生活'] })
+  assert.equal(c.id, a.id, '仍合并')
+  assert.deepEqual(c.tags, ['生活'], '新标签并进同一条')
+  assert.equal(s.listNotes().length, 1)
+})
+
+test('导出备份包含 data 与密文 vault', () => {
+  const s = fresh()
+  s.addNote({ text: '一条' })
+  s.addSecret({ title: '某站', body: '账号 x 密码 y' })
+  const back = s.exportAll()
+  assert.equal(back.kind, 'dsh-desk-kit-backup')
+  assert.equal(back.data.notes.length, 1)
+  assert.ok(back.vault && Array.isArray(back.vault.entries), 'vault 要带上(密文)')
+  assert.ok(!JSON.stringify(back.vault).includes('密码 y'), '导出里不能有明文')
+})

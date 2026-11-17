@@ -38,11 +38,11 @@ function persistParsed(s, parsed, rawText) {
     const reply = '已整理成 ' + created.length + ' 条每日签到提醒(21:00 前,提前 30 分提醒)'
       + (skipped.length ? ';跳过已存在的 ' + skipped.length + ' 条' : '')
       + (created.length ? ':' + created.map((r2) => r2.title.replace(' 签到', '')).join('、') : '')
-    return { parsed, reply, item: created }
+    return { parsed, reply, item: created, created: { kind: 'reminder', ids: created.map((r2) => r2.id) } }
   }
   if (parsed.kind === 'secret') {
     const item = s.addSecret({ title: parsed.title, username: parsed.username, password: parsed.password, url: parsed.url, note: parsed.note })
-    return { parsed, reply: describeCapture(parsed), item }
+    return { parsed, reply: describeCapture(parsed), item, created: { kind: 'secret', id: item.id } }
   }
   if (parsed.kind === 'reminder') {
     const r = s.addReminder({
@@ -53,18 +53,20 @@ function persistParsed(s, parsed, rawText) {
       lunar: parsed.lunar,
       annual: parsed.annual,
       yearly: parsed.yearly,
+      monthly: parsed.monthly,
       leadMin: parsed.leadMin,
       url: parsed.url,
       note: parsed.note || '',
     })
-    return { parsed, reply: describeCapture(parsed), item: r }
+    return { parsed, reply: describeCapture(parsed), item: r, created: { kind: 'reminder', id: r.id } }
   }
   const note = s.addNote({ text: parsed.text || rawText })
-  return {
-    parsed,
-    reply: parsed.missingTime ? '记成便签了;要提醒的话补个时间,比如「明天10点提醒我…」' : describeCapture(parsed),
-    item: note,
-  }
+  const reply = note.deduped
+    ? '这条刚才就存过,已经帮你顶到最前面了'
+    : parsed.missingTime
+      ? '记成便签了;要提醒的话补个时间,比如「明天10点提醒我…」'
+      : describeCapture(parsed)
+  return { parsed, reply, item: note, created: { kind: 'note', id: note.id, deduped: !!note.deduped } }
 }
 
 /** 本地规则:一句话 → 解析结果 → 落盘。 */
@@ -169,8 +171,28 @@ async function aiClassify(ctx, text, sel) {
 }
 
 /** 一句话落盘:配了分类模型先问模型,失败/没配就走本地规则。 */
+/**
+ * 要不要为了这句话去问一次模型。
+ * 本地规则已经能排出时间的、已经认出凭据的、多站点批量的,都不必再花一次调用;
+ * 只有「本地只能当成便签、但看起来像待办或凭据」才值得问。
+ */
+const TODO_HINT = /提醒|叫我|记得|别忘|截止|deadline|到期|该交|要交|得交|之前|以前|前(?:把|得|要|交|给)|别迟到|签到|打卡/
+const TIME_HINT = /\d\s*(点|号|日|月|小时|分钟|:|：)|[一二三四五六七八九十两半]{1,3}\s*(点|号|日|月|小时|分钟|钟头|周|星期|天)/
+const SECRET_HINT = /密码|账号|密钥|token|恢复码|备用码/i
+
+function shouldAskAI(local, text) {
+  if (!local) return true
+  // 本地已经能排出时间/认出凭据/拆成多条了,再问一遍模型只是多花钱多等几秒
+  if (local.kind === 'multi' || local.kind === 'secret' || local.kind === 'reminder') return false
+  const t = String(text || '')
+  if (local.missingTime) return true
+  return TODO_HINT.test(t) || TIME_HINT.test(t) || SECRET_HINT.test(t)
+}
+
 async function applyCaptureSmart(ctx, s, text) {
   const sel = classifySelectionOf(s)
+  const local = parseCapture(text)
+  if (!sel || !shouldAskAI(local, text)) return persistParsed(s, local, text)
   if (sel) {
     const ai = await aiClassify(ctx, text, sel)
     if (ai) {
@@ -204,7 +226,7 @@ export const name = 'dsh-desk-kit'
 export const inject = ['webServer']
 
 const ROUTE = '/desk-kit-api'
-const PLUGIN_VERSION = '1.5.0'
+const PLUGIN_VERSION = '1.7.0'
 const TICK_MS = 15000
 
 function dshHome() {
@@ -304,11 +326,12 @@ function weekText(days) {
 
 function statusLabel(r) {
   switch (r.status) {
-    case 'done': return '今日已签'
-    case 'pending': return '待签到(已到提醒时间)'
-    case 'upcoming': return '未到提醒时间'
+    case 'done': return '今天已完成'
+    case 'pending': return '到点了,还没处理'
+    case 'upcoming': return '还没到时间'
     case 'paused': return '已暂停'
-    case 'not-today': return '今天不用签'
+    case 'expired': return '已过期(一次性提醒)'
+    case 'not-today': return '今天不用做'
     default: return r.status
   }
 }
@@ -350,6 +373,7 @@ async function act(ctx, s, action, payload) {
     }
     case 'alert.ack': return s.ackAlert(payload.id)
     case 'alert.ackAll': return s.ackAll()
+    case 'alert.unackAll': return s.unackAll()
     case 'secret.add': return s.addSecret(payload)
     case 'secret.update': return s.updateSecret(payload.query || payload.id, payload)
     case 'secret.delete': return s.deleteSecret(payload.query || payload.id)
@@ -749,6 +773,11 @@ export function apply(ctx) {
             }
           }
           json(res, 200, { ok: true, providers })
+          return
+        }
+        // 整库导出:给设置页的「备份」按钮,浏览器直接落成 .json
+        if (url.pathname === ROUTE + '/export') {
+          json(res, 200, { ok: true, backup: s.exportAll() })
           return
         }
         if (method === 'GET') {
