@@ -114,6 +114,90 @@ test('设置显示版本号', () => {
   assert.ok(renderToString(h(T.Settings, { state, run })).includes(m[1]))
 })
 
+test('apiPost 回写 ETag/state,下一次轮询带 if-none-match 并命中 304', async () => {
+  const calls = []
+  const reply = (body, headers = {}, status = 200) => ({
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (k) => headers[k] ?? null },
+    json: async () => body,
+  })
+  const prev = globalThis.fetch
+  globalThis.fetch = async (_url, opts = {}) => {
+    calls.push(opts)
+    if (opts.method === 'POST') {
+      return reply({ ok: true, result: { id: 'n1' }, state: { now: 1, marker: 'post' } }, { etag: '"v1"' })
+    }
+    return reply(null, { etag: '"v1"' }, 304)
+  }
+  try {
+    await T.apiPost('note.add', { text: 'x' })
+    const st = await T.apiGet()
+    assert.equal(st, null, '304 时 apiGet 必须返回 null(保持原样)')
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0].method, 'POST')
+    assert.equal(calls[1].headers['if-none-match'], '"v1"', 'POST 回来的 ETag 要带到下一次 GET')
+    assert.equal((await T.apiGetOrLast()).marker, 'post', '304 时用 POST 带回来的 state')
+  } finally {
+    if (prev === undefined) delete globalThis.fetch
+    else globalThis.fetch = prev
+  }
+})
+
+test('fetch 断网时给中文提示,不把 Failed to fetch 甩给用户', async () => {
+  const prev = globalThis.fetch
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch') }
+  try {
+    await assert.rejects(T.apiGet(), /连不上本地服务/)
+    await assert.rejects(T.apiPost('note.add', {}), /连不上本地服务/)
+  } finally {
+    if (prev === undefined) delete globalThis.fetch
+    else globalThis.fetch = prev
+  }
+})
+
+test('错误条:有重试时给按钮,没重试时只显示一句', () => {
+  const withRetry = renderToString(h(T.ErrorBar, { text: '读不到数据', onRetry: () => { } }))
+  assert.ok(withRetry.includes('读不到数据'))
+  assert.ok(withRetry.includes('重试'), '有 onRetry 时要出重试按钮')
+  const plain = renderToString(h(T.ErrorBar, { text: '只是提示' }))
+  assert.ok(plain.includes('只是提示'))
+  assert.ok(!plain.includes('重试'), '没有 onRetry 时不该出现按钮')
+})
+
+test('样式注入可回收,重建时更新同一个节点而不是留旧 CSS', () => {
+  const tags = []
+  const head = {
+    appendChild(t) { t.parentNode = head; tags.push(t); return t },
+    removeChild(t) { t.parentNode = null },
+  }
+  const doc = {
+    head,
+    createElement: () => ({ dataset: {}, textContent: '' }),
+    querySelector: (sel) => tags.find((t) => t.parentNode === head && sel.includes(t.dataset.pluginCss)) || null,
+  }
+  const prev = globalThis.document
+  globalThis.document = doc
+  try {
+    const off1 = T.injectCss()
+    assert.equal(tags.length, 1, '首次注入一个 style 节点')
+    assert.ok(tags[0].textContent.includes('__dk_sp'), '内容应是当前 CSS')
+    tags[0].textContent = 'old'
+    const off2 = T.injectCss()
+    assert.equal(tags.length, 1, '重建时复用同一个节点')
+    assert.ok(tags[0].textContent.includes('__dk_sp'), '复用时要更新到最新 CSS')
+    off2()
+    assert.equal(tags[0].parentNode, null, 'dispose 时要把 style 摘掉')
+    const off3 = T.injectCss()
+    assert.equal(tags.length, 2, '摘掉之后再次 apply 会重新建')
+    off3()
+    off1() // 重复清理不应抛错
+  } finally {
+    if (prev === undefined) delete globalThis.document
+    else globalThis.document = prev
+  }
+})
+
 test('便签默认只显示前 8 条,不堆满屏', () => {
   const many = Array.from({ length: 20 }, (_, i) => ({
     id: 'n' + i, text: '便签' + i, tags: [], shelf: 'daily',

@@ -242,6 +242,23 @@
        return () => window.removeEventListener('keydown', onKey)
      }, [])
 
+     // 点面板外面关掉浮层面板 —— 这是浮层的默认习惯。
+     // 点在面板里/浮标上/提醒坞里都不关:提醒坞的「打开」要自己处理。
+     useEffect(() => {
+       if (!open) return undefined
+       const onDown = (e) => {
+         const t = e.target
+         const inside = (el) => {
+           try { return !!(el && t && el.contains(t)) } catch { return false }
+         }
+         if (inside(panelEl.current) || inside(fabEl.current)) return
+         if (t && typeof t.closest === 'function' && t.closest('.__dk_dock')) return
+         setOpen(false)
+       }
+       document.addEventListener('pointerdown', onDown, true)
+       return () => document.removeEventListener('pointerdown', onDown, true)
+     }, [open])
+
      const run = useCallback(async (action, payload) => {
        try {
          const body = await apiPost(action, payload)
@@ -435,7 +452,7 @@
        // 装了侧栏标签页时连首屏这一下都不闪浮标(设置里显式开浮标的等状态加载后自然出现)
        if (sidebar.ready) return null
        return h('div', { className: '__dk_root', style: fabStyle }, [
-         err ? h('div', { key: 'e', className: '__dk_err' }, err) : null,
+         err ? h(ErrorBar, { key: 'e', text: err, onRetry: load }) : null,
          fabNode,
        ])
      }
@@ -484,11 +501,16 @@
            ),
          }, [
            h('div', { key: 'h', className: '__dk_head' }, [
-             h('div', { key: 't', className: '__dk_title' }, [
-               TITLES[page] || '随手台',
-               h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: '重要等级:' + lv.name }, [
-                 h('i', { key: 'i' }), lv.code + ' ' + lv.name,
+             h('div', { key: 't', className: '__dk_titlewrap' }, [
+               h('div', { key: 'tt', className: '__dk_title' }, [
+                 TITLES[page] || '随手台',
+                 h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: '重要等级:' + lv.name }, [
+                   h('i', { key: 'i' }), lv.code + ' ' + lv.name,
+                 ]),
                ]),
+               // 标题下面一条轻量状态:日期 + 待办,不用切到首页也知道今天有没有事
+               h('div', { key: 'st', className: '__dk_subtitle' },
+                 fmtDay(state.today) + (due ? ' · ' + due + ' 项待办' : ' · 今日无待办')),
              ]),
              h('div', { key: 'act', className: '__dk_headact' }, [
                h('button', {
@@ -516,7 +538,7 @@
            }, [
              h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply('') }),
              h(ReplyMove, { key: 'rmove', reply, run, onSay: (t) => showReply(t) }),
-             err ? h('div', { key: 'err', className: '__dk_err' }, err) : null,
+             err ? h(ErrorBar, { key: 'err', text: err, onRetry: load }) : null,
              // key 带 seq:切页整块重建,滑屏动画才会重放
              h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page __dk_page--' + dir },
                h(SafePage, null, body)),

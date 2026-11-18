@@ -795,9 +795,30 @@ test('清理:快照里的到期表算得对(0 天 = 下次就清)', () => {
   const row = snap.trash.find((t) => t.id === n.id)
   assert.equal(snap.trashKeepDays, 7)
   assert.equal(row.daysLeft, 4, '7 - 3 = 还剩 4 天')
+  // 快照和用量卡片必须用同一份到期算法,不能各算各的
+  assert.deepEqual(s.storage().trash.map((t) => [t.id, t.daysLeft]), snap.trash.map((t) => [t.id, t.daysLeft]))
   s.data.settings.trashKeepDays = 0
   s.save()
   assert.equal(s.snapshot().trash.find((t) => t.id === n.id).daysLeft, null, '0 天 = 不会自动清')
+  assert.equal(s.storage().trash.find((t) => t.id === n.id).daysLeft, null)
+})
+
+test('附件:非法 id 不参与路径拼接(导入丢弃;读/删不越界)', () => {
+  const a = fresh()
+  const rep = a.importBackup({
+    kind: 'dsh-desk-kit-backup', version: 1,
+    data: { files: [{ id: '../escape', name: '越界文件' }] },
+  })
+  assert.equal(rep.added.files, 0, '带路径的附件 id 不能进库')
+  assert.ok(rep.skipped >= 1)
+  // 模拟手改 data.json:塞一条坏记录,读取和删除都不该碰 blobs/ 之外
+  const sentinel = join(a.root, 'escape.bin')
+  writeFileSync(sentinel, 'keep')
+  a.data.files.push({ id: '../escape', name: '越界文件', mime: 'text/plain', size: 4, secret: false, kind: '', ownerId: '', createdAt: Date.now() })
+  assert.throws(() => a.readFileBytes('../escape'), /不合法/)
+  assert.equal(a.dropFiles(['../escape']), 1, '记录仍然可以被删掉')
+  assert.ok(existsSync(sentinel), '不能按坏 id 删到 blobs/ 之外的 escape.bin')
+  assert.equal(a.data.files.length, 0)
 })
 
 // ---------------- 备份导入 ----------------
@@ -868,6 +889,43 @@ test('导入:不是备份的文件要拒,并说人话', () => {
   assert.throws(() => a.importBackup({ hello: 1 }), /kind/)
   assert.throws(() => a.importBackup({ kind: 'dsh-desk-kit-backup', version: 99 }), /版本/)
   assert.throws(() => a.importBackup('字符串'), /备份/)
+})
+
+test('导入:缺字段/坏时间/坏日期/坏网址的条目被归一化或跳过,搜索不再崩', () => {
+  const a = fresh()
+  const rep = a.importBackup({
+    kind: 'dsh-desk-kit-backup',
+    version: 1,
+    data: {
+      notes: [{ id: 'n-bad' }],
+      reminders: [
+        { id: 'r-bad-time', title: '时间坏了', time: '25:99' },
+        { id: 'r-bad-date', title: '日期坏了', time: '09:00', date: '2026-02-30' },
+        { id: 'r-ok', title: '能救回来', time: '9:05' },
+      ],
+      links: [{ id: 'w-bad', title: '没网址' }],
+    },
+  })
+  assert.equal(rep.added.notes, 1, '缺 text 的便签要补空串留下')
+  assert.equal(rep.added.reminders, 1, '只保留时间/日期真的合法的提醒')
+  assert.equal(rep.added.links, 0, '没网址的网页不导入')
+  assert.ok(rep.skipped >= 3, '被跳过的要计数')
+  // 关键回归:以前这条会抛 TypeError,搜索/快照永久报错
+  assert.equal(a.listNotes({ query: 'x' }).length, 0)
+  assert.equal(a.data.notes[0].text, '', '缺 text 归一成空串')
+  assert.equal(a.data.notes[0].shelf, 'daily')
+  assert.equal(a.data.reminders[0].time, '09:05', '时间要补零')
+  assert.equal(a.data.reminders[0].active, true, '缺 active 默认是启用的')
+  assert.deepEqual(a.data.reminders[0].doneDates, [])
+})
+
+test('导入:便签超过活动上限时转归档,数据不丢', () => {
+  const a = fresh()
+  const notes = Array.from({ length: 2001 }, (_, i) => ({ id: 'n-' + i, text: '第' + i + '条' }))
+  const rep = a.importBackup({ kind: 'dsh-desk-kit-backup', version: 1, data: { notes } })
+  assert.equal(rep.added.notes, 2001)
+  assert.equal(a.data.notes.length, 2001, '不丢数据')
+  assert.equal(a.data.notes.filter((n) => n.archived).length, 1, '超出的 1 条转归档')
 })
 
 test('导入:换过 vault.key 的条目跳过并计数,不污染其它数据', () => {

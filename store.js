@@ -23,6 +23,9 @@ const MAX_CHECKINS = 60
 const MAX_FILE_BYTES = 24 * 1024 * 1024
 /** 附件总数上限:再多就是拿它当网盘了,提示用户清理。 */
 const MAX_FILES = 3000
+/** 附件 id 只是文件名的一部分:不允许路径分隔符/点,防止拼出 blobs/ 之外的路径。 */
+const BLOB_ID_RE = /^[A-Za-z0-9_-]{1,120}$/
+const isBlobId = (id) => BLOB_ID_RE.test(String(id || ''))
 
 /**
  * 从二进制头部读图片尺寸(PNG / GIF / JPEG / WebP / BMP)。
@@ -103,6 +106,162 @@ export function parseClock(text) {
   const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(text || '').trim())
   if (!m) return null
   return { h: Number(m[1]), m: Number(m[2]) }
+}
+
+// ---------------- 导入数据归一化 ----------------
+// 备份文件可能是手改的、旧版本的、或者干脆坏的。落库前统一补默认值/截断/丢无效项,
+// 免得一条缺字段的记录让 listNotes / 搜索在以后每次调用都抛错。
+const asText = (v, max) => String(v === undefined || v === null ? '' : v).slice(0, max)
+const asInt = (v, fallback = 0) => {
+  const n = Number(v)
+  return v === undefined || v === null || v === '' || !Number.isFinite(n) ? fallback : n
+}
+const asClamp = (v, min, max, fallback) => Math.max(min, Math.min(max, asInt(v, fallback)))
+const asList = (v) => (Array.isArray(v) ? v.map(String).filter(Boolean) : [])
+const asId = (v) => (typeof v === 'string' ? v.trim().slice(0, 120) : '')
+const clockText = (c) => String(c.h).padStart(2, '0') + ':' + String(c.m).padStart(2, '0')
+
+function normalizeNote(raw, now) {
+  const id = asId(raw.id)
+  if (!id) return null
+  const text = asText(raw.text, 20000)
+  return {
+    ...raw,
+    id,
+    text,
+    tags: asList(raw.tags).slice(0, 12),
+    files: asList(raw.files),
+    color: asText(raw.color, 20),
+    pinned: !!raw.pinned,
+    archived: !!raw.archived,
+    shelf: raw.shelf === 'long' || raw.shelf === 'daily' ? raw.shelf : DeskStore.inferShelf(raw, text),
+    completedAt: asInt(raw.completedAt),
+    deletedAt: asInt(raw.deletedAt),
+    createdAt: asInt(raw.createdAt, now),
+    updatedAt: asInt(raw.updatedAt, now),
+  }
+}
+
+function normalizeReminder(raw, now) {
+  const id = asId(raw.id)
+  if (!id) return null
+  // 时间存坏的提醒永远不会响,不如在导入时跳过并计数,而不是留一条假提醒
+  const clock = parseClock(raw.time)
+  if (!clock) return null
+  // 一次性提醒的日期不存在时同理:不能把它悄悄降级成「每天」
+  const date = raw.date === undefined || raw.date === null || raw.date === ''
+    ? undefined
+    : (isRealDate(raw.date) ? String(raw.date) : null)
+  if (date === null) return null
+  const lunar = raw.lunar && typeof raw.lunar === 'object'
+    && Number.isFinite(Number(raw.lunar.month)) && Number.isFinite(Number(raw.lunar.day))
+    ? {
+      month: asClamp(raw.lunar.month, 1, 12, 1),
+      day: asClamp(raw.lunar.day, 1, 30, 1),
+      isLeap: !!raw.lunar.isLeap,
+    }
+    : undefined
+  const annual = typeof raw.annual === 'string' && /^\d{2}-\d{2}$/.test(raw.annual) && isRealDate('2000-' + raw.annual)
+    ? raw.annual
+    : undefined
+  const monthly = Number.isInteger(Number(raw.monthly)) && Number(raw.monthly) >= 1 && Number(raw.monthly) <= 31
+    ? Number(raw.monthly)
+    : undefined
+  const url = typeof raw.url === 'string' && /^https?:\/\//i.test(raw.url.trim()) ? raw.url.trim().slice(0, 600) : ''
+  return {
+    ...raw,
+    id,
+    title: asText(raw.title, 120) || '未命名提醒',
+    note: asText(raw.note, 2000),
+    time: clockText(clock),
+    weekdays: [...new Set((Array.isArray(raw.weekdays) ? raw.weekdays : [])
+      .map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))],
+    date,
+    lunar,
+    annual,
+    monthly,
+    yearly: !!raw.yearly,
+    leadMin: asClamp(raw.leadMin, 0, 10080, 30),
+    snoozeMin: asClamp(raw.snoozeMin, 1, 720, 20),
+    url,
+    active: raw.active !== false,
+    doneDates: asList(raw.doneDates),
+    silencedDates: asList(raw.silencedDates),
+    snoozeUntil: asInt(raw.snoozeUntil),
+    createdAt: asInt(raw.createdAt, now),
+    updatedAt: asInt(raw.updatedAt, now),
+  }
+}
+
+function normalizeLink(raw, now) {
+  const id = asId(raw.id)
+  if (!id) return null
+  const url = asText(raw.url, 600).trim()
+  if (!/^https?:\/\//i.test(url)) return null
+  return {
+    ...raw,
+    id,
+    title: asText(raw.title, 80) || hostOf(url),
+    url,
+    group: asText(raw.group, 24),
+    icon: asText(raw.icon, 400),
+    note: asText(raw.note, 2000),
+    pinned: !!raw.pinned,
+    hits: Math.max(0, asInt(raw.hits)),
+    lastOpenedAt: asInt(raw.lastOpenedAt),
+    createdAt: asInt(raw.createdAt, now),
+    updatedAt: asInt(raw.updatedAt, now),
+    deletedAt: asInt(raw.deletedAt),
+  }
+}
+
+function normalizeFile(raw, now) {
+  const id = asId(raw.id)
+  if (!id || !isBlobId(id)) return null
+  const kind = ['note', 'reminder', 'link', 'secret'].includes(raw.kind) ? raw.kind : ''
+  return {
+    ...raw,
+    id,
+    name: asText(raw.name, 160) || '未命名文件',
+    mime: asText(raw.mime, 120) || 'application/octet-stream',
+    size: Math.max(0, asInt(raw.size)),
+    w: Math.max(0, asInt(raw.w)),
+    h: Math.max(0, asInt(raw.h)),
+    secret: !!raw.secret,
+    kind,
+    ownerId: asText(raw.ownerId, 120),
+    createdAt: asInt(raw.createdAt, now),
+  }
+}
+
+function normalizeAlert(raw) {
+  const id = asId(raw.id)
+  if (!id) return null
+  return {
+    ...raw,
+    id,
+    kind: asText(raw.kind, 20),
+    refId: asText(raw.refId, 120),
+    date: asText(raw.date, 10),
+    dueDate: asText(raw.dueDate, 10),
+    title: asText(raw.title, 200),
+    text: asText(raw.text, 2000),
+    at: asInt(raw.at),
+    dueAt: asInt(raw.dueAt),
+    over: !!raw.over,
+    late: !!raw.late,
+    acked: !!raw.acked,
+  }
+}
+
+function normalizeImported(kind, raw, now) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  if (kind === 'notes') return normalizeNote(raw, now)
+  if (kind === 'reminders') return normalizeReminder(raw, now)
+  if (kind === 'links') return normalizeLink(raw, now)
+  if (kind === 'files') return normalizeFile(raw, now)
+  if (kind === 'alerts') return normalizeAlert(raw)
+  return null
 }
 
 /**
@@ -282,7 +441,8 @@ export class DeskStore {
       files: [],
       alerts: [],
       settings: {
-        tickSeconds: 20, muted: false, sound: true,
+        // 定时器间隔由宿主半侧写死(TICK_MS);这里只放用户真正能改的设置。
+        muted: false, sound: true,
         // 垃圾箱里的东西留几天(0 = 永不自动清)
         trashKeepDays: 30,
         // 上次自动清理的时间戳,给「什么时候清过」一个凭据
@@ -486,7 +646,9 @@ export class DeskStore {
     else if (view === 'all') rows = base.filter(alive)
     else rows = base.filter((n) => open(n) && !isLong(n) && (includeArchived || !n.archived))
     return rows
-      .filter((n) => !q || n.text.toLowerCase().includes(q) || (n.tags || []).join(' ').toLowerCase().includes(q))
+      // 用 String 兜底:手改过的 data.json 里可能有缺 text 的旧记录,
+      // 一处 throw 会让整个搜索/快照永久报错。
+      .filter((n) => !q || String(n.text || '').toLowerCase().includes(q) || (n.tags || []).join(' ').toLowerCase().includes(q))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt)
   }
 
@@ -1209,10 +1371,12 @@ export class DeskStore {
       if (!Array.isArray(list)) return
       const seen = new Set((this.data[key] || []).map((x) => x && x.id))
       for (const item of list) {
-        if (!item || typeof item !== 'object' || !item.id) { report.skipped++; continue }
-        if (seen.has(item.id)) { report.skipped++; continue }
-        seen.add(item.id)
-        this.data[key].push(item)
+        // 先归一化:缺字段/坏时间/坏日期的条目跳过并计数,不让坏数据进库
+        const clean = normalizeImported(key, item, now)
+        if (!clean) { report.skipped++; continue }
+        if (seen.has(clean.id)) { report.skipped++; continue }
+        seen.add(clean.id)
+        this.data[key].push(clean)
         if (countKey) report.added[countKey]++
       }
     }
@@ -1222,8 +1386,20 @@ export class DeskStore {
     mergeList('alerts', incoming.alerts, 'alerts')
     mergeList('files', incoming.files, 'files')
 
+    // 导入也要遵守本地的上限:便签超出活动上限转归档(不丢数据),
+    // 附件记录超出总数上限就丢弃多出来的元信息并报数。
+    if (this.data.notes.length > MAX_NOTES) {
+      for (const old of this.data.notes.slice(MAX_NOTES)) old.archived = true
+    }
+    if (this.data.files.length > MAX_FILES) {
+      report.skipped += this.data.files.length - MAX_FILES
+      this.data.files.length = MAX_FILES
+    }
+
     // 附件:记录进来了,原件不一定在(导出不含 blobs/)
     for (const f of this.data.files || []) {
+      // 手改过的 data.json 可能带 ../ 之类的 id:只标缺原件,绝不按它去拼路径
+      if (!isBlobId(f.id)) { f.missingBlob = true; continue }
       if (!existsSync(this.blobFile(f.id, !!f.secret))) { f.missingBlob = true; report.missingBlobs++ }
       else if (f.missingBlob) delete f.missingBlob
     }
@@ -1336,6 +1512,30 @@ export class DeskStore {
     return this.filesFor(kind, id)
   }
 
+  /**
+   * 垃圾箱到期表:快照、用量卡片、清理预览共用同一份算法。
+   * 以前 snapshot() 和 storage() 各写一遍,改了保留天数规则很容易只改到一半。
+   */
+  trashEntries(nowMs = Date.now()) {
+    const keep = Number(this.data.settings.trashKeepDays ?? 30)
+    const dueAt = (deletedAt) => (keep > 0 ? (deletedAt || 0) + keep * 86400000 : 0)
+    const out = []
+    const push = (kind, item) => {
+      const at = dueAt(item.deletedAt)
+      out.push({
+        kind, id: item.id,
+        title: String(item.title || item.text || item.url || '').slice(0, 80),
+        deletedAt: item.deletedAt || 0,
+        dueAt: at,
+        daysLeft: at ? Math.max(0, Math.ceil((at - nowMs) / 86400000)) : null,
+      })
+    }
+    for (const n of this.data.notes) if ((n.deletedAt || 0) > 0) push('note', n)
+    for (const r of this.data.reminders) if ((r.deletedAt || 0) > 0) push('reminder', r)
+    for (const l of this.data.links) if ((l.deletedAt || 0) > 0) push('link', l)
+    return out.sort((a, b) => (a.dueAt || 0) - (b.dueAt || 0))
+  }
+
   /** 磁盘用量与「有什么在等着被清」。设置页那张卡片就靠它。 */
   storage(nowMs = Date.now()) {
     const sizeOf = (file) => {
@@ -1349,22 +1549,7 @@ export class DeskStore {
         blobCount++
       }
     } catch { /* 目录还没建 */ }
-    const keep = Number(this.data.settings.trashKeepDays ?? 30)
-    const dueAt = (deletedAt) => (keep > 0 ? (deletedAt || 0) + keep * 86400000 : 0)
-    const trash = []
-    const pushTrash = (kind, item) => {
-      const at = dueAt(item.deletedAt)
-      trash.push({
-        kind, id: item.id,
-        title: String(item.title || item.text || item.url || '').slice(0, 80),
-        deletedAt: item.deletedAt || 0,
-        dueAt: at,
-        daysLeft: at ? Math.max(0, Math.ceil((at - nowMs) / 86400000)) : null,
-      })
-    }
-    for (const n of this.data.notes) if ((n.deletedAt || 0) > 0) pushTrash('note', n)
-    for (const r of this.data.reminders) if ((r.deletedAt || 0) > 0) pushTrash('reminder', r)
-    for (const l of this.data.links) if ((l.deletedAt || 0) > 0) pushTrash('link', l)
+    const trash = this.trashEntries(nowMs)
     // 「传上来一直没挂上」的临时附件:一天后会被清
     const strayFiles = (this.data.files || []).filter((f) => !f.kind)
     const orphans = (this.data.files || []).filter((f) => {
@@ -1397,10 +1582,10 @@ export class DeskStore {
         orphanFiles: orphans.length,
         alerts: this.data.alerts.length,
       },
-      trash: trash.sort((a, b) => (a.dueAt || 0) - (b.dueAt || 0)),
+      trash,
       // 现在就到期、下次清理真的会动的条数(垃圾箱里「还有 20 天」的不算)
       trashDueNow: trash.filter((t) => t.daysLeft === 0).length,
-      trashKeepDays: keep,
+      trashKeepDays: Number(this.data.settings.trashKeepDays ?? 30),
       lastSweepAt: this.data.settings.lastSweepAt || 0,
       dir: this.root,
     }
@@ -1578,6 +1763,7 @@ export class DeskStore {
   readFileBytes(id) {
     const rec = (this.data.files || []).find((f) => f.id === id)
     if (!rec) throw new Error('找不到附件 ' + id)
+    if (!isBlobId(rec.id)) throw new Error('附件 id 不合法')
     let buf
     try {
       buf = readFileSync(this.blobFile(rec.id, rec.secret))
@@ -1593,7 +1779,7 @@ export class DeskStore {
    */
   setFileSecret(id, flag) {
     const rec = (this.data.files || []).find((f) => f.id === id)
-    if (!rec) return null
+    if (!rec || !isBlobId(rec.id)) return null
     const want = !!flag
     if (!!rec.secret === want) return { ...rec }
     let raw
@@ -1620,7 +1806,10 @@ export class DeskStore {
     for (const id of list) {
       const rec = (this.data.files || []).find((f) => f.id === id)
       if (!rec) continue
-      try { unlinkSync(this.blobFile(rec.id, rec.secret)) } catch { /* 原件本来就不在了 */ }
+      // id 不合法时只删记录,不按它去 unlink(否则可能删到 blobs/ 之外的同名 .bin/.enc)
+      if (isBlobId(rec.id)) {
+        try { unlinkSync(this.blobFile(rec.id, rec.secret)) } catch { /* 原件本来就不在了 */ }
+      }
       this.data.files = this.data.files.filter((f) => f.id !== id)
       n++
     }
@@ -1918,24 +2107,7 @@ export class DeskStore {
         bytes: (this.data.files || []).reduce((n, f) => n + (f.size || 0), 0),
       },
       // 垃圾箱到期表:每条还有几天被自动清掉(0 天 = 已经到期,下次清理就没)
-      trash: (() => {
-        const keep = Number(this.data.settings.trashKeepDays ?? 30)
-        const out = []
-        const push = (kind, item) => {
-          const at = keep > 0 ? (item.deletedAt || 0) + keep * 86400000 : 0
-          out.push({
-            kind, id: item.id,
-            title: String(item.title || item.text || item.url || '').slice(0, 80),
-            deletedAt: item.deletedAt || 0,
-            dueAt: at,
-            daysLeft: at ? Math.max(0, Math.ceil((at - now.getTime()) / 86400000)) : null,
-          })
-        }
-        for (const n of this.data.notes) if ((n.deletedAt || 0) > 0) push('note', n)
-        for (const r of this.data.reminders) if ((r.deletedAt || 0) > 0) push('reminder', r)
-        for (const l of this.data.links) if ((l.deletedAt || 0) > 0) push('link', l)
-        return out.sort((a, b) => (a.dueAt || 0) - (b.dueAt || 0))
-      })(),
+      trash: this.trashEntries(now.getTime()),
       trashKeepDays: Number(this.data.settings.trashKeepDays ?? 30),
       lastSweepAt: this.data.settings.lastSweepAt || 0,
       secrets: this.listSecrets(),

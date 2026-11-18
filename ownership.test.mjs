@@ -47,4 +47,23 @@ assert.deepEqual(released.slice().sort(), [
 ].sort(), 'dispose 后 27 个工具都要被注销')
 assert.equal(routeDisposers.includes('unregistered'), true, 'dispose 后路由要取消注册')
 
+// 迟到的 ctx.inject 回调:插件已经 dispose 了,不能再生效
+{
+  const lateCallbacks = []
+  const lateTools = []
+  const lateEffects = []
+  const ctx2 = {
+    inject: (_deps, cb) => { lateCallbacks.push(cb) },
+    effect: (fn) => { const dispose = fn(); if (typeof dispose === 'function') lateEffects.push(dispose); return dispose },
+    get: () => undefined,   // 没有 webServer:只登记 tick + 工具回收两个 effect
+    tools: { register: (def) => { lateTools.push(def.name); return () => { } } },
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+  }
+  apply(ctx2)
+  assert.equal(lateTools.length, 0, '依赖没就绪前不该注册工具')
+  for (const dispose of lateEffects.slice().reverse()) dispose()
+  for (const cb of lateCallbacks) cb()
+  assert.equal(lateTools.length, 0, 'dispose 之后迟到的 inject 回调不能再注册工具')
+}
+
 console.log('OWNERSHIP TESTS PASSED · effects=' + effects.length + ' tools=' + released.length + ' routes=1')

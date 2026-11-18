@@ -115,7 +115,7 @@
      }, [run, showReply])
 
      return h(SidebarView, {
-       state, page, seq, reply, err, run, bridge,
+       state, page, seq, reply, err, run, bridge, onRetry: load,
        onGo: go, onCaptureDone, onLink,
        notify: showReply,
        onClearReply: () => showReply(''),
@@ -125,12 +125,12 @@
    }
 
    /** 侧栏页面的纯展示部分:状态由 SidebarPage 喂进来(这样能脱离浏览器直接测)。 */
-   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge }) {
+   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry }) {
      const sidebar = useSidebarBridge(bridge)
      const goTo = onGo
      if (!state) {
        return h('div', { className: '__dk_sp' }, [
-         h('div', { key: 'b', className: '__dk_spbody' }, err ? h('div', { className: '__dk_err' }, err) : h('div', { className: '__dk_hint' }, '正在读取…')),
+         h('div', { key: 'b', className: '__dk_spbody' }, err ? h(ErrorBar, { text: err, onRetry }) : h('div', { className: '__dk_hint' }, '正在读取…')),
        ])
      }
 
@@ -170,7 +170,7 @@
          h(AlertInline, { key: 'alerts', alerts, run }),
          h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply }),
          h(ReplyMove, { key: 'rmove', reply, run, onSay: onClearReply ? (t) => showReply(t) : null }),
-         err ? h('div', { key: 'err', className: '__dk_err' }, err) : null,
+         err ? h(ErrorBar, { key: 'err', text: err, onRetry }) : null,
          h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page' }, h(SafePage, null, body)),
        ]),
      ])
@@ -306,8 +306,12 @@
    }
 
    function apply(ctx) {
-     injectCss()
-     if (!ctx) return
+     // 样式也归插件生命周期所有:dispose 时摘掉,重建时用最新 CSS 重新挂
+     if (!ctx) { injectCss(); return }
+     try {
+       if (typeof ctx.effect === 'function') ctx.effect(() => injectCss(), 'desk-kit: styles')
+       else injectCss()
+     } catch (error) { /* 没有 effect 的老宿主:样式照挂,只是不回收 */ }
      // 每次 apply 一个桥:侧栏服务是否就绪、怎么把它叫到前面,都在这里
      const bridge = createSidebarBridge()
      // 先挂侧栏标签页:它决定浮标要不要兜底
@@ -400,7 +404,7 @@
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
-     playChime, SOUND, useAlertSound,
+     playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar,
    }
    return module.exports
  },

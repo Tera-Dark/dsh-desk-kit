@@ -63,7 +63,16 @@ const rawPost = (headers, body) => fetch(base, { method: 'POST', headers: { 'con
   assert.equal(sameOrigin.status, 200, '本机同源请求要放行')
   const junk = await post('note.purge', { id: (await get()).state.notes[0].id })
   assert.ok(junk.ok, '清掉这条探针便签')
-  console.log('✓ 请求围栏:无标记 / 外站来源 / 跨站 一律 403,本机同源放行')
+  // 请求体过大:要回 413(可据此缩小请求),不是含糊的 400
+  const huge = await fetch(base, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-desk-kit': '1' },
+    body: JSON.stringify({ action: 'note.add', payload: { text: 'x'.repeat(2 * 1024 * 1024) } }),
+  })
+  assert.equal(huge.status, 413, '超过 1MB 的请求体要回 413')
+  const hugeBody = await huge.json()
+  assert.ok(hugeBody.error.includes('上限'), '413 要带一句人话')
+  console.log('✓ 请求围栏:无标记 / 外站来源 / 跨站 一律 403,本机同源放行;超大请求 413')
 }
 
 // 3) 空库:不该替用户造数据
@@ -187,6 +196,22 @@ const p7 = await post('note.purge', { id: nid })
 assert.equal(p7.state.notes.length, before)
 assert.equal(p7.state.noteCounts.trash, 0)
 console.log('✓ 便签:软删除/恢复/完成/彻底删 全部正常')
+
+// 6.5) 写操作也要回 ETag:否则客户端每次改完都会再拉一遍整份快照
+{
+  const r = await fetch(base, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-desk-kit': '1' },
+    body: JSON.stringify({ action: 'note.add', payload: { text: 'ETag 探针' } }),
+  })
+  const etag = r.headers.get('etag')
+  assert.ok(etag, 'POST 响应必须带 ETag')
+  const created = await r.json()
+  const again = await fetch(base, { headers: { 'if-none-match': etag } })
+  assert.equal(again.status, 304, '用 POST 回的 ETag 轮询应当命中 304')
+  await post('note.purge', { id: created.result.id })
+  console.log('✓ 写后 ETag:POST 回传,下一次轮询 304(不再白拉全量)')
+}
 
 // 7) API:保险库(密文落盘 + 读回)
 const sec = await post('secret.add', { title: '某示例站点', username: 'demo_user', password: 'p@ss word' })
@@ -323,7 +348,29 @@ console.log('✓ 网页收藏:', snap.state.links.length, '个 ·', snap.state.l
   assert.equal(keep.state.trashKeepDays, 7, '设置页改的保留天数要生效')
   const run1 = await post('cleanup.run', {})
   assert.ok(run1.ok && typeof run1.result.bytes === 'number', 'cleanup.run 要回清理结果')
-  console.log('✓ 查找/用量/清理:search.all · storage.get · cleanup.run(保留 ' + run1.result.keepDays + ' 天)')
+
+  // 设置白名单表:错误类型忽略、字符串截断、数值夹取、未知键不落库
+  const before = (await get()).state.settings
+  const bad = await post('settings.update', {
+    muted: 'yes', tickSeconds: 5, floatFab: true, classifyModel: 'm'.repeat(300),
+  })
+  assert.equal(bad.state.settings.muted, before.muted, '错误类型不落库')
+  assert.equal(bad.state.settings.tickSeconds, undefined, '已删除的死配置不能复活')
+  assert.equal(bad.state.settings.floatFab, true, '合法字段照常生效')
+  assert.equal(bad.state.settings.classifyModel.length, 200, '字符串按上限截断')
+  const clamped = await post('settings.update', { trashKeepDays: 99999 })
+  assert.equal(clamped.state.trashKeepDays, 3650, '垃圾箱保留天数要夹到上限')
+  await post('settings.update', { trashKeepDays: 7 })
+
+  // 一次性 keepDays 只影响这一次清理,不能偷偷改全局设置
+  const once = await post('cleanup.run', { keepDays: 0 })
+  assert.equal(once.result.keepDays, 0)
+  assert.equal((await get()).state.settings.trashKeepDays, 7, 'cleanup.run 的 keepDays 不应改写设置')
+  console.log('✓ 查找/用量/清理:search.all · storage.get · 设置白名单/夹取 · 一次性清理不污染设置')
+
+  // 只读路由只认 GET
+  const badExport = await fetch(base + '/export', { method: 'POST', headers: { 'x-desk-kit': '1' } })
+  assert.equal(badExport.status, 400, '导出只认 GET')
 }
 
 // 7) 导入:走真实请求(merge 去重 + replace 回滚文件 + 坏文件被拒)

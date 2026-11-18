@@ -71,6 +71,14 @@
            key: 'a', className: '__dk_input', autoFocus: true,
            placeholder: '提醒什么,如「交电费」/「吃药」/「朋友生日」',
            value: t, onChange: (e) => setT(e.target.value),
+           // 标题是主输入框:按 Enter 直接保存(类名/时间用当前默认值),不逼人去够按钮
+           onKeyDown: (e) => {
+             if (e.key !== 'Enter') return
+             if (e.nativeEvent && e.nativeEvent.isComposing) return
+             if (!t.trim() || (cycle === 'once' && !date)) return
+             e.preventDefault()
+             save()
+           },
          }),
          h('div', { key: 'cyc', className: '__dk_chips' }, CYCLE.map(([k, label]) =>
            h('button', { key: k, className: '__dk_chip' + (cycle === k ? ' on' : ''), onClick: () => setCycle(k) }, label))),

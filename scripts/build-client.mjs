@@ -23,7 +23,13 @@ if (!files.length) {
   console.error('src/client/ 里没有文件')
   process.exit(1)
 }
-const built = files.map((f) => readFileSync(join(SRC, f), 'utf8')).join('')
+// 版本号单一来源:源码用 __DK_VERSION__ 占位,构建时注入 package.json 的 version,
+// 避免 package.json / index.js / client 三处各写一份、发版时漏改。
+const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
+const built = files
+  .map((f) => readFileSync(join(SRC, f), 'utf8'))
+  .join('')
+  .replaceAll('__DK_VERSION__', version)
 
 const check = process.argv.includes('--check')
 if (check) {

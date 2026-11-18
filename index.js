@@ -6,7 +6,7 @@
  *   2. 提醒      —— 到点前提醒(打卡/待办类),完成后当天静默;由本插件自己的定时器驱动
  *   3. 保险库    —— 账号/密钥长期保存,AES-256-GCM 加密落盘(主密钥在本机 vault.key,0600)
  *
- * 对外:13 个 Agent 工具 + 一条同源 HTTP API(/desk-kit-api),浏览器半侧轮询它。
+ * 对外:27 个 Agent 工具 + 一条同源 HTTP API(/desk-kit-api),浏览器半侧轮询它。
  */
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -15,6 +15,13 @@ import { createHash } from 'node:crypto'
 import { DeskStore, localYmd } from './store.js'
 import { localDefineTool } from './tool.js'
 import { parseCapture, describeCapture } from './capture.js'
+
+/** 版本号只从 package.json 读:不在代码里再写一份,发版时不会三处对不齐。 */
+const PLUGIN_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version || '0.0.0'
+  } catch { return '0.0.0' }
+})()
 
 /** 把已解析的结果落盘(本地规则与 AI 分类共用这一段)。 */
 function persistParsed(s, parsed, rawText) {
@@ -265,7 +272,6 @@ const ROUTE = '/desk-kit-api'
 const MAX_FILE_BYTES = 24 * 1024 * 1024
 /** 附件总量上限(单文件 24MB,总量 512MB)。超了就提示清理,不静默写满盘。 */
 const MAX_BLOB_BYTES = 512 * 1024 * 1024
-const PLUGIN_VERSION = '1.14.0'
 const TICK_MS = 15000
 
 function dshHome() {
@@ -327,6 +333,19 @@ function guardRequest(req, method) {
 function json(res, code, body) {
   res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
   res.end(JSON.stringify(body))
+}
+
+/**
+ * 快照的 ETag:GET 和 POST 共用同一个算法,否则写完之后客户端手里的
+ * 还是旧 ETag,下一次轮询必然 200,把刚返回过的整份快照再传一遍。
+ * 只哈希 state 本身(不含 result / 信封),两种响应才能得到同一个值。
+ * 传对象或已序列化的 JSON 字符串都行:GET 是高频路径,传字符串可少序列化一次。
+ * now 只是「服务端当前时间」,客户端自己用 Date.now();不排除的话每次都是新哈希。
+ */
+function etagOf(state) {
+  const json = typeof state === 'string' ? state : JSON.stringify(state)
+  const stable = json.replace(/"now":\d+/, '"now":0')
+  return '"' + createHash('sha1').update(stable).digest('hex').slice(0, 20) + '"'
 }
 
 function readBody(req, maxBytes = 1024 * 1024) {
@@ -435,13 +454,15 @@ function fileHeaders(rec) {
  * 冷启动时 ctx.tools 可能还没 ACTIVE:同步 register 不抛错但不进表。
  * 照 dsh-meme 的兜底做法,先 ctx.inject(['tools']) 等依赖就绪。
  */
-function registerToolWhenReady(ctx, label, register, owns) {
+function registerToolWhenReady(ctx, label, register, owns, isDisposed) {
   const report = (error) => {
     const text = '[desk-kit] ' + label + ' 注册失败: ' + String((error && error.message) || error)
     try { console.error(text) } catch { }
     try { if (ctx.logger && ctx.logger.error) ctx.logger.error(text) } catch { }
   }
   const safe = () => {
+    // ctx.inject 的回调可能晚于 dispose 才到:这时再注册就会留下无人持有的工具
+    if (typeof isDisposed === 'function' && isDisposed()) return false
     try {
       // 注册返回的 disposer 交给调用方统一回收:不用「报错文案里有 duplicate 就算成功」这种判法
       const dispose = register()
@@ -509,6 +530,59 @@ function findReminder(s, idOrTitle) {
   return s.data.reminders.find((r) => r.id === q) || s.data.reminders.find((r) => r.title.includes(q))
 }
 
+/**
+ * 设置字段声明表:类型、范围、截断都在这里写一次。
+ * 以前是 11 个手写 if,新增字段忘加白名单就会出现「拨完开关又弹回去」。
+ * 未知字段和不合法类型直接忽略,不落任意键值。
+ */
+const SETTINGS_SPEC = {
+  muted: { type: 'boolean' },
+  sound: { type: 'boolean' },
+  linkFavicons: { type: 'boolean' },
+  floatFab: { type: 'boolean' },
+  recognizeProvider: { type: 'string', max: 200 },
+  recognizeModel: { type: 'string', max: 200 },
+  classifyProvider: { type: 'string', max: 200 },
+  classifyModel: { type: 'string', max: 200 },
+  trashKeepDays: { type: 'int', min: 0, max: 3650, round: true },
+}
+
+function applySettings(s, payload) {
+  let changed = false
+  for (const [key, spec] of Object.entries(SETTINGS_SPEC)) {
+    if (!Object.hasOwn(payload, key)) continue
+    const value = payload[key]
+    let next
+    if (spec.type === 'boolean') {
+      if (typeof value !== 'boolean') continue
+      next = value
+    } else if (spec.type === 'string') {
+      if (typeof value !== 'string') continue
+      next = value.slice(0, spec.max)
+    } else if (spec.type === 'int') {
+      if (!Number.isFinite(value)) continue
+      next = Math.max(spec.min, Math.min(spec.max, spec.round ? Math.round(value) : value))
+    } else continue
+    if (s.data.settings[key] !== next) {
+      s.data.settings[key] = next
+      changed = true
+    }
+  }
+  return changed
+}
+
+/** keepDays 只接受有限的数字;越界夹到 0~3650,脏输入不改变语义。 */
+function clampKeepDays(value) {
+  const raw = Number(value)
+  return Number.isFinite(raw) ? Math.max(0, Math.min(3650, Math.round(raw))) : undefined
+}
+
+/** 工具和 HTTP 共用同一条清理路径:只清一次,不偷偷改用户的全局保留天数。 */
+function cleanupNow(s, keepDays) {
+  const done = s.sweepTrash({ keepDays: clampKeepDays(keepDays) })
+  return { ...done, human: DeskStore.humanBytes(done.bytes) }
+}
+
 /** 动作分发:ctx 与 store 都由调用方显式传入,不依赖模块级状态。 */
 async function act(ctx, s, action, payload) {
   switch (action) {
@@ -519,15 +593,8 @@ async function act(ctx, s, action, payload) {
     // 用量明细(只在打开设置/点刷新时算,轮询不碰磁盘)
     case 'storage.get': return s.storage()
     case 'import.run': return s.importBackup(payload.backup || payload, { mode: payload.mode, confirm: payload.confirm === true })
-    // 立刻清理一次:带 keepDays 时按新天数算,顺便把设置存下来
-    case 'cleanup.run': {
-      // 传什么都夹到 0~3650:负数当「不清」,超大值当「十年」,不因为脏输入改变语义
-      const raw = Number(payload.keepDays)
-      const keep = Number.isFinite(raw) ? Math.max(0, Math.min(3650, Math.round(raw))) : undefined
-      if (keep !== undefined) s.data.settings.trashKeepDays = keep
-      const done = s.sweepTrash({ keepDays: keep })
-      return { ...done, human: DeskStore.humanBytes(done.bytes) }
-    }
+    // 立刻清理一次:keepDays 只影响这一次;要改默认值请走 settings.update
+    case 'cleanup.run': return cleanupNow(s, payload.keepDays)
     // 统一查找(面板里搜的是本地快照,这个给工具和「搜索兜底」用)
     case 'search.all': return s.searchAll(payload.query, { includeTrash: !!payload.includeTrash })
     case 'file.attach': return s.attachFiles(String(payload.kind || 'note'), String(payload.ownerId || ''), payload.ids || [])
@@ -582,24 +649,8 @@ async function act(ctx, s, action, payload) {
       return found
     }
     case 'settings.update': {
-      if (Number.isFinite(payload.tickSeconds)) {
-        s.data.settings.tickSeconds = Math.max(5, Math.min(600, payload.tickSeconds))
-      }
-      if (typeof payload.muted === 'boolean') s.data.settings.muted = payload.muted
-      // 白名单漏了这两个:设置页拨开关会「拨完又弹回去」,因为存根本没写进去
-      if (typeof payload.sound === 'boolean') s.data.settings.sound = payload.sound
-      if (typeof payload.linkFavicons === 'boolean') s.data.settings.linkFavicons = payload.linkFavicons
-      if (typeof payload.recognizeProvider === 'string') s.data.settings.recognizeProvider = payload.recognizeProvider
-      if (typeof payload.recognizeModel === 'string') s.data.settings.recognizeModel = payload.recognizeModel
-      if (typeof payload.classifyProvider === 'string') s.data.settings.classifyProvider = payload.classifyProvider
-      if (typeof payload.classifyModel === 'string') s.data.settings.classifyModel = payload.classifyModel
-      // 浮标是兜底入口:显式 true/false 才记,不设就是「有侧栏就当没有」
-      if (typeof payload.floatFab === 'boolean') s.data.settings.floatFab = payload.floatFab
-      // 垃圾箱保留天数:0 = 永不自动清
-      if (Number.isFinite(payload.trashKeepDays)) {
-        s.data.settings.trashKeepDays = Math.max(0, Math.min(3650, Math.round(payload.trashKeepDays)))
-      }
-      s.save()
+      // 只在真的有字段变化时写盘:空 patch(以前用来「顺手拉快照」)不再白写一次
+      if (applySettings(s, payload)) s.save()
       return s.data.settings
     }
     default: throw new Error('未知 action: ' + action)
@@ -637,8 +688,10 @@ export function apply(ctx) {
 
   // ---- Agent 工具:注册交回的 disposer 归本插件所有,dispose 时统一释放 ----
   const toolDisposers = []
-  const reg = (label, make) => registerToolWhenReady(ctx, label, make, toolDisposers)
+  let toolsDisposed = false
+  const reg = (label, make) => registerToolWhenReady(ctx, label, make, toolDisposers, () => toolsDisposed)
   ctx.effect(() => () => {
+    toolsDisposed = true
     for (const dispose of toolDisposers.splice(0)) {
       try { dispose() } catch (error) {
         try { ctx.logger && ctx.logger.warn && ctx.logger.warn('[desk-kit] 工具卸载失败: ' + String((error && error.message) || error)) } catch { }
@@ -710,14 +763,13 @@ export function apply(ctx) {
           : '现在没有到期的东西(垃圾箱里还有 ' + info.trash.length + ' 条,按保留 ' + info.trashKeepDays + ' 天算)'
           , info)
       }
-      const done = s.sweepTrash({ keepDays: Number.isFinite(args.keepDays) ? args.keepDays : undefined })
-      const human = DeskStore.humanBytes(done.bytes)
+      const done = cleanupNow(s, args.keepDays)
       const parts = []
       if (done.notes) parts.push(done.notes + ' 条便签')
       if (done.links) parts.push(done.links + ' 个网页')
       if (done.reminders) parts.push(done.reminders + ' 条提醒')
       if (done.files) parts.push(done.files + ' 个附件')
-      return out(parts.length ? '清掉了 ' + parts.join('、') + ',释放 ' + human : '没有需要清的东西', done)
+      return out(parts.length ? '清掉了 ' + parts.join('、') + ',释放 ' + done.human : '没有需要清的东西', done)
     },
   })))
 
@@ -1123,15 +1175,16 @@ export function apply(ctx) {
       const url = new URL(String(req.url || '/'), 'http://localhost')
       const method = String(req.method || 'GET').toUpperCase()
       const guarded = guardRequest(req, method)
-      // 另一个 DSH 实例刚写过盘:先把内存换成磁盘上的,别拿旧数据整份覆盖
-      try { s.refresh() } catch (error) { /* 读不到就按内存里的继续 */ }
       if (guarded) {
         json(res, 403, { ok: false, error: guarded })
         return
       }
+      // 另一个 DSH 实例刚写过盘:先把内存换成磁盘上的,别拿旧数据整份覆盖。
+      // 放在围栏之后:被拒的请求不该触发磁盘读取。
+      try { s.refresh() } catch (error) { /* 读不到就按内存里的继续 */ }
       try {
-        // 模型目录:给设置页的「识图模型」下拉用
-        if (url.pathname === ROUTE + '/models') {
+        // 模型目录:给设置页的「识图模型」下拉用(只读,只认 GET)
+        if (method === 'GET' && url.pathname === ROUTE + '/models') {
           const llm = ctx.get('llm')
           const providers = []
           if (llm && typeof llm.listProviders === 'function') {
@@ -1194,8 +1247,8 @@ export function apply(ctx) {
           json(res, 200, { ok: true, report, state: s.snapshot() })
           return
         }
-        // 整库导出:给设置页的「备份」按钮,浏览器直接落成 .json
-        if (url.pathname === ROUTE + '/export') {
+        // 整库导出:给设置页的「备份」按钮,浏览器直接落成 .json(只读,只认 GET)
+        if (method === 'GET' && url.pathname === ROUTE + '/export') {
           json(res, 200, { ok: true, backup: s.exportAll() })
           return
         }
@@ -1204,12 +1257,10 @@ export function apply(ctx) {
           s2.tick()
           // 快照一次序列化:既当响应体,又当 ETag 的原料。2000 条便签时约 1.1MB,
           // 20 秒一次白烧流量 —— 内容没变就回 304,客户端连 setState 都不做。
-          const payload = JSON.stringify({ ok: true, state: s2.snapshot() })
-          // now 每秒都在变,但它只是「服务端当前时间」,客户端自己用 Date.now();
-          // 不把它排除掉,每次轮询都会是 200 —— 等于白做。
-          const stable = payload.replace(/"now":\d+/, '"now":0')
+          const stateJson = JSON.stringify(s2.snapshot())
+          const payload = '{"ok":true,"state":' + stateJson + '}'
           // 哈希必须覆盖 tick() 刚刚造的告警,否则「到点了但面板不动」
-          const etag = '"' + createHash('sha1').update(stable).digest('hex').slice(0, 20) + '"'
+          const etag = etagOf(stateJson)
           const ifNoneMatch = String(req.headers['if-none-match'] || '')
           if (ifNoneMatch && ifNoneMatch === etag) {
             res.writeHead(304, { etag, 'cache-control': 'no-store' })
@@ -1226,12 +1277,19 @@ export function apply(ctx) {
           const s2 = s
           s2.tick()
           const result = await act(ctx, s2, action, body.payload || {})
-          json(res, 200, { ok: true, result, state: s2.snapshot() })
+          // 写操作也回一份 ETag:客户端拿到后写进 lastEtag,下一次轮询就能命中 304,
+          // 不必为「刚改过的那条」再拉一次整份快照。
+          const state = s2.snapshot()
+          const payload = JSON.stringify({ ok: true, result, state })
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', etag: etagOf(state) })
+          res.end(payload)
           return
         }
         json(res, 405, { ok: false, error: 'method not allowed' })
       } catch (error) {
-        json(res, 400, { ok: false, error: String((error && error.message) || error) })
+        // 请求体超限是 413,不是 400:客户端/用户能据此判断该减小请求,而不是以为参数写错了
+        const tooBig = !!(error && error.code === 'E_TOO_BIG')
+        json(res, tooBig ? 413 : 400, { ok: false, error: String((error && error.message) || error) })
       }
     },
   }), 'desk-kit: /desk-kit-api')

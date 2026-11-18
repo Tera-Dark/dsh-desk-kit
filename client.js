@@ -51,7 +51,8 @@ window.__ModuleLoader__.load({
    const FAB_PAD = 18
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-   const VERSION = '1.14.0'
+   // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
+   const VERSION = '1.15.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -244,6 +245,9 @@ window.__ModuleLoader__.load({
      '.__dk_switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}',
      '.__dk_switch.on::after{transform:translateX(16px)}',
      '.__dk_err{color:#e5484d;font-size:12px;padding:8px 12px;border-radius:10px;margin:0 auto 10px;max-width:960px;background:color-mix(in srgb,#e5484d 11%,transparent)}',
+     '.__dk_errbar{display:flex;align-items:center;justify-content:space-between;gap:10px}',
+     '.__dk_errbar .__dk_errt{flex:1;min-width:0;overflow-wrap:anywhere}',
+     '.__dk_errbar .__dk_btn{flex:none;height:24px;padding:0 9px;font-size:11px}',
      '.__dk_tabbar{flex:none;display:flex;align-items:flex-end;justify-content:space-around;border-top:1px solid var(--dsw-alias-border-l1,rgba(255,255,255,.10));padding:4px 2px 6px;background:var(--dsw-alias-bg-layer-1,#1c1f24)}',
      '.__dk_tab{display:flex;flex-direction:column;align-items:center;gap:1px;border:none;background:transparent;color:var(--dsw-alias-label-tertiary,#8b949e);font-size:10px;line-height:1.4;font-family:inherit;cursor:pointer;width:58px;padding:4px 0;border-radius:9px}',
      '.__dk_tab:hover{color:var(--dsw-alias-label-primary,#e6edf3)}',
@@ -439,17 +443,133 @@ window.__ModuleLoader__.load({
      '.__dk_alert:hover{box-shadow:0 18px 46px rgba(0,0,0,.38),0 2px 8px rgba(0,0,0,.16)}',
      // 长文本折叠:两行预览(原来一行,等于没预览)
      '.__dk_clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap}',
+
+     // ------------------------------------------------ 2.0 视觉刷新
+     // 统一 token:表面层级、描边、圆角、阴影、字号节奏。
+     // 只覆盖视觉,不动布局算法和 class 契约。
+     '@keyframes __dkFadeIn{from{opacity:0}to{opacity:1}}',
+     '@media (prefers-reduced-motion: reduce){.__dk_page,.__dk_alert,.__dk_panel,.__dk_fab,.__dk_tabhome{animation:none!important;transition:none!important}}',
+     '.__dk_sp,.__dk_panel,.__dk_root,.__dk_dock,.__dk_page,.__dk_card{--dk-bg:var(--dsw-alias-bg-layer-1,#171a20);--dk-surface:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#20242c) 62%,transparent);--dk-surface-strong:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#20242c) 92%,transparent);--dk-line:color-mix(in srgb,var(--dsw-alias-border-l1,rgba(255,255,255,.08)) 86%,transparent);--dk-line-2:color-mix(in srgb,var(--dsw-alias-border-l2,rgba(255,255,255,.14)) 70%,transparent);--dk-text:var(--dsw-alias-label-primary,#e9eef6);--dk-muted:var(--dsw-alias-label-secondary,#a6b0c0);--dk-faint:var(--dsw-alias-label-tertiary,#7f8a9b);--dk-brand:var(--dsw-alias-brand-primary,#5b8cff);--dk-danger:#f26870;--dk-ok:#3ecf8e;--dk-r-sm:10px;--dk-r-md:14px;--dk-r-lg:18px;--dk-r-xl:22px;--dk-shadow-sm:0 1px 2px rgba(0,0,0,.16),0 4px 14px rgba(0,0,0,.10);--dk-shadow-md:0 10px 30px rgba(0,0,0,.20),0 2px 8px rgba(0,0,0,.10);--dk-shadow-lg:0 24px 64px rgba(0,0,0,.40),0 4px 16px rgba(0,0,0,.16);--dk-fs:13.5px;--dk-fs-sm:12px;--dk-fs-xs:11px;--dk-ease:cubic-bezier(.22,.68,.36,1)}',
+     '.__dk_sp,.__dk_panel,.__dk_dock,.__dk_fab{font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}',
+     // 画布:极轻的品牌光晕 + 柔和表面
+     '.__dk_sp{background:radial-gradient(120% 70% at 100% 0%,color-mix(in srgb,var(--dk-brand) 7%,transparent),transparent 62%),var(--dk-bg)}',
+     '.__dk_panel{background:color-mix(in srgb,var(--dk-bg) 97%,transparent);border:1px solid var(--dk-line-2);border-radius:var(--dk-r-xl);box-shadow:var(--dk-shadow-lg);animation:__dkFadeIn .16s ease both}',
+     // 头部:标题 + 日期/待办副标题,右侧动作收成 30px 方形按钮
+     '.__dk_head{padding:14px 16px 12px;border-bottom:1px solid var(--dk-line);align-items:flex-start;gap:10px}',
+     '.__dk_titlewrap{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}',
+     '.__dk_title{font-size:15px;font-weight:650;letter-spacing:-.01em;line-height:1.3}',
+     '.__dk_subtitle{font-size:11px;color:var(--dk-faint);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+     '.__dk_headact{gap:4px}',
+     '.__dk_icobtn{width:30px;height:30px;align-items:center;justify-content:center;border-radius:10px;color:var(--dk-muted)}',
+     '.__dk_icobtn:hover{background:var(--dk-surface-strong);color:var(--dk-text)}',
+     '.__dk_sphead{padding:18px 16px 8px}',
+     '.__dk_sptitle{font-size:17px;font-weight:650;letter-spacing:-.01em}',
+     '.__dk_spnav{gap:4px;padding:12px 16px;border-bottom:1px solid var(--dk-line)}',
+     '.__dk_stab{height:32px;border-radius:999px;padding:0 12px;font-size:12px;font-weight:500;border:1px solid transparent;background:transparent}',
+     '.__dk_stab:hover{background:var(--dk-surface);color:var(--dk-text)}',
+     '.__dk_stab.on{background:color-mix(in srgb,var(--dk-brand) 13%,transparent);border-color:color-mix(in srgb,var(--dk-brand) 28%,transparent);color:var(--dk-brand);box-shadow:none;font-weight:600}',
+     // 正文:更松的留白,滚动条收细
+     '.__dk_spbody{padding:16px 16px 28px;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--dk-faint) 30%,transparent) transparent}',
+     '.__dk_body{padding:0 16px 12px;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--dk-faint) 30%,transparent) transparent}',
+     '.__dk_spbody::-webkit-scrollbar,.__dk_body::-webkit-scrollbar{width:10px}',
+     '.__dk_spbody::-webkit-scrollbar-thumb,.__dk_body::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--dk-faint) 26%,transparent);border:3px solid transparent;border-radius:8px;background-clip:content-box}',
+     '.__dk_spbody .__dk_page{max-width:760px}',
+     // 输入:内凹表面 + 聚焦光环
+     '.__dk_input{background:var(--dk-surface);border:1px solid var(--dk-line);border-radius:12px;padding:10px 12px;font-size:13.5px;line-height:1.6;color:var(--dk-text);box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}',
+     '.__dk_input:hover{border-color:var(--dk-line-2);background:var(--dk-surface-strong)}',
+     '.__dk_input:focus{border-color:color-mix(in srgb,var(--dk-brand) 55%,transparent);background:var(--dk-surface-strong);box-shadow:0 0 0 3px color-mix(in srgb,var(--dk-brand) 16%,transparent)}',
+     '.__dk_input::placeholder{color:var(--dk-faint)}',
+     '.__dk_capture{gap:8px;padding:10px;margin:0 0 8px;background:var(--dk-surface);border:1px solid var(--dk-line);border-radius:16px;box-shadow:var(--dk-shadow-sm)}',
+     '.__dk_capture .__dk_input{background:transparent;border:none;box-shadow:none;padding:4px 2px;font-size:13.5px}',
+     '.__dk_capture .__dk_input:focus{background:transparent;box-shadow:none}',
+     '.__dk_send{width:36px;height:36px;border-radius:12px;background:linear-gradient(180deg,#6f9bff,var(--dk-brand));box-shadow:0 6px 16px color-mix(in srgb,var(--dk-brand) 34%,transparent);transition:transform .14s var(--dk-ease),filter .14s}',
+     '.__dk_send:hover{filter:brightness(1.06);transform:translateY(-1px)}',
+     '.__dk_send:active{transform:scale(.96)}',
+     // 分区头:细线 + 胶囊计数,分组更像现代列表
+     '.__dk_sec{margin:22px auto 8px;font-size:11px;letter-spacing:.08em;color:var(--dk-faint);font-weight:600}',
+     '.__dk_sec::after{background:var(--dk-line);opacity:.7}',
+     '.__dk_sec > span:last-child{font-size:10.5px;font-weight:500;letter-spacing:.02em;color:var(--dk-faint);background:var(--dk-surface);border:1px solid var(--dk-line);border-radius:999px;padding:1px 8px;opacity:1}',
+     // 列表行 / 卡片
+     '.__dk_row{padding:10px 12px;border-radius:12px;gap:10px;transition:background .16s,transform .16s var(--dk-ease)}',
+     '.__dk_row:hover{background:var(--dk-surface)}',
+     '.__dk_item{background:var(--dk-surface);border:1px solid var(--dk-line);border-radius:var(--dk-r-md);padding:12px 13px;margin-bottom:8px;box-shadow:0 1px 0 rgba(255,255,255,.02);transition:background .16s,border-color .16s,transform .16s var(--dk-ease)}',
+     '.__dk_item:hover{background:var(--dk-surface-strong);border-color:var(--dk-line-2);transform:translateY(-1px)}',
+     '.__dk_item:last-child{margin-bottom:0}',
+     '.__dk_itext{font-size:var(--dk-fs);line-height:1.7}',
+     // 按钮 / 胶囊
+     '.__dk_btn{height:32px;border-radius:10px;padding:0 12px;font-size:12px;font-weight:500;border:1px solid var(--dk-line-2);background:var(--dk-surface);color:var(--dk-text);box-shadow:0 1px 0 rgba(255,255,255,.03)}',
+     '.__dk_btn:hover{background:var(--dk-surface-strong);border-color:var(--dk-line-2)}',
+     '.__dk_btn.p{background:linear-gradient(180deg,#6f9bff,var(--dk-brand));border-color:transparent;color:#fff;box-shadow:0 6px 16px color-mix(in srgb,var(--dk-brand) 28%,transparent)}',
+     '.__dk_btn.p:hover{filter:brightness(1.06);background:linear-gradient(180deg,#7aa4ff,var(--dk-brand))}',
+     '.__dk_mini{width:30px;height:30px;border-radius:9px}',
+     '.__dk_chip{height:26px;padding:0 10px;border-radius:999px;font-size:11.5px;border-color:var(--dk-line);background:transparent}',
+     '.__dk_chip:hover{border-color:var(--dk-line-2);background:var(--dk-surface);color:var(--dk-text)}',
+     '.__dk_chip.on{background:color-mix(in srgb,var(--dk-brand) 15%,transparent);border-color:color-mix(in srgb,var(--dk-brand) 40%,transparent);color:var(--dk-brand);font-weight:600}',
+     // 表单分组
+     '.__dk_form{margin:0 auto 16px}',
+     '.__dk_group{background:var(--dk-surface);border:1px solid var(--dk-line);border-radius:16px;padding:14px;gap:10px}',
+     '.__dk_group + .__dk_group{margin-top:8px}',
+     '.__dk_grouph{font-size:10.5px;letter-spacing:.08em;color:var(--dk-faint)}',
+     '.__dk_gtip{font-size:11px;color:var(--dk-faint)}',
+     '.__dk_group .__dk_input{background:var(--dk-surface-strong)}',
+     // 搜索:滚动时吸顶,输入时像一块浮起的工具条
+     '.__dk_search{position:sticky;top:0;z-index:3;padding:4px 0 6px;background:var(--dk-bg);box-shadow:0 8px 16px -14px rgba(0,0,0,.6)}',
+     // 底栏:半透明玻璃 + 中间首页键的柔和光晕
+     '.__dk_tabbar{border-top:1px solid var(--dk-line);background:color-mix(in srgb,var(--dk-bg) 96%,transparent);padding:6px 8px max(8px,env(safe-area-inset-bottom));gap:2px;align-items:flex-end}',
+     '.__dk_tab{flex:1 1 0;width:auto;min-width:0;max-width:74px;border-radius:12px;padding:6px 0;font-size:10.5px;gap:3px;transition:color .15s,background .15s}',
+     '.__dk_tab:hover{background:var(--dk-surface);color:var(--dk-text)}',
+     '.__dk_tab.on{color:var(--dk-brand);background:color-mix(in srgb,var(--dk-brand) 10%,transparent)}',
+     '.__dk_tabhome{width:50px;height:50px;border-radius:18px;background:linear-gradient(180deg,#6f9bff,var(--dk-brand));box-shadow:0 10px 24px color-mix(in srgb,var(--dk-brand) 42%,transparent),0 0 0 5px color-mix(in srgb,var(--dk-bg) 86%,transparent);margin-top:-24px}',
+     '.__dk_tabhome:hover{transform:translateY(-2px)}',
+     // 浮标:圆角方形,和面板同一套表面
+     '.__dk_fab{border-radius:16px;background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-bg-layer-1,#171a20) 92%,#fff 8%),var(--dsw-alias-bg-layer-1,#171a20));border:1px solid var(--dk-line-2);box-shadow:var(--dk-shadow-md);transition:transform .16s var(--dk-ease),box-shadow .16s}',
+     '.__dk_fab:hover{transform:translateY(-1px) scale(1.04);box-shadow:var(--dk-shadow-lg)}',
+     '.__dk_badge{top:-4px;right:-4px;min-width:19px;height:19px;line-height:19px;border-radius:10px;border:2px solid var(--dk-bg);font-size:10px}',
+     // 空态 / 网页格子 / 附件 / 设置
+     '.__dk_empty{background:color-mix(in srgb,var(--dk-surface) 55%,transparent);border:1px dashed var(--dk-line-2);border-radius:16px;padding:30px 18px;color:var(--dk-muted);font-size:12px}',
+     '.__dk_emptytitle{font-size:13.5px;font-weight:600;color:var(--dk-muted);margin-bottom:6px}',
+     '.__dk_grid{gap:16px 8px}',
+     '.__dk_app{width:56px;height:56px;border-radius:17px;box-shadow:0 6px 16px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.14)}',
+     '.__dk_app:hover{transform:translateY(-3px);box-shadow:0 12px 24px rgba(0,0,0,.28)}',
+     '.__dk_appname{font-size:11px;font-weight:500;color:var(--dk-muted)}',
+     '.__dk_fchip{width:68px;height:68px;border-radius:12px;border-color:var(--dk-line)}',
+     '.__dk_fchip:hover{border-color:var(--dk-line-2)}',
+     '.__dk_setrow{background:var(--dk-surface);border:1px solid var(--dk-line);border-radius:14px;padding:12px 14px;margin-bottom:8px}',
+     '.__dk_switch{width:40px;height:22px;background:var(--dk-line-2)}',
+     '.__dk_switch::after{width:18px;height:18px;top:2px;left:2px}',
+     '.__dk_switch.on::after{transform:translateX(18px)}',
+     '.__dk_card{background:var(--dk-surface);border-color:var(--dk-line);border-radius:16px}',
+     '.__dk_cardcount b{font-variant-numeric:tabular-nums}',
+     '.__dk_alert{border-radius:16px;border-color:var(--dk-line-2);box-shadow:var(--dk-shadow-md);background:color-mix(in srgb,var(--dk-bg) 90%,transparent)}',
+     '.__dk_tbtn{height:32px;border-radius:10px}',
+     '.__dk_light{background:rgba(8,10,14,.9)}',
+     '.__dk_lightimg{border-radius:12px}',
+     // 键盘可达性:只在键盘聚焦时出现描边,不干扰鼠标
+     '.__dk_sp button:focus-visible,.__dk_panel button:focus-visible,.__dk_dock button:focus-visible,.__dk_sp input:focus-visible,.__dk_panel input:focus-visible,.__dk_sp textarea:focus-visible,.__dk_panel textarea:focus-visible,.__dk_sp a:focus-visible,.__dk_panel a:focus-visible{outline:2px solid color-mix(in srgb,var(--dk-brand) 70%,transparent);outline-offset:2px}',
    ].join('\n')
 
+   /**
+    * 注入样式,返回「摘掉它」的函数。
+    * 以前只在 apply 里注入一次、从不回收:插件重建后旧 <style> 还在,
+    * 而 querySelector 命中又让新样式永远不更新。现在交给 ctx.effect 持有,
+    * 重建时先移除再按最新 CSS 重新挂。
+    */
    function injectCss() {
-     if (typeof document === 'undefined') return
+     if (typeof document === 'undefined') return () => { }
      const id = 'dsh-desk-kit/main.css'
-     if (document.querySelector('style[data-plugin-css="' + id + '"]')) return
-     const tag = document.createElement('style')
-     tag.dataset.plugin = 'dsh-desk-kit'
-     tag.dataset.pluginCss = id
-     tag.textContent = CSS
-     document.head.appendChild(tag)
+     const selector = 'style[data-plugin-css="' + id + '"]'
+     let tag = document.querySelector(selector)
+     if (tag) {
+       // 热重载/重建:复用同一个节点,内容换成当前源码里的 CSS
+       tag.textContent = CSS
+     } else {
+       tag = document.createElement('style')
+       tag.dataset.plugin = 'dsh-desk-kit'
+       tag.dataset.pluginCss = id
+       tag.textContent = CSS
+       document.head.appendChild(tag)
+     }
+     return () => { if (tag && tag.parentNode) tag.parentNode.removeChild(tag) }
    }
 
    // 服务端要求这个头:跨源页面想带就得先发预检,而我们从不应答 CORS,于是拿不到。
@@ -459,6 +579,15 @@ window.__ModuleLoader__.load({
    let lastEtag = ''
    let lastState = null
 
+   // fetch 在原生的 "Failed to fetch" 里不会说人话;统一换成能照着做的提示。
+   function netError(e) {
+     const msg = String((e && e.message) || e || '')
+     if (/failed to fetch|networkerror|load failed|fetch failed/i.test(msg)) {
+       return new Error('连不上本地服务,请确认 DeepAI Code 还在运行')
+     }
+     return e instanceof Error ? e : new Error(msg || '请求失败')
+   }
+
    /**
     * 读快照。命中 304 返回 null —— 调用方必须「保持原样」,不能当成空数据。
     * 顺手记住上一份 state:同一面板里多处并发调用(浮标角标 + 当前页)时,
@@ -466,7 +595,8 @@ window.__ModuleLoader__.load({
     */
    async function apiGet() {
      const headers = lastEtag ? { ...HEAD, 'if-none-match': lastEtag } : HEAD
-     const res = await fetch(API, { cache: 'no-store', headers })
+     let res
+     try { res = await fetch(API, { cache: 'no-store', headers }) } catch (e) { throw netError(e) }
      if (res.status === 304) return null
      const body = await res.json().catch(() => ({ ok: false, error: '宿主返回不是 JSON' }))
      if (!res.ok || body.ok === false) throw new Error(body.error || ('HTTP ' + res.status))
@@ -482,9 +612,16 @@ window.__ModuleLoader__.load({
      return st || lastState
    }
    async function apiPost(action, payload) {
-     const res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json', ...HEAD }, body: JSON.stringify({ action, payload: payload || {} }) })
+     let res
+     try {
+       res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json', ...HEAD }, body: JSON.stringify({ action, payload: payload || {} }) })
+     } catch (e) { throw netError(e) }
      const body = await res.json().catch(() => ({ ok: false, error: '宿主返回不是 JSON' }))
      if (!res.ok || body.ok === false) throw new Error(body.error || ('HTTP ' + res.status))
+     // 写操作也带 ETag / 新快照:记下来,下一次轮询就能 304,不用再拉一遍刚拿到的数据。
+     const tag = res.headers && res.headers.get ? res.headers.get('etag') : ''
+     if (tag) lastEtag = tag
+     if (body.state) lastState = body.state
      return body
    }
 
@@ -553,6 +690,17 @@ window.__ModuleLoader__.load({
 
    const fmtClock = (ts) => { if (!ts) return ''; const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') }
    const fmtWhen = (ts) => { const d = new Date(ts); const n = new Date(); return d.toDateString() === n.toDateString() ? '今天 ' + fmtClock(ts) : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + fmtClock(ts) }
+
+   /**
+    * 统一错误条:一句人话 + 可选「重试」。
+    * 网络/宿主抖动时,人第一反应是再点一下,而不是等 20 秒后的下一次轮询。
+    */
+   function ErrorBar({ text, onRetry }) {
+     return h('div', { className: '__dk_err __dk_errbar', role: 'alert' }, [
+       h('span', { key: 't', className: '__dk_errt' }, String(text || '出错了')),
+       onRetry ? h('button', { key: 'r', type: 'button', className: '__dk_btn', onClick: onRetry }, '重试') : null,
+     ])
+   }
    /** 附件格子:图片显示缩略图,其它显示扩展名。点开看大图/下载,可带一个「移掉」。 */
    function FileChip({ file, onOpen, onRemove }) {
      const img = isImage(file)
@@ -1074,6 +1222,14 @@ window.__ModuleLoader__.load({
            key: 'a', className: '__dk_input', autoFocus: true,
            placeholder: '提醒什么,如「交电费」/「吃药」/「朋友生日」',
            value: t, onChange: (e) => setT(e.target.value),
+           // 标题是主输入框:按 Enter 直接保存(类名/时间用当前默认值),不逼人去够按钮
+           onKeyDown: (e) => {
+             if (e.key !== 'Enter') return
+             if (e.nativeEvent && e.nativeEvent.isComposing) return
+             if (!t.trim() || (cycle === 'once' && !date)) return
+             e.preventDefault()
+             save()
+           },
          }),
          h('div', { key: 'cyc', className: '__dk_chips' }, CYCLE.map(([k, label]) =>
            h('button', { key: k, className: '__dk_chip' + (cycle === k ? ' on' : ''), onClick: () => setCycle(k) }, label))),
@@ -2711,6 +2867,23 @@ window.__ModuleLoader__.load({
        return () => window.removeEventListener('keydown', onKey)
      }, [])
 
+     // 点面板外面关掉浮层面板 —— 这是浮层的默认习惯。
+     // 点在面板里/浮标上/提醒坞里都不关:提醒坞的「打开」要自己处理。
+     useEffect(() => {
+       if (!open) return undefined
+       const onDown = (e) => {
+         const t = e.target
+         const inside = (el) => {
+           try { return !!(el && t && el.contains(t)) } catch { return false }
+         }
+         if (inside(panelEl.current) || inside(fabEl.current)) return
+         if (t && typeof t.closest === 'function' && t.closest('.__dk_dock')) return
+         setOpen(false)
+       }
+       document.addEventListener('pointerdown', onDown, true)
+       return () => document.removeEventListener('pointerdown', onDown, true)
+     }, [open])
+
      const run = useCallback(async (action, payload) => {
        try {
          const body = await apiPost(action, payload)
@@ -2904,7 +3077,7 @@ window.__ModuleLoader__.load({
        // 装了侧栏标签页时连首屏这一下都不闪浮标(设置里显式开浮标的等状态加载后自然出现)
        if (sidebar.ready) return null
        return h('div', { className: '__dk_root', style: fabStyle }, [
-         err ? h('div', { key: 'e', className: '__dk_err' }, err) : null,
+         err ? h(ErrorBar, { key: 'e', text: err, onRetry: load }) : null,
          fabNode,
        ])
      }
@@ -2953,11 +3126,16 @@ window.__ModuleLoader__.load({
            ),
          }, [
            h('div', { key: 'h', className: '__dk_head' }, [
-             h('div', { key: 't', className: '__dk_title' }, [
-               TITLES[page] || '随手台',
-               h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: '重要等级:' + lv.name }, [
-                 h('i', { key: 'i' }), lv.code + ' ' + lv.name,
+             h('div', { key: 't', className: '__dk_titlewrap' }, [
+               h('div', { key: 'tt', className: '__dk_title' }, [
+                 TITLES[page] || '随手台',
+                 h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: '重要等级:' + lv.name }, [
+                   h('i', { key: 'i' }), lv.code + ' ' + lv.name,
+                 ]),
                ]),
+               // 标题下面一条轻量状态:日期 + 待办,不用切到首页也知道今天有没有事
+               h('div', { key: 'st', className: '__dk_subtitle' },
+                 fmtDay(state.today) + (due ? ' · ' + due + ' 项待办' : ' · 今日无待办')),
              ]),
              h('div', { key: 'act', className: '__dk_headact' }, [
                h('button', {
@@ -2985,7 +3163,7 @@ window.__ModuleLoader__.load({
            }, [
              h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply('') }),
              h(ReplyMove, { key: 'rmove', reply, run, onSay: (t) => showReply(t) }),
-             err ? h('div', { key: 'err', className: '__dk_err' }, err) : null,
+             err ? h(ErrorBar, { key: 'err', text: err, onRetry: load }) : null,
              // key 带 seq:切页整块重建,滑屏动画才会重放
              h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page __dk_page--' + dir },
                h(SafePage, null, body)),
@@ -3114,7 +3292,7 @@ window.__ModuleLoader__.load({
      }, [run, showReply])
 
      return h(SidebarView, {
-       state, page, seq, reply, err, run, bridge,
+       state, page, seq, reply, err, run, bridge, onRetry: load,
        onGo: go, onCaptureDone, onLink,
        notify: showReply,
        onClearReply: () => showReply(''),
@@ -3124,12 +3302,12 @@ window.__ModuleLoader__.load({
    }
 
    /** 侧栏页面的纯展示部分:状态由 SidebarPage 喂进来(这样能脱离浏览器直接测)。 */
-   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge }) {
+   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry }) {
      const sidebar = useSidebarBridge(bridge)
      const goTo = onGo
      if (!state) {
        return h('div', { className: '__dk_sp' }, [
-         h('div', { key: 'b', className: '__dk_spbody' }, err ? h('div', { className: '__dk_err' }, err) : h('div', { className: '__dk_hint' }, '正在读取…')),
+         h('div', { key: 'b', className: '__dk_spbody' }, err ? h(ErrorBar, { text: err, onRetry }) : h('div', { className: '__dk_hint' }, '正在读取…')),
        ])
      }
 
@@ -3169,7 +3347,7 @@ window.__ModuleLoader__.load({
          h(AlertInline, { key: 'alerts', alerts, run }),
          h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply }),
          h(ReplyMove, { key: 'rmove', reply, run, onSay: onClearReply ? (t) => showReply(t) : null }),
-         err ? h('div', { key: 'err', className: '__dk_err' }, err) : null,
+         err ? h(ErrorBar, { key: 'err', text: err, onRetry }) : null,
          h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page' }, h(SafePage, null, body)),
        ]),
      ])
@@ -3305,8 +3483,12 @@ window.__ModuleLoader__.load({
    }
 
    function apply(ctx) {
-     injectCss()
-     if (!ctx) return
+     // 样式也归插件生命周期所有:dispose 时摘掉,重建时用最新 CSS 重新挂
+     if (!ctx) { injectCss(); return }
+     try {
+       if (typeof ctx.effect === 'function') ctx.effect(() => injectCss(), 'desk-kit: styles')
+       else injectCss()
+     } catch (error) { /* 没有 effect 的老宿主:样式照挂,只是不回收 */ }
      // 每次 apply 一个桥:侧栏服务是否就绪、怎么把它叫到前面,都在这里
      const bridge = createSidebarBridge()
      // 先挂侧栏标签页:它决定浮标要不要兜底
@@ -3399,7 +3581,7 @@ window.__ModuleLoader__.load({
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
-     playChime, SOUND, useAlertSound,
+     playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar,
    }
    return module.exports
  },

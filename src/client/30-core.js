@@ -1,13 +1,26 @@
 
+   /**
+    * 注入样式,返回「摘掉它」的函数。
+    * 以前只在 apply 里注入一次、从不回收:插件重建后旧 <style> 还在,
+    * 而 querySelector 命中又让新样式永远不更新。现在交给 ctx.effect 持有,
+    * 重建时先移除再按最新 CSS 重新挂。
+    */
    function injectCss() {
-     if (typeof document === 'undefined') return
+     if (typeof document === 'undefined') return () => { }
      const id = 'dsh-desk-kit/main.css'
-     if (document.querySelector('style[data-plugin-css="' + id + '"]')) return
-     const tag = document.createElement('style')
-     tag.dataset.plugin = 'dsh-desk-kit'
-     tag.dataset.pluginCss = id
-     tag.textContent = CSS
-     document.head.appendChild(tag)
+     const selector = 'style[data-plugin-css="' + id + '"]'
+     let tag = document.querySelector(selector)
+     if (tag) {
+       // 热重载/重建:复用同一个节点,内容换成当前源码里的 CSS
+       tag.textContent = CSS
+     } else {
+       tag = document.createElement('style')
+       tag.dataset.plugin = 'dsh-desk-kit'
+       tag.dataset.pluginCss = id
+       tag.textContent = CSS
+       document.head.appendChild(tag)
+     }
+     return () => { if (tag && tag.parentNode) tag.parentNode.removeChild(tag) }
    }
 
    // 服务端要求这个头:跨源页面想带就得先发预检,而我们从不应答 CORS,于是拿不到。
@@ -17,6 +30,15 @@
    let lastEtag = ''
    let lastState = null
 
+   // fetch 在原生的 "Failed to fetch" 里不会说人话;统一换成能照着做的提示。
+   function netError(e) {
+     const msg = String((e && e.message) || e || '')
+     if (/failed to fetch|networkerror|load failed|fetch failed/i.test(msg)) {
+       return new Error('连不上本地服务,请确认 DeepAI Code 还在运行')
+     }
+     return e instanceof Error ? e : new Error(msg || '请求失败')
+   }
+
    /**
     * 读快照。命中 304 返回 null —— 调用方必须「保持原样」,不能当成空数据。
     * 顺手记住上一份 state:同一面板里多处并发调用(浮标角标 + 当前页)时,
@@ -24,7 +46,8 @@
     */
    async function apiGet() {
      const headers = lastEtag ? { ...HEAD, 'if-none-match': lastEtag } : HEAD
-     const res = await fetch(API, { cache: 'no-store', headers })
+     let res
+     try { res = await fetch(API, { cache: 'no-store', headers }) } catch (e) { throw netError(e) }
      if (res.status === 304) return null
      const body = await res.json().catch(() => ({ ok: false, error: '宿主返回不是 JSON' }))
      if (!res.ok || body.ok === false) throw new Error(body.error || ('HTTP ' + res.status))
@@ -40,9 +63,16 @@
      return st || lastState
    }
    async function apiPost(action, payload) {
-     const res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json', ...HEAD }, body: JSON.stringify({ action, payload: payload || {} }) })
+     let res
+     try {
+       res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json', ...HEAD }, body: JSON.stringify({ action, payload: payload || {} }) })
+     } catch (e) { throw netError(e) }
      const body = await res.json().catch(() => ({ ok: false, error: '宿主返回不是 JSON' }))
      if (!res.ok || body.ok === false) throw new Error(body.error || ('HTTP ' + res.status))
+     // 写操作也带 ETag / 新快照:记下来,下一次轮询就能 304,不用再拉一遍刚拿到的数据。
+     const tag = res.headers && res.headers.get ? res.headers.get('etag') : ''
+     if (tag) lastEtag = tag
+     if (body.state) lastState = body.state
      return body
    }
 
@@ -111,6 +141,17 @@
 
    const fmtClock = (ts) => { if (!ts) return ''; const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') }
    const fmtWhen = (ts) => { const d = new Date(ts); const n = new Date(); return d.toDateString() === n.toDateString() ? '今天 ' + fmtClock(ts) : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + fmtClock(ts) }
+
+   /**
+    * 统一错误条:一句人话 + 可选「重试」。
+    * 网络/宿主抖动时,人第一反应是再点一下,而不是等 20 秒后的下一次轮询。
+    */
+   function ErrorBar({ text, onRetry }) {
+     return h('div', { className: '__dk_err __dk_errbar', role: 'alert' }, [
+       h('span', { key: 't', className: '__dk_errt' }, String(text || '出错了')),
+       onRetry ? h('button', { key: 'r', type: 'button', className: '__dk_btn', onClick: onRetry }, '重试') : null,
+     ])
+   }
    /** 附件格子:图片显示缩略图,其它显示扩展名。点开看大图/下载,可带一个「移掉」。 */
    function FileChip({ file, onOpen, onRemove }) {
      const img = isImage(file)

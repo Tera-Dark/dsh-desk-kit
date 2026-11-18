@@ -116,12 +116,15 @@ async function openComposer() {
 const waitClosed = () => waitFor(() => !document.querySelector('.__dk_form'), 3000)
 
 const T = window.__spec.factory((n) => (n === 'react' ? React : ReactDOM)).__test
+// 真机上样式由 apply() 注入;E2E 直接挂组件,所以要显式注入一次,
+// 否则测的是一棵没有 CSS 的裸 DOM(之前就漏了这一步)。
+T.injectCss()
 const h = React.createElement
 const container = document.getElementById('root')
 const reactRoot = ReactDOM.createRoot(container)
 let state = null
 let painted = 0
-function paint() { painted++; reactRoot.render(h(T.NotesPage, { state, run })) }
+function paint() { painted++; reactRoot.render(h('div', { className: '__dk_page' }, h(T.NotesPage, { state, run }))) }
 async function run(action, payload) {
   const res = await fetch('/desk-kit-api', { method: 'POST', headers: { 'content-type': 'application/json', 'x-desk-kit': '1' }, body: JSON.stringify({ action, payload: payload || {} }) })
   const body = await res.json()
@@ -155,6 +158,7 @@ function pasteFiles(el, files) {
 ;(async () => {
   try {
     await boot()
+    step('插件样式已注入', !!document.querySelector('style[data-plugin-css]'))
     step('挂载 NotesPage(真组件 + 真接口)', !!document.querySelector('input[type=search]'))
 
     // 1) 新建便签:真实输入 → 点保存
@@ -202,6 +206,36 @@ function pasteFiles(el, files) {
     const hit = await waitFor(() => (document.body.textContent || '').includes('附件里命中'), 4000)
     step('搜索附件名命中', !!hit)
     setValue(search, '')
+
+    // 6) 提醒表单:标题按 Enter 直接保存
+    const remHost = document.createElement('div')
+    document.body.appendChild(remHost)
+    const remRoot = ReactDOM.createRoot(remHost)
+    const paintRem = () => remRoot.render(h('div', { className: '__dk_page' }, h(T.RemindersPage, { state, run, notify: () => { } })))
+    paintRem()
+    await waitFor(() => remHost.textContent.includes('新提醒'))
+    click(Array.from(remHost.querySelectorAll('button')).find((b) => b.textContent.includes('新提醒')))
+    const remForm = await waitFor(() => remHost.querySelector('.__dk_form'))
+    const remTitle = remForm && remForm.querySelector('input.__dk_input')
+    setValue(remTitle, 'E2E Enter 提醒')
+    remTitle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    const remSaved = await waitFor(() => (state.reminders || []).some((r) => r.title === 'E2E Enter 提醒'), 4000)
+    step('提醒表单 Enter 直接保存', !!remSaved)
+    paintRem()
+
+    // 7) 浮层面板:点面板外面关闭
+    const rootHost = document.createElement('div')
+    document.body.appendChild(rootHost)
+    const rootRoot = ReactDOM.createRoot(rootHost)
+    rootRoot.render(h(T.Root, { bridge: { read: () => ({ ready: false, open: null }), subscribe: () => () => { } } }))
+    const fab = await waitFor(() => rootHost.querySelector('.__dk_fab'))
+    fab.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', button: 0, pointerId: 1 }))
+    fab.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse', button: 0, pointerId: 1 }))
+    const panel = await waitFor(() => rootHost.querySelector('.__dk_panel'))
+    step('点浮标打开面板', !!panel)
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', pointerId: 2 }))
+    const panelClosed = await waitFor(() => !rootHost.querySelector('.__dk_panel'), 3000)
+    step('点面板外关闭浮层面板', !!panelClosed)
 
     window.__E2E = { results, ok: results.every((r) => r.ok) }
   } catch (e) {

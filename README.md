@@ -3,7 +3,7 @@
 给 DSH 的一个插件:把**定时提醒、随手便签、网页收藏、加密保险库**放在一个手机式的面板里,
 另带 **27 个 Agent 工具**,让模型能自己把话记进你的随手台。
 
-数据只落在本机 `~/.dsh/desk-kit/`,不发网络请求(除非你打开「网页用网站图标」或配置分类模型)。
+数据只落在本机 `~/.dsh/desk-kit/`(可用 `DSH_HOME` 改根目录),不发网络请求(除非你打开「网页用网站图标」或配置分类模型)。
 
 ```bash
 dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
@@ -128,7 +128,7 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 ## 数据目录与备份
 
 ```
-~/.dsh/desk-kit/
+~/.dsh/desk-kit/        # 默认;DSH_HOME 可改根目录
 ├── data.json   便签 + 提醒 + 网页 + 附件元信息 + 告警(明文,可 cat/diff)
 ├── vault.json  保险库条目(每条独立 AES-256-GCM 密文)
 ├── vault.key   主密钥材料(0600;丢了 vault.json 就解不开)
@@ -146,7 +146,7 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 npm test            # 存储 / 分拣 / 农历 / 客户端渲染 / 归属 / AI 分类 / 入口
 npm run test:host   # 桩掉 webServer,真起 HTTP:API、27 个工具、附件、转存、清理、导入
 npm run test:installed  # 按装好的样子加载一遍
-npm run test:ui     # 真浏览器里点一遍:粘贴截图 → 缩略图 → 大图 → Esc → 搜索
+npm run test:ui     # 真浏览器里点一遍:粘贴截图 → 缩略图 → 大图 → Esc → 搜索 → 提醒 Enter → 点外关闭
 ```
 
 需要 `react` / `react-dom`:从 DSH profile 里取,没有就装在本仓库。
@@ -165,4 +165,4 @@ npm run build:check  # 只看「产物是否与源码一致」,npm test 会自�
 
 ## 变更历史
 
-逐版本的「为什么 + 验收」都在 [CHANGELOG.md](CHANGELOG.md)。当前版本 **1.14.0**。
+逐版本的「为什么 + 验收」都在 [CHANGELOG.md](CHANGELOG.md)。当前版本 **1.15.0**。
