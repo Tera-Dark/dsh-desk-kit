@@ -3,7 +3,7 @@
 > 2026-11-17 · 目标：把「能跑但难维护」的插件收拢成有明确所有权边界的结构。
 >
 > 注：本文是当时的记录，行数与工具数会随版本变化；当前口径以 README 和 `package.json` 为准（现为 27 个 Agent 工具）。
-> 手机深链与快搜见 [CHANGELOG 1.17.0](../CHANGELOG.md)。
+> 手机深链、快搜与录入提示见 [CHANGELOG 1.19.0](../CHANGELOG.md)。
 
 ## 一、判断依据（设计理念来源）
 
@@ -97,13 +97,8 @@ node harness.mjs       # ALL HOST TESTS PASSED（真起 HTTP + 桩 ctx，跑 23 
 
 ## 七、回滚
 
-从 1.6.0 起本仓库按版本打 tag（`v1.5.0`、`v1.6.0`…），回滚即：
-
-```bash
-git checkout v1.5.0
-```
-
-按 README 的「安装」重新挂载，再重启 DSH 即可。
+仓库目前不维护历史 tag。回滚时先用 `git log --oneline` 找到目标提交，
+再 `git checkout <commit>`；按 README 的「安装」重新挂载，并重启 DSH。
 
 ## 附件(1.11.0)
 

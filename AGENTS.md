@@ -14,7 +14,7 @@ npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址�
 
 ## 技术栈
 
-- Node.js >= 20.11，ESM，零运行时依赖。
+- Node.js >= 20.18，ESM，零运行时依赖。
 - 服务端：`index.js` 组合根 + 同源 HTTP API；`store.js` 持久化与领域逻辑。
 - 客户端：React 18（宿主提供），源码在 `src/client/*.js`，拼接成单文件 `client.js`。
 
