@@ -139,6 +139,58 @@
      return '截图 ' + stamp + '.' + ext
    }
 
+   /**
+    * 从剪贴板里判断「这次粘贴的到底是不是图片」。
+    * 浏览器不保证复制图片时带文件:从网页/聊天软件复制,常常只给一段
+    * text/html 的 <img src>,或直接给一个本地路径。只认文件的话,
+    * 文本路径就会被当成普通文字粘进输入框 —— 这正是用户看到「路径」的原因。
+    */
+   function clipboardImage(dt) {
+     const files = filesFromDataTransfer(dt)
+     if (files.length) return { files }
+     if (!dt) return null
+     let html = ''
+     let plain = ''
+     try { html = String(dt.getData('text/html') || '') } catch { /* 有些环境不给 html */ }
+     try { plain = String(dt.getData('text/plain') || '').trim() } catch { /* 同上 */ }
+     const m = html.match(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i)
+     let src = m ? m[1] : ''
+     const fromHtml = !!src
+     if (!src) src = plain
+     if (!src) return null
+     src = src.replace(/&amp;/g, '&').trim().replace(/^["']|[\"']$/g, '').trim()
+     const imageExt = /\.(png|jpe?g|gif|webp|bmp|avif)([?#]|$)/i.test(src)
+     if (/^data:image\//i.test(src)) return { dataUrl: src }
+     // 网页图片的地址经常没有扩展名(签名 URL),来自 <img> 就信它;纯文本则要求像图片
+     if (/^https?:\/\//i.test(src) && (fromHtml || imageExt)) return { url: src }
+     const localPath = /^file:\/\//i.test(src) || /^[a-zA-Z]:/.test(src) || src.charCodeAt(0) === 92 || (src[0] === '/' && imageExt)
+     if (localPath && (imageExt || /^file:\/\//i.test(src))) return { localPath: src }
+     return null
+   }
+
+   /** data:image/... 转成可上传的 File。 */
+   async function fileFromDataUrl(url) {
+     const res = await fetch(url)
+     if (!res.ok) throw new Error('读不出剪贴板里的图片')
+     const blob = await res.blob()
+     return new File([blob], shotName({ type: blob.type }), { type: blob.type || 'image/png' })
+   }
+
+   /** 网页上的图片:交给宿主下载后落盘,避开浏览器跨域限制。 */
+   async function uploadFromUrl(url) {
+     const res = await fetch(API + '/files/from-url', {
+       method: 'POST',
+       headers: { ...HEAD, 'content-type': 'application/json' },
+       body: JSON.stringify({ url: String(url || '') }),
+     })
+     const body = await res.json().catch(() => ({ ok: false, error: 'HTTP ' + res.status }))
+     if (!res.ok || !body.ok) throw new Error(body.error || ('HTTP ' + res.status))
+     return body.file
+   }
+
+   /** 剪贴板里只有本地路径时,浏览器读不到文件;给一句能照着做的提示。 */
+   const LOCAL_PASTE_TIP = '剪贴板里是本地图片路径,浏览器读不到这个文件。请点「附件」选一下,或直接把图片拖进来。'
+
    const fmtClock = (ts) => { if (!ts) return ''; const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') }
    const fmtWhen = (ts) => { const d = new Date(ts); const n = new Date(); return d.toDateString() === n.toDateString() ? '今天 ' + fmtClock(ts) : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + fmtClock(ts) }
 

@@ -161,6 +161,17 @@ function pasteFiles(el, files) {
     step('插件样式已注入', !!document.querySelector('style[data-plugin-css]'))
     step('挂载 NotesPage(真组件 + 真接口)', !!document.querySelector('input[type=search]'))
 
+    // 0) 从别处复制图片:剪贴板只有本地路径时,不能把路径当文字粘进输入框
+    const pasteForm = await openComposer()
+    const pasteArea = pasteForm.querySelector('textarea')
+    const localDt = new DataTransfer()
+    localDt.setData('text/plain', 'C:\Users\me\Pictures\截图.png')
+    pasteArea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: localDt, bubbles: true, cancelable: true }))
+    await sleep(120)
+    step('本地图片路径不会粘成文字', pasteArea.value === '')
+    click(byText('button', '取消'))
+    await waitClosed()
+
     // 1) 新建便签:真实输入 → 点保存
     const form1 = await openComposer()
     setValue(form1.querySelector('textarea'), 'E2E 第一条便签')

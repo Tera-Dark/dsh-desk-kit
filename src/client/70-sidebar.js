@@ -430,6 +430,7 @@
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,
      FileChip, FileGrid, Lightbox, isImage, fmtSize, extOf, filesFromDataTransfer, shotName,
+     clipboardImage, fileFromDataUrl, uploadFromUrl, LOCAL_PASTE_TIP,
      CleanupCard, daysText, ImportRow,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,

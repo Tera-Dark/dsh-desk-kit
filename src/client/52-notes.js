@@ -72,6 +72,12 @@
      }
 
      /** 收文件:上传后先挂在草稿上,保存时随便签一起落库。 */
+     const attachMetas = (metas) => {
+       if (!metas || !metas.length) return
+       setDraftFiles((cur) => [...cur, ...metas].slice(0, 12))
+       setOpenAdd(true)
+       say('附件已就位,写点什么一起存')
+     }
      const addFiles = async (list, nameOf) => {
        const picked = Array.from(list || []).slice(0, 8)
        if (!picked.length) return
@@ -79,11 +85,28 @@
        try {
          const metas = []
          for (const f of picked) metas.push(await uploadFile(f, nameOf ? nameOf(f) : shotName(f)))
-         setDraftFiles((cur) => [...cur, ...metas].slice(0, 12))
-         setOpenAdd(true)
-         if (metas.length) say('附件已就位,写点什么一起存')
+         attachMetas(metas)
        } catch (e) {
          say('没存上:' + String((e && e.message) || e))
+       } finally { setBusyFile(false) }
+     }
+     /** 粘贴进来的可能是文件、data URL、网页图片地址,也可能只有一个本地路径。 */
+     const addPaste = async (src) => {
+       if (!src) return
+       if (src.files) return addFiles(src.files)
+       if (src.localPath) { setOpenAdd(true); say(LOCAL_PASTE_TIP); return }
+       setBusyFile(true)
+       try {
+         let meta = null
+         if (src.dataUrl) {
+           const file = await fileFromDataUrl(src.dataUrl)
+           meta = await uploadFile(file, shotName(file))
+         } else if (src.url) {
+           meta = await uploadFromUrl(src.url)
+         }
+         attachMetas(meta ? [meta] : [])
+       } catch (e) {
+         say('图片没贴进来:' + String((e && e.message) || e))
        } finally { setBusyFile(false) }
      }
 
@@ -271,10 +294,10 @@
          key: 'form', className: '__dk_form',
          // 表单里粘贴/拖文件:先挂在草稿上(你还想写两句),保存时一起落库
          onPaste: (e) => {
-           const files = filesFromDataTransfer(e.clipboardData)
-           if (!files.length) return
+           const src = clipboardImage(e.clipboardData)
+           if (!src) return
            e.preventDefault(); e.stopPropagation()
-           addFiles(files)
+           addPaste(src)
          },
          onDragOver: (e) => { e.preventDefault() },
          onDrop: (e) => {

@@ -211,6 +211,20 @@ test('便签默认只显示前 8 条,不堆满屏', () => {
   assert.ok(html.includes('显示更多'), '超出要能点开继续看')
 })
 
+test('粘贴图片:文件优先,网页地址/本地路径/metadata 都能认出来', () => {
+  const fake = (html, plain, files) => ({
+    items: [],
+    files: files || [],
+    getData: (t) => (t === 'text/html' ? html : t === 'text/plain' ? plain : ''),
+  })
+  assert.deepEqual(T.clipboardImage(fake('', 'C:\\Users\\me\\Pictures\\a.png')), { localPath: 'C:\\Users\\me\\Pictures\\a.png' })
+  assert.deepEqual(T.clipboardImage(fake('<img src="https://cdn.example/a.png?x=1">', '')), { url: 'https://cdn.example/a.png?x=1' })
+  assert.deepEqual(T.clipboardImage(fake('<img src="https://cdn.example/signed?id=1">', '')), { url: 'https://cdn.example/signed?id=1' })
+  assert.deepEqual(T.clipboardImage(fake('', 'data:image/png;base64,AAAA')), { dataUrl: 'data:image/png;base64,AAAA' })
+  assert.equal(T.clipboardImage(fake('', '只是普通文字')), null)
+  assert.ok(T.LOCAL_PASTE_TIP.includes('浏览器读不到'), '本地路径要给人话提示')
+})
+
 test('保险库有合集筛选、合集字段和拖动排序入口', () => {
   const st = {
     ...state,
@@ -225,12 +239,25 @@ test('保险库有合集筛选、合集字段和拖动排序入口', () => {
   assert.ok(html.includes('梯子订阅 2'), '要显示合集与条数')
   assert.ok(html.includes('全部 3'), '要有全部入口')
   assert.ok(html.includes('未分类 1'), '要有未分类入口')
-  assert.ok(html.includes('__dk_secret_collections'), '新建/编辑要能填合集')
+  assert.ok(readFileSync(join(HERE, 'client.js'), 'utf8').includes('__dk_collpick'), '新建/编辑要能填合集')
   assert.ok(html.includes('选一个合集后可拖拽排序'), '未选合集时提示先选合集')
+  assert.ok(html.includes('__dk_vaulthead') && html.includes('__dk_vaultstats'), '页头统计与动作要分行')
+  assert.ok(html.includes('__dk_showbtn') && html.includes('__dk_iact--bar'), '标题和动作要分行')
   const src = readFileSync(join(HERE, 'client.js'), 'utf8')
   assert.ok(src.includes("secret.reorder"), '缺拖动排序动作')
   assert.ok(src.includes('draggable: dragEnabled'), '缺拖拽标记')
   assert.ok(src.includes("name: 'chevronUp'") && src.includes("name: 'chevronDown'"), '缺移动端上下移动按钮')
+  assert.ok(src.includes('__dk_chipmore'), '合集多了要有展开/收起')
+
+  const many = {
+    ...state,
+    secrets: ['A', 'B', 'C', 'D', 'E'].flatMap((name) => [
+      { id: 'm-' + name, title: name, collection: '合集' + name, order: 1, tags: [], createdAt: 1, updatedAt: 1, fieldCount: 0 },
+    ]),
+  }
+  const html2 = renderToString(h(T.VaultPage, { state: many, run }))
+  assert.ok(html2.includes('更多 2'), '五个合集时先收起两个')
+  assert.ok(html2.includes('__dk_chipmore'), '要有展开按钮')
 })
 
 test('保险库新建是单个自由文本框', () => {

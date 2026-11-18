@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.20.0'
+   const VERSION = '1.21.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -609,6 +609,36 @@ window.__ModuleLoader__.load({
      '.__dk_item--over{box-shadow:inset 0 2px 0 var(--dk-brand)}',
      '.__dk_move{opacity:.7}',
      '.__dk_move:disabled{opacity:.2;cursor:default}',
+     // 保险库页头:统计在左、动作在右,不再和按钮挤成一行
+     '.__dk_vaulthead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;max-width:960px;margin:2px auto 8px}',
+     '.__dk_vaultstats{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;font-size:11.5px;color:var(--dk-faint)}',
+     '.__dk_vaultstats strong{font-size:12.5px;font-weight:650;color:var(--dk-text);font-variant-numeric:tabular-nums}',
+     '.__dk_statdot{opacity:.45}',
+     '.__dk_vaultlock{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border:1px solid var(--dk-line);border-radius:999px;font-size:10px;letter-spacing:.02em;color:var(--dk-muted)}',
+     '.__dk_vaultacts{display:flex;gap:7px;flex:none}',
+     '.__dk_vaultacts .__dk_btn{height:30px}',
+     // 合集:多了先收起,点「更多」再展开
+     '.__dk_groupchips{align-items:center;gap:6px;padding:2px 0 4px}',
+     '.__dk_chipmore{display:inline-flex;align-items:center;gap:2px;border-style:dashed;color:var(--dk-muted)}',
+     '.__dk_chipmore:hover{color:var(--dk-text)}',
+     // 合集输入:用快捷胶囊代替原生 datalist,不再盖住正文
+     '.__dk_collpick{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:-1px}',
+     '.__dk_collpicklabel{flex:none;font-size:10.5px;color:var(--dk-faint)}',
+     '.__dk_collbtn{height:24px;max-width:140px;padding:0 8px;border:1px solid var(--dk-line);border-radius:999px;background:transparent;color:var(--dk-muted);font:11px/1 inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:background .15s,border-color .15s,color .15s}',
+     '.__dk_collbtn:hover{border-color:var(--dk-line-2);color:var(--dk-text);background:var(--dk-surface)}',
+     '.__dk_collbtn.on{border-color:color-mix(in srgb,var(--dk-brand) 45%,transparent);background:color-mix(in srgb,var(--dk-brand) 12%,transparent);color:var(--dk-brand)}',
+     '.__dk_collclear{height:24px;padding:0 4px;border:none;background:transparent;color:var(--dk-faint);font:10.5px/1 inherit;cursor:pointer}',
+     '.__dk_collclear:hover{color:var(--dk-text)}',
+     // 保险库条目:标题自己占一行,动作单独一行,长邮箱/网址不再被按钮挤到断行
+     '.__dk_item .__dk_itop{align-items:center;gap:7px}',
+     '.__dk_itext.__dk_lockrow{display:flex;align-items:flex-start;gap:6px;flex:1 1 0;min-width:0;white-space:normal;word-break:break-word;line-height:1.45}',
+     '.__dk_lockrow > svg{flex:none;margin-top:2px;opacity:.55}',
+     '.__dk_ititle{min-width:0;overflow-wrap:anywhere;word-break:break-word}',
+     '.__dk_showbtn{flex:none;height:26px;padding:0 9px;border:1px solid var(--dk-line);border-radius:8px;background:transparent;color:var(--dk-muted);font:11px/1 inherit;cursor:pointer;transition:background .15s,border-color .15s,color .15s}',
+     '.__dk_showbtn:hover{border-color:var(--dk-line-2);background:var(--dk-surface);color:var(--dk-text)}',
+     '.__dk_iact--bar{display:flex;align-items:center;justify-content:flex-end;gap:1px;opacity:1;margin-top:4px;padding-top:4px;border-top:1px solid var(--dk-line)}',
+     '.__dk_iact--bar .__dk_mini{width:28px;height:26px}',
+     '@media (max-width:420px){.__dk_field{align-items:flex-start;flex-direction:column;gap:2px}.__dk_field .v{text-align:left}.__dk_vaulthead{align-items:flex-start}.__dk_vaultacts{margin-left:auto}}',
      // 键盘可达性:只在键盘聚焦时出现描边,不干扰鼠标
      '.__dk_sp button:focus-visible,.__dk_panel button:focus-visible,.__dk_dock button:focus-visible,.__dk_sp input:focus-visible,.__dk_panel input:focus-visible,.__dk_sp textarea:focus-visible,.__dk_panel textarea:focus-visible,.__dk_sp a:focus-visible,.__dk_panel a:focus-visible{outline:2px solid color-mix(in srgb,var(--dk-brand) 70%,transparent);outline-offset:2px}',
    ].join('\n')
@@ -752,6 +782,58 @@ window.__ModuleLoader__.load({
      const ext = (String((file && file.type) || '').split('/')[1] || 'png').replace('jpeg', 'jpg')
      return '截图 ' + stamp + '.' + ext
    }
+
+   /**
+    * 从剪贴板里判断「这次粘贴的到底是不是图片」。
+    * 浏览器不保证复制图片时带文件:从网页/聊天软件复制,常常只给一段
+    * text/html 的 <img src>,或直接给一个本地路径。只认文件的话,
+    * 文本路径就会被当成普通文字粘进输入框 —— 这正是用户看到「路径」的原因。
+    */
+   function clipboardImage(dt) {
+     const files = filesFromDataTransfer(dt)
+     if (files.length) return { files }
+     if (!dt) return null
+     let html = ''
+     let plain = ''
+     try { html = String(dt.getData('text/html') || '') } catch { /* 有些环境不给 html */ }
+     try { plain = String(dt.getData('text/plain') || '').trim() } catch { /* 同上 */ }
+     const m = html.match(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i)
+     let src = m ? m[1] : ''
+     const fromHtml = !!src
+     if (!src) src = plain
+     if (!src) return null
+     src = src.replace(/&amp;/g, '&').trim().replace(/^["']|[\"']$/g, '').trim()
+     const imageExt = /\.(png|jpe?g|gif|webp|bmp|avif)([?#]|$)/i.test(src)
+     if (/^data:image\//i.test(src)) return { dataUrl: src }
+     // 网页图片的地址经常没有扩展名(签名 URL),来自 <img> 就信它;纯文本则要求像图片
+     if (/^https?:\/\//i.test(src) && (fromHtml || imageExt)) return { url: src }
+     const localPath = /^file:\/\//i.test(src) || /^[a-zA-Z]:/.test(src) || src.charCodeAt(0) === 92 || (src[0] === '/' && imageExt)
+     if (localPath && (imageExt || /^file:\/\//i.test(src))) return { localPath: src }
+     return null
+   }
+
+   /** data:image/... 转成可上传的 File。 */
+   async function fileFromDataUrl(url) {
+     const res = await fetch(url)
+     if (!res.ok) throw new Error('读不出剪贴板里的图片')
+     const blob = await res.blob()
+     return new File([blob], shotName({ type: blob.type }), { type: blob.type || 'image/png' })
+   }
+
+   /** 网页上的图片:交给宿主下载后落盘,避开浏览器跨域限制。 */
+   async function uploadFromUrl(url) {
+     const res = await fetch(API + '/files/from-url', {
+       method: 'POST',
+       headers: { ...HEAD, 'content-type': 'application/json' },
+       body: JSON.stringify({ url: String(url || '') }),
+     })
+     const body = await res.json().catch(() => ({ ok: false, error: 'HTTP ' + res.status }))
+     if (!res.ok || !body.ok) throw new Error(body.error || ('HTTP ' + res.status))
+     return body.file
+   }
+
+   /** 剪贴板里只有本地路径时,浏览器读不到文件;给一句能照着做的提示。 */
+   const LOCAL_PASTE_TIP = '剪贴板里是本地图片路径,浏览器读不到这个文件。请点「附件」选一下,或直接把图片拖进来。'
 
    const fmtClock = (ts) => { if (!ts) return ''; const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') }
    const fmtWhen = (ts) => { const d = new Date(ts); const n = new Date(); return d.toDateString() === n.toDateString() ? '今天 ' + fmtClock(ts) : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + fmtClock(ts) }
@@ -1788,6 +1870,12 @@ window.__ModuleLoader__.load({
      }
 
      /** 收文件:上传后先挂在草稿上,保存时随便签一起落库。 */
+     const attachMetas = (metas) => {
+       if (!metas || !metas.length) return
+       setDraftFiles((cur) => [...cur, ...metas].slice(0, 12))
+       setOpenAdd(true)
+       say('附件已就位,写点什么一起存')
+     }
      const addFiles = async (list, nameOf) => {
        const picked = Array.from(list || []).slice(0, 8)
        if (!picked.length) return
@@ -1795,11 +1883,28 @@ window.__ModuleLoader__.load({
        try {
          const metas = []
          for (const f of picked) metas.push(await uploadFile(f, nameOf ? nameOf(f) : shotName(f)))
-         setDraftFiles((cur) => [...cur, ...metas].slice(0, 12))
-         setOpenAdd(true)
-         if (metas.length) say('附件已就位,写点什么一起存')
+         attachMetas(metas)
        } catch (e) {
          say('没存上:' + String((e && e.message) || e))
+       } finally { setBusyFile(false) }
+     }
+     /** 粘贴进来的可能是文件、data URL、网页图片地址,也可能只有一个本地路径。 */
+     const addPaste = async (src) => {
+       if (!src) return
+       if (src.files) return addFiles(src.files)
+       if (src.localPath) { setOpenAdd(true); say(LOCAL_PASTE_TIP); return }
+       setBusyFile(true)
+       try {
+         let meta = null
+         if (src.dataUrl) {
+           const file = await fileFromDataUrl(src.dataUrl)
+           meta = await uploadFile(file, shotName(file))
+         } else if (src.url) {
+           meta = await uploadFromUrl(src.url)
+         }
+         attachMetas(meta ? [meta] : [])
+       } catch (e) {
+         say('图片没贴进来:' + String((e && e.message) || e))
        } finally { setBusyFile(false) }
      }
 
@@ -1987,10 +2092,10 @@ window.__ModuleLoader__.load({
          key: 'form', className: '__dk_form',
          // 表单里粘贴/拖文件:先挂在草稿上(你还想写两句),保存时一起落库
          onPaste: (e) => {
-           const files = filesFromDataTransfer(e.clipboardData)
-           if (!files.length) return
+           const src = clipboardImage(e.clipboardData)
+           if (!src) return
            e.preventDefault(); e.stopPropagation()
-           addFiles(files)
+           addPaste(src)
          },
          onDragOver: (e) => { e.preventDefault() },
          onDrop: (e) => {
@@ -2395,6 +2500,7 @@ window.__ModuleLoader__.load({
      const [addCollection, setAddCollection] = useState('')
      const [q, setQ] = useState('')
      const [collection, setCollection] = useState('')   // '' = 全部, '\u0000' = 未分类
+     const [chipsOpen, setChipsOpen] = useState(false)
      const [limit, setLimit] = useState(30)
      const [dragging, setDragging] = useState('')
      const [dragOver, setDragOver] = useState('')
@@ -2409,6 +2515,15 @@ window.__ModuleLoader__.load({
      const groups = secretCollections(secrets)
      const collParam = collection === '\u0000' ? '' : collection
      const dragEnabled = !q.trim() && collection !== ''
+     // 合集少时全铺开;多了先收一部分,把「全部/未分类」和常用入口留在第一屏。
+     const CHIP_LIMIT = 3
+     const selectedGroup = collection && collection !== '\u0000' ? collection : ''
+     const baseGroups = chipsOpen ? groups.list : groups.list.slice(0, CHIP_LIMIT)
+     const hiddenSelected = selectedGroup && !baseGroups.some((g) => g.name === selectedGroup)
+       ? groups.list.find((g) => g.name === selectedGroup)
+       : null
+     const visibleGroups = hiddenSelected ? [...baseGroups, hiddenSelected] : baseGroups
+     const canCollapse = groups.list.length > CHIP_LIMIT
 
      // 页面关掉/切走时把计时器全清掉,别在卸载之后还去 setState
      useEffect(() => () => {
@@ -2430,6 +2545,12 @@ window.__ModuleLoader__.load({
        setTitle(''); setBody(''); setAddCollection(''); setDraftFiles([]); setOpenAdd(false)
        say('已加密保存')
      }
+     const attachMetas = (metas) => {
+       if (!metas || !metas.length) return
+       setDraftFiles((cur) => [...cur, ...metas].slice(0, 12))
+       setOpenAdd(true)
+       setAddCollection(collection && collection !== '\u0000' ? collection : '')
+     }
      /** 保险库的附件:落盘前整块加密,点「显示」之后才列出来。 */
      const addFiles = async (list) => {
        const picked = Array.from(list || []).slice(0, 8)
@@ -2437,10 +2558,24 @@ window.__ModuleLoader__.load({
        try {
          const metas = []
          for (const f of picked) metas.push(await uploadFile(f, shotName(f)))
-         setDraftFiles((cur) => [...cur, ...metas].slice(0, 12))
-         setOpenAdd(true)
-         setAddCollection(collection && collection !== '\u0000' ? collection : '')
+         attachMetas(metas)
        } catch (e) { say('没存上:' + String((e && e.message) || e)) }
+     }
+     /** 和便签一样:文件优先,其次 data URL / 网页图片;本地路径只提示,不粘文字。 */
+     const addPaste = async (src) => {
+       if (!src) return
+       if (src.files) return addFiles(src.files)
+       if (src.localPath) { setOpenAdd(true); say(LOCAL_PASTE_TIP); return }
+       try {
+         let meta = null
+         if (src.dataUrl) {
+           const file = await fileFromDataUrl(src.dataUrl)
+           meta = await uploadFile(file, shotName(file))
+         } else if (src.url) {
+           meta = await uploadFromUrl(src.url)
+         }
+         attachMetas(meta ? [meta] : [])
+       } catch (e) { say('图片没贴进来:' + String((e && e.message) || e)) }
      }
      const startAdd = () => {
        const next = !openAdd
@@ -2513,7 +2648,20 @@ window.__ModuleLoader__.load({
        return () => clearTimeout(t)
      }, [focus && focus.secretId])
 
-     const collectionOptions = groups.list.map((g) => h('option', { key: g.name, value: g.name }))
+     /** 合集输入框下面的快捷入口:比原生 datalist 的下拉更稳,也不会盖住正文。 */
+     const collectionSuggest = (value, onChange) => h('div', { className: '__dk_collpick' }, [
+       groups.list.length
+         ? h('span', { key: 'l', className: '__dk_collpicklabel' }, '快速选')
+         : h('span', { key: 'l', className: '__dk_hint' }, '还没有合集,填一个名字就会出现在这里'),
+       ...groups.list.slice(0, 6).map((g) => h('button', {
+         key: 'g-' + g.name, type: 'button',
+         className: '__dk_collbtn' + (String(value || '').trim() === g.name ? ' on' : ''),
+         onClick: () => onChange(g.name),
+       }, g.name)),
+       String(value || '').trim()
+         ? h('button', { key: 'clear', type: 'button', className: '__dk_collclear', onClick: () => onChange('') }, '清空')
+         : null,
+     ])
 
      return h(React.Fragment, null, [
        h(Lightbox, { key: 'light', file: viewing, onClose: () => setViewing(null) }),
@@ -2524,24 +2672,36 @@ window.__ModuleLoader__.load({
          }),
          q ? h('button', { key: 'x', className: '__dk_qclear', title: '清空', onClick: () => setQ('') }, h(Ico, { name: 'x', size: 14 })) : null,
        ])),
-       h('div', { key: 'bar', className: '__dk_toolbar' }, [
-         h('button', { key: 'a', className: '__dk_btn p', onClick: startAdd }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), openAdd ? ' 收起' : ' 新条目']),
-         h('button', {
-           key: 'af', className: '__dk_btn', title: '给新条目加附件(截图/文件,和正文一起加密)',
-           onClick: () => {
-             setOpenAdd(true)
-             setAddCollection(collection && collection !== '\u0000' ? collection : '')
-             setTimeout(() => filePicker.current && filePicker.current.click(), 30)
-           },
-         }, [h(Ico, { key: 'i', name: 'image', size: 13 }), ' 附件']),
-         h('span', { key: 'h', className: '__dk_hint' }, '共 ' + secrets.length + ' 条 · ' + groups.list.length + ' 个合集 · AES-256-GCM'),
+       h('div', { key: 'vhead', className: '__dk_vaulthead' }, [
+         h('div', { key: 's', className: '__dk_vaultstats' }, [
+           h('strong', { key: 'n' }, secrets.length + ' 条'),
+           h('span', { key: 'd1', className: '__dk_statdot' }, '·'),
+           h('span', { key: 'c' }, groups.list.length + ' 个合集'),
+           h('span', { key: 'lk', className: '__dk_vaultlock' }, [h(Ico, { key: 'i', name: 'lock', size: 11 }), 'AES-256-GCM']),
+         ]),
+         h('div', { key: 'a', className: '__dk_vaultacts' }, [
+           h('button', { key: 'a', className: '__dk_btn p', onClick: startAdd }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), openAdd ? ' 收起' : ' 新条目']),
+           h('button', {
+             key: 'af', className: '__dk_btn', title: '给新条目加附件(截图/文件,和正文一起加密)',
+             onClick: () => {
+               setOpenAdd(true)
+               setAddCollection(collection && collection !== '\u0000' ? collection : '')
+               setTimeout(() => filePicker.current && filePicker.current.click(), 30)
+             },
+           }, [h(Ico, { key: 'i', name: 'image', size: 13 }), ' 附件']),
+         ]),
        ]),
        h('div', { key: 'chips', className: '__dk_groupchips' }, [
          h('button', { key: 'all', className: '__dk_chip' + (collection === '' ? ' on' : ''), onClick: () => setCollection('') }, '全部 ' + secrets.length),
-         ...groups.list.map((g) => h('button', {
+         ...visibleGroups.map((g) => h('button', {
            key: g.name, className: '__dk_chip' + (collection === g.name ? ' on' : ''), onClick: () => setCollection(g.name),
          }, g.name + ' ' + g.count)),
          groups.ungrouped ? h('button', { key: 'none', className: '__dk_chip' + (collection === '\u0000' ? ' on' : ''), onClick: () => setCollection('\u0000') }, '未分类 ' + groups.ungrouped) : null,
+         canCollapse ? h('button', {
+           key: 'morechips', className: '__dk_chip __dk_chipmore',
+           onClick: () => setChipsOpen((v) => !v),
+           title: chipsOpen ? '收起合集' : '展开全部合集',
+         }, [h(Ico, { key: 'i', name: chipsOpen ? 'chevronUp' : 'chevronDown', size: 12 }), chipsOpen ? ' 收起' : ' 更多 ' + (groups.list.length - CHIP_LIMIT)]) : null,
        ]),
        h('div', { key: 'hint', className: '__dk_hint __dk_vaultsort' }, dragEnabled
          ? '拖动手柄上下排序;手机上可用 ↑↓ 按钮'
@@ -2556,9 +2716,10 @@ window.__ModuleLoader__.load({
            }),
            h('input', {
              key: 'c', className: '__dk_input', placeholder: '合集(可选,如「梯子订阅」)',
-             list: '__dk_secret_collections', value: editing.collection || '',
+             value: editing.collection || '',
              onChange: (e) => setEditing((cur) => ({ ...cur, collection: e.target.value })),
            }),
+           collectionSuggest(editing.collection, (v) => setEditing((cur) => ({ ...cur, collection: v }))),
            h('textarea', {
              key: 'b', className: '__dk_input', rows: 7,
              style: { resize: 'vertical', fontFamily: 'inherit' },
@@ -2586,10 +2747,10 @@ window.__ModuleLoader__.load({
          key: 'form', className: '__dk_form',
          // 保险库里也能直接粘贴截图:截完图 Ctrl+V 就挂在新条目上
          onPaste: (e) => {
-           const files = filesFromDataTransfer(e.clipboardData)
-           if (!files.length) return
+           const src = clipboardImage(e.clipboardData)
+           if (!src) return
            e.preventDefault(); e.stopPropagation()
-           addFiles(files)
+           addPaste(src)
          },
          onDragOver: (e) => { e.preventDefault() },
          onDrop: (e) => {
@@ -2608,9 +2769,10 @@ window.__ModuleLoader__.load({
            }),
            h('input', {
              key: 'c', className: '__dk_input', placeholder: '合集(可选,如「梯子订阅」)',
-             list: '__dk_secret_collections', value: addCollection,
+             value: addCollection,
              onChange: (e) => setAddCollection(e.target.value),
            }),
+           collectionSuggest(addCollection, setAddCollection),
            h('textarea', {
              key: 'b', className: '__dk_input', rows: 6,
              style: { resize: 'vertical', fontFamily: 'inherit' },
@@ -2638,7 +2800,6 @@ window.__ModuleLoader__.load({
            h('button', { key: 'c', className: '__dk_btn', onClick: () => setOpenAdd(false) }, '取消'),
          ]),
        ]) : null,
-       h('datalist', { key: 'dl', id: '__dk_secret_collections' }, collectionOptions),
        shown.length
          ? shown.map((s) => {
            const at = indexOf.get(s.id)
@@ -2667,40 +2828,47 @@ window.__ModuleLoader__.load({
            }, [
              h('div', { key: 't', className: '__dk_itop' }, [
                dragEnabled ? h('span', { key: 'g', className: '__dk_drag', title: '拖动排序', 'aria-hidden': 'true' }, h(Ico, { name: 'menu', size: 13 })) : null,
-               h('div', { key: 'x', className: '__dk_itext __dk_lockrow' }, [h(Ico, { key: 'i', name: 'lock', size: 14 }), s.title]),
+               h('div', { key: 'x', className: '__dk_itext __dk_lockrow' }, [
+                 h(Ico, { key: 'i', name: 'lock', size: 13 }),
+                 h('span', { key: 'tt', className: '__dk_ititle', title: s.title }, s.title),
+               ]),
                h('button', {
-                 key: 'v', className: '__dk_mini', title: revealed[s.id] ? '收起' : '显示内容',
-                 style: { width: 'auto', padding: '0 8px' },
+                 key: 'v', className: '__dk_showbtn', title: revealed[s.id] ? '收起内容' : '显示内容',
                  onClick: () => reveal(s.id),
                }, revealed[s.id] ? '收起' : '显示'),
-               h('div', { key: 'act', className: '__dk_iact' }, [
-                 dragEnabled ? h('button', {
-                   key: 'up', className: '__dk_mini __dk_move', title: '上移', 'aria-label': '上移',
-                   disabled: at <= 0, onClick: () => moveOne(s.id, -1),
-                 }, h(Ico, { name: 'chevronUp', size: 13 })) : null,
-                 dragEnabled ? h('button', {
-                   key: 'dn', className: '__dk_mini __dk_move', title: '下移', 'aria-label': '下移',
-                   disabled: at >= last, onClick: () => moveOne(s.id, 1),
-                 }, h(Ico, { name: 'chevronDown', size: 13 })) : null,
-                 h('button', { key: 'mv', className: '__dk_mini', title: '转存到别的分类', 'aria-label': '转存到别的分类', onClick: () => setMoving(moving === s.id ? '' : s.id) }, h(Ico, { name: 'swap', size: 14 })),
-                 h('button', {
-                   key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑',
-                   onClick: async () => {
-                     const full = await run('secret.get', { query: s.id })
-                     if (!full || !full.result) return
-                     hide(s.id)
-                     setEditing({ id: s.id, title: s.title, body: secretText(full.result), collection: s.collection || '' })
-                   },
-                 }, h(Ico, { name: 'edit', size: 14 })),
-                 h('button', {
-                   key: 'd', className: '__dk_mini', title: '删除', 'aria-label': '删除',
-                   onClick: async () => {
-                     // 保险库不进垃圾箱,所以这里必须确认
-                     if (!window.confirm('删除「' + s.title + '」?加密内容一起删,不可恢复')) return
-                     await run('secret.delete', { query: s.id })
-                   },
-                 }, h(Ico, { name: 'x', size: 14 })),
-               ]),
+             ]),
+             h('div', { key: 'm', className: '__dk_imeta' }, [
+               h('span', { key: 'd' }, fmtWhen(s.updatedAt || s.createdAt)),
+               s.collection && collection !== s.collection ? h('span', { key: 'c', className: '__dk_tag' }, s.collection) : null,
+               revealed[s.id] ? h('span', { key: 't' }, '30 秒后自动收起') : null,
+             ]),
+             h('div', { key: 'act', className: '__dk_iact __dk_iact--bar' }, [
+               dragEnabled ? h('button', {
+                 key: 'up', className: '__dk_mini __dk_move', title: '上移', 'aria-label': '上移',
+                 disabled: at <= 0, onClick: () => moveOne(s.id, -1),
+               }, h(Ico, { name: 'chevronUp', size: 13 })) : null,
+               dragEnabled ? h('button', {
+                 key: 'dn', className: '__dk_mini __dk_move', title: '下移', 'aria-label': '下移',
+                 disabled: at >= last, onClick: () => moveOne(s.id, 1),
+               }, h(Ico, { name: 'chevronDown', size: 13 })) : null,
+               h('button', { key: 'mv', className: '__dk_mini', title: '转存到别的分类', 'aria-label': '转存到别的分类', onClick: () => setMoving(moving === s.id ? '' : s.id) }, h(Ico, { name: 'swap', size: 14 })),
+               h('button', {
+                 key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑',
+                 onClick: async () => {
+                   const full = await run('secret.get', { query: s.id })
+                   if (!full || !full.result) return
+                   hide(s.id)
+                   setEditing({ id: s.id, title: s.title, body: secretText(full.result), collection: s.collection || '' })
+                 },
+               }, h(Ico, { name: 'edit', size: 14 })),
+               h('button', {
+                 key: 'd', className: '__dk_mini', title: '删除', 'aria-label': '删除',
+                 onClick: async () => {
+                   // 保险库不进垃圾箱,所以这里必须确认
+                   if (!window.confirm('删除「' + s.title + '」?加密内容一起删,不可恢复')) return
+                   await run('secret.delete', { query: s.id })
+                 },
+               }, h(Ico, { name: 'x', size: 14 })),
              ]),
              revealed[s.id] ? h('div', { key: 'f', className: '__dk_fields' }, Object.entries(revealed[s.id].fields || {}).map(([k, v]) =>
                h('div', { key: k, className: '__dk_field' }, [
@@ -2714,11 +2882,6 @@ window.__ModuleLoader__.load({
              revealed[s.id] && (revealed[s.id].files || []).length
                ? h(FileGrid, { key: 'fg', files: revealed[s.id].files, onOpen: (f) => setViewing(f) })
                : null,
-             h('div', { key: 'm', className: '__dk_imeta' }, [
-               h('span', { key: 'd' }, fmtWhen(s.updatedAt || s.createdAt)),
-               s.collection && collection !== s.collection ? h('span', { key: 'c', className: '__dk_tag' }, s.collection) : null,
-               revealed[s.id] ? h('span', { key: 't' }, '30 秒后自动收起') : null,
-             ]),
              moving === s.id ? h(MoveChips, { key: 'mv', kind: 'secret', id: s.id, run, notify: (t) => { setMoving(''); say(t) } }) : null,
            ])
          })
@@ -3463,20 +3626,43 @@ window.__ModuleLoader__.load({
      }, [])
 
     /** 面板里收到的文件:上传完直接存成一条便签(给 6 秒撤销)。 */
+    const saveMetas = useCallback(async (metas) => {
+      if (!metas || !metas.length) return
+      const r = await run('note.add', { text: '', files: metas.map((m) => m.id) })
+      if (r && r.result) showReply('已存下 ' + metas.length + ' 个附件,在便签里', { action: 'note.purge', payload: { id: r.result.id } })
+      else showReply('没存上,再试一次')
+    }, [run, showReply])
+
     const intake = useCallback(async (files) => {
       const list = Array.from(files || []).slice(0, 8)
       if (!list.length) return
       try {
         const metas = []
         for (const f of list) metas.push(await uploadFile(f, shotName(f)))
-        const r = await run('note.add', { text: '', files: metas.map((m) => m.id) })
-        if (r && r.result) showReply('已存下 ' + metas.length + ' 个附件,在便签里', { action: 'note.purge', payload: { id: r.result.id } })
-        else showReply('没存上,再试一次')
+        await saveMetas(metas)
       } catch (err) {
         showReply('没存上:' + String((err && err.message) || err))
       }
-    }, [run, showReply])
+    }, [saveMetas, showReply])
 
+    /** 粘贴不一定是文件:网页图片走宿主下载,本地路径只提示,不把路径当文字存。 */
+    const intakePaste = useCallback(async (src) => {
+      if (!src) return
+      if (src.files) return intake(src.files)
+      if (src.localPath) { showReply(LOCAL_PASTE_TIP); return }
+      try {
+        let meta = null
+        if (src.dataUrl) {
+          const file = await fileFromDataUrl(src.dataUrl)
+          meta = await uploadFile(file, shotName(file))
+        } else if (src.url) {
+          meta = await uploadFromUrl(src.url)
+        }
+        if (meta) await saveMetas([meta])
+      } catch (err) {
+        showReply('图片没贴进来:' + String((err && err.message) || err))
+      }
+    }, [intake, saveMetas, showReply])
      const go = useCallback((next, opts) => {
        setDir(ORDER.indexOf(next) >= ORDER.indexOf(page) ? 'left' : 'right')
        setPage(next)
@@ -3731,10 +3917,10 @@ window.__ModuleLoader__.load({
              key: 'body', className: '__dk_body', onPointerDown, onPointerUp,
              // 截完图直接 Ctrl+V:不用先切到便签页,也不用手动点上传
              onPaste: (e) => {
-               const files = filesFromDataTransfer(e.clipboardData)
-               if (!files.length) return
+               const src = clipboardImage(e.clipboardData)
+               if (!src) return
                e.preventDefault()
-               intake(files)
+               intakePaste(src)
              },
              onDragOver: (e) => { if (filesFromDataTransfer(e.dataTransfer).length) e.preventDefault() },
              onDrop: (e) => {
@@ -4189,6 +4375,7 @@ window.__ModuleLoader__.load({
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,
      FileChip, FileGrid, Lightbox, isImage, fmtSize, extOf, filesFromDataTransfer, shotName,
+     clipboardImage, fileFromDataUrl, uploadFromUrl, LOCAL_PASTE_TIP,
      CleanupCard, daysText, ImportRow,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,

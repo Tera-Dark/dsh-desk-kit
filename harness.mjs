@@ -128,7 +128,17 @@ console.log('✓ 首次启动是空面板(不造默认提醒)')
   const gone = await fetch(base + '/files/' + f.id)
   assert.equal(gone.status, 400, '原件没了就取不到(回 400 一句人话,不是 500)')
   await post('note.purge', { id: blank.result.id })
-  console.log('✓ 附件:上传/取回/挂便签/纯图片便签/外站拒绝/彻底删除清原件 全过')
+  const badUrl = await fetch(base + '/files/from-url', {
+    method: 'POST', headers: { 'x-desk-kit': '1', 'content-type': 'application/json' },
+    body: JSON.stringify({ url: 'file:///etc/passwd' }),
+  })
+  assert.equal(badUrl.status, 400, '本地文件地址必须拒')
+  const privateUrl = await fetch(base + '/files/from-url', {
+    method: 'POST', headers: { 'x-desk-kit': '1', 'content-type': 'application/json' },
+    body: JSON.stringify({ url: 'http://127.0.0.1/secret.png' }),
+  })
+  assert.equal(privateUrl.status, 400, '内网地址必须拒')
+  console.log('✓ 附件:上传/取回/挂便签/纯图片便签/外站拒绝/彻底删除清原件/网页图片地址校验 全过')
 }
 
 // 4) 工具:便签

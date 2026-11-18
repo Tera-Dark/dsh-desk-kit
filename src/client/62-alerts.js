@@ -288,20 +288,43 @@
      }, [])
 
     /** 面板里收到的文件:上传完直接存成一条便签(给 6 秒撤销)。 */
+    const saveMetas = useCallback(async (metas) => {
+      if (!metas || !metas.length) return
+      const r = await run('note.add', { text: '', files: metas.map((m) => m.id) })
+      if (r && r.result) showReply('已存下 ' + metas.length + ' 个附件,在便签里', { action: 'note.purge', payload: { id: r.result.id } })
+      else showReply('没存上,再试一次')
+    }, [run, showReply])
+
     const intake = useCallback(async (files) => {
       const list = Array.from(files || []).slice(0, 8)
       if (!list.length) return
       try {
         const metas = []
         for (const f of list) metas.push(await uploadFile(f, shotName(f)))
-        const r = await run('note.add', { text: '', files: metas.map((m) => m.id) })
-        if (r && r.result) showReply('已存下 ' + metas.length + ' 个附件,在便签里', { action: 'note.purge', payload: { id: r.result.id } })
-        else showReply('没存上,再试一次')
+        await saveMetas(metas)
       } catch (err) {
         showReply('没存上:' + String((err && err.message) || err))
       }
-    }, [run, showReply])
+    }, [saveMetas, showReply])
 
+    /** 粘贴不一定是文件:网页图片走宿主下载,本地路径只提示,不把路径当文字存。 */
+    const intakePaste = useCallback(async (src) => {
+      if (!src) return
+      if (src.files) return intake(src.files)
+      if (src.localPath) { showReply(LOCAL_PASTE_TIP); return }
+      try {
+        let meta = null
+        if (src.dataUrl) {
+          const file = await fileFromDataUrl(src.dataUrl)
+          meta = await uploadFile(file, shotName(file))
+        } else if (src.url) {
+          meta = await uploadFromUrl(src.url)
+        }
+        if (meta) await saveMetas([meta])
+      } catch (err) {
+        showReply('图片没贴进来:' + String((err && err.message) || err))
+      }
+    }, [intake, saveMetas, showReply])
      const go = useCallback((next, opts) => {
        setDir(ORDER.indexOf(next) >= ORDER.indexOf(page) ? 'left' : 'right')
        setPage(next)
@@ -556,10 +579,10 @@
              key: 'body', className: '__dk_body', onPointerDown, onPointerUp,
              // 截完图直接 Ctrl+V:不用先切到便签页,也不用手动点上传
              onPaste: (e) => {
-               const files = filesFromDataTransfer(e.clipboardData)
-               if (!files.length) return
+               const src = clipboardImage(e.clipboardData)
+               if (!src) return
                e.preventDefault()
-               intake(files)
+               intakePaste(src)
              },
              onDragOver: (e) => { if (filesFromDataTransfer(e.dataTransfer).length) e.preventDefault() },
              onDrop: (e) => {

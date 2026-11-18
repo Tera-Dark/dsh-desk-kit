@@ -442,6 +442,36 @@
      '.__dk_item--over{box-shadow:inset 0 2px 0 var(--dk-brand)}',
      '.__dk_move{opacity:.7}',
      '.__dk_move:disabled{opacity:.2;cursor:default}',
+     // 保险库页头:统计在左、动作在右,不再和按钮挤成一行
+     '.__dk_vaulthead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;max-width:960px;margin:2px auto 8px}',
+     '.__dk_vaultstats{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;font-size:11.5px;color:var(--dk-faint)}',
+     '.__dk_vaultstats strong{font-size:12.5px;font-weight:650;color:var(--dk-text);font-variant-numeric:tabular-nums}',
+     '.__dk_statdot{opacity:.45}',
+     '.__dk_vaultlock{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border:1px solid var(--dk-line);border-radius:999px;font-size:10px;letter-spacing:.02em;color:var(--dk-muted)}',
+     '.__dk_vaultacts{display:flex;gap:7px;flex:none}',
+     '.__dk_vaultacts .__dk_btn{height:30px}',
+     // 合集:多了先收起,点「更多」再展开
+     '.__dk_groupchips{align-items:center;gap:6px;padding:2px 0 4px}',
+     '.__dk_chipmore{display:inline-flex;align-items:center;gap:2px;border-style:dashed;color:var(--dk-muted)}',
+     '.__dk_chipmore:hover{color:var(--dk-text)}',
+     // 合集输入:用快捷胶囊代替原生 datalist,不再盖住正文
+     '.__dk_collpick{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:-1px}',
+     '.__dk_collpicklabel{flex:none;font-size:10.5px;color:var(--dk-faint)}',
+     '.__dk_collbtn{height:24px;max-width:140px;padding:0 8px;border:1px solid var(--dk-line);border-radius:999px;background:transparent;color:var(--dk-muted);font:11px/1 inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:background .15s,border-color .15s,color .15s}',
+     '.__dk_collbtn:hover{border-color:var(--dk-line-2);color:var(--dk-text);background:var(--dk-surface)}',
+     '.__dk_collbtn.on{border-color:color-mix(in srgb,var(--dk-brand) 45%,transparent);background:color-mix(in srgb,var(--dk-brand) 12%,transparent);color:var(--dk-brand)}',
+     '.__dk_collclear{height:24px;padding:0 4px;border:none;background:transparent;color:var(--dk-faint);font:10.5px/1 inherit;cursor:pointer}',
+     '.__dk_collclear:hover{color:var(--dk-text)}',
+     // 保险库条目:标题自己占一行,动作单独一行,长邮箱/网址不再被按钮挤到断行
+     '.__dk_item .__dk_itop{align-items:center;gap:7px}',
+     '.__dk_itext.__dk_lockrow{display:flex;align-items:flex-start;gap:6px;flex:1 1 0;min-width:0;white-space:normal;word-break:break-word;line-height:1.45}',
+     '.__dk_lockrow > svg{flex:none;margin-top:2px;opacity:.55}',
+     '.__dk_ititle{min-width:0;overflow-wrap:anywhere;word-break:break-word}',
+     '.__dk_showbtn{flex:none;height:26px;padding:0 9px;border:1px solid var(--dk-line);border-radius:8px;background:transparent;color:var(--dk-muted);font:11px/1 inherit;cursor:pointer;transition:background .15s,border-color .15s,color .15s}',
+     '.__dk_showbtn:hover{border-color:var(--dk-line-2);background:var(--dk-surface);color:var(--dk-text)}',
+     '.__dk_iact--bar{display:flex;align-items:center;justify-content:flex-end;gap:1px;opacity:1;margin-top:4px;padding-top:4px;border-top:1px solid var(--dk-line)}',
+     '.__dk_iact--bar .__dk_mini{width:28px;height:26px}',
+     '@media (max-width:420px){.__dk_field{align-items:flex-start;flex-direction:column;gap:2px}.__dk_field .v{text-align:left}.__dk_vaulthead{align-items:flex-start}.__dk_vaultacts{margin-left:auto}}',
      // 键盘可达性:只在键盘聚焦时出现描边,不干扰鼠标
      '.__dk_sp button:focus-visible,.__dk_panel button:focus-visible,.__dk_dock button:focus-visible,.__dk_sp input:focus-visible,.__dk_panel input:focus-visible,.__dk_sp textarea:focus-visible,.__dk_panel textarea:focus-visible,.__dk_sp a:focus-visible,.__dk_panel a:focus-visible{outline:2px solid color-mix(in srgb,var(--dk-brand) 70%,transparent);outline-offset:2px}',
    ].join('\n')

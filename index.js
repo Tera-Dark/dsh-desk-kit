@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto'
 import { DeskStore, localYmd } from './store.js'
 import { localDefineTool } from './tool.js'
 import { parseCapture, describeCapture, parseLeadMin, cleanTitle } from './capture.js'
+import { downloadImage, imageNameFrom } from './paste.js'
 
 /** 版本号只从 package.json 读:不在代码里再写一份,发版时不会三处对不齐。 */
 const PLUGIN_VERSION = (() => {
@@ -1243,6 +1244,23 @@ export function apply(ctx) {
           const { rec, bytes } = s.readFileBytes(id)
           res.writeHead(200, fileHeaders({ ...rec, size: bytes.length }))
           res.end(bytes)
+          return
+        }
+        // 网页图片粘贴:浏览器有跨域限制,交给宿主下载。只接受公网图片,挡 SSRF。
+        if (method === 'POST' && url.pathname === ROUTE + '/files/from-url') {
+          const body = await readBody(req, 8192)
+          const got = await downloadImage(body.url, MAX_FILE_BYTES)
+          const used = s.storage().bytes.blobs
+          if (used + got.buffer.length > MAX_BLOB_BYTES) {
+            json(res, 413, {
+              ok: false,
+              error: '附件总量到上限了(已用 ' + DeskStore.humanBytes(used) + ',上限 ' + DeskStore.humanBytes(MAX_BLOB_BYTES) + ')。到设置 → 存储与清理 清一下再传',
+            })
+            return
+          }
+          const file = s.addFile({ buffer: got.buffer, name: imageNameFrom(got.url, got.mime), mime: got.mime })
+          s.tick()
+          json(res, 200, { ok: true, file, state: s.snapshot() })
           return
         }
         // 传附件:请求体就是文件本身,文件名放在自定义头里(和 x-desk-kit 一起走预检)
