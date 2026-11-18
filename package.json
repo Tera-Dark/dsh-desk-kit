@@ -1,7 +1,7 @@
 {
   "name": "dsh-desk-kit",
   "version": "1.9.0",
-  "description": "DSH 随手台:定时提醒(签到类)、随手便签、加密保险库三合一。入口是 better-sidebar 的标签页(没装则右下角浮标),19 个 Agent 工具,数据在 ~/.dsh/desk-kit。",
+  "description": "DSH 随手台:定时提醒、随手便签、网页收藏格子、加密保险库,四块都在侧栏标签页里(没装侧栏则右下角浮标);另带 23 个 Agent 工具,数据只落在本机 ~/.dsh/desk-kit。",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -22,15 +22,17 @@
     "docs"
   ],
   "keywords": [
+    "agent-tools",
+    "bookmarks",
+    "checkin",
+    "deepseek-harness",
     "dsh",
     "dsh-plugin",
-    "deepseek-harness",
-    "reminder",
+    "links",
     "notes",
-    "vault",
-    "checkin",
+    "reminder",
     "sidebar",
-    "agent-tools"
+    "vault"
   ],
   "license": "MIT",
   "engines": {
