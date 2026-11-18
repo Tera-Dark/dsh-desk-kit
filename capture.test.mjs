@@ -94,3 +94,19 @@ test('多站点批量打卡:拆成多条提醒而不是塞便签', () => {
   const two = parseCapture('https://a.com https://b.com 这两个先记着')
   assert.equal(two.kind, 'note')
 })
+
+test('分类:网页收藏(带网址 + 收藏/网页这类词)', () => {
+  const a = parseCapture('收藏这个网页 https://example.com/docs', now)
+  assert.equal(a.kind, 'link')
+  assert.equal(a.url, 'https://example.com/docs')
+  assert.equal(a.title, 'Example', '没起名就用域名')
+  const b = parseCapture('把 https://www.figma.com/files 存成网页,分类:设计', now)
+  assert.equal(b.kind, 'link')
+  assert.equal(b.group, '设计', '分类要认出来')
+  assert.equal(b.title, 'Figma', '分类名不能混进标题')
+  const c = parseCapture('收藏 https://github.com/trending 叫 今日热榜', now)
+  assert.equal(c.title, '今日热榜')
+  // 光贴一个网址 / 带密码的句子,都不该进网页
+  assert.equal(parseCapture('https://example.com 这个先记着', now).kind, 'note')
+  assert.equal(parseCapture('记一下 example.com 的登录密码是 abc', now).kind, 'note')
+})

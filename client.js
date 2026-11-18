@@ -51,12 +51,12 @@ window.__ModuleLoader__.load({
    const FAB_PAD = 18
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-   const VERSION = '1.7.0'
-   const ORDER = ['reminders', 'notes', 'home', 'vault', 'settings']
+   const VERSION = '1.8.0'
+   const ORDER = ['links', 'reminders', 'notes', 'home', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
-   const SIDEBAR_ORDER = ['home', 'reminders', 'notes', 'vault', 'settings']
-   const PANEL_LABELS = { home: '首页', reminders: '提醒', notes: '便签', vault: '保险库', settings: '设置' }
-   const PANEL_ICONS = { home: 'home', reminders: 'bell', notes: 'note', vault: 'lock', settings: 'gear' }
+   const SIDEBAR_ORDER = ['home', 'links', 'reminders', 'notes', 'vault', 'settings']
+   const PANEL_LABELS = { home: '首页', links: '网页', reminders: '提醒', notes: '便签', vault: '保险库', settings: '设置' }
+   const PANEL_ICONS = { home: 'home', links: 'grid', reminders: 'bell', notes: 'note', vault: 'lock', settings: 'gear' }
 
    // ---------------------------------------------------------------- 图标(Lucide 风格, stroke)
    const PATHS = {
@@ -81,6 +81,8 @@ window.__ModuleLoader__.load({
      pause: ['M9 5v14', 'M15 5v14'],
      play: ['M8 5l11 7-11 7z'],
      download: ['M12 4v11', 'M8 11l4 4 4-4', 'M5 20h14'],
+     grid: ['M4 4h7v7H4z', 'M13 4h7v7h-7z', 'M4 13h7v7H4z', 'M13 13h7v7h-7z'],
+     globe: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18', 'M3.6 9h16.8', 'M3.6 15h16.8', 'M12 3c2.5 2.4 3.8 5.4 3.8 9S14.5 18.6 12 21c-2.5-2.4-3.8-5.4-3.8-9S9.5 5.4 12 3'],
    }
    function Ico({ name, size, className }) {
      const paths = PATHS[name] || []
@@ -252,6 +254,26 @@ window.__ModuleLoader__.load({
      '.__dk_sec--ref{color:var(--dsw-alias-label-tertiary,#8b949e);font-weight:400}',
      '.__dk_item--ref .__dk_itext{opacity:.82}',
      '.__dk_item--dim .__dk_itext,.__dk_item--dim .__dk_imeta{opacity:.55}',
+     // 网页格子(手机桌面那种)
+     '.__dk_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:14px 6px;padding:6px 2px 14px}',
+     '.__dk_tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px}',
+     '.__dk_app{position:relative;width:54px;height:54px;border-radius:15px;border:none;color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.28);transition:transform .12s,box-shadow .12s;overflow:hidden}',
+     '.__dk_app:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.32)}',
+     '.__dk_app:active{transform:scale(.96)}',
+     '.__dk_appchar{font-size:19px;font-weight:600;letter-spacing:.5px}',
+     '.__dk_appimg{width:26px;height:26px;border-radius:5px;object-fit:contain;background:transparent}',
+     '.__dk_apppin{position:absolute;top:3px;right:4px;font-size:9px;opacity:.9}',
+     '.__dk_appname{max-width:78px;font-size:11.5px;line-height:1.32;text-align:center;color:var(--dsw-alias-label-primary,#e6edf3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all}',
+     '.__dk_appact{position:absolute;top:-7px;right:-4px;display:flex;gap:2px;opacity:0;transition:opacity .12s}',
+     '.__dk_tile:hover .__dk_appact,.__dk_tile:focus-within .__dk_appact{opacity:1}',
+     '.__dk_appact .__dk_mini{width:20px;height:20px;border-radius:6px;background:var(--dsw-alias-bg-layer-2,#24282e);box-shadow:0 1px 4px rgba(0,0,0,.3)}',
+     '.__dk_groupchips{display:flex;gap:6px;flex-wrap:wrap;padding:2px 0 6px}',
+     '.__dk_grid--home{grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:10px 4px;padding:2px 0 10px}',
+     '.__dk_grid--home .__dk_app{width:48px;height:48px;border-radius:14px}',
+     '.__dk_grid--home .__dk_appname{max-width:68px;font-size:11px}',
+     '.__dk_linkbtn{border:none;background:transparent;color:var(--dsw-alias-brand-primary,#4d7cf3);font:inherit;font-size:11.5px;cursor:pointer;padding:0}',
+     '.__dk_headact{display:flex;align-items:center;gap:2px}',
+     '.__dk_icobtn.on{color:var(--dsw-alias-brand-primary,#4d7cf3)}',
      '.__dk_dotsep{display:inline-block;width:8px;height:8px;margin:0 12px 0 8px;border-radius:50%;background:var(--dsw-alias-border-l1,rgba(255,255,255,.25));flex:none}',
      '.__dk_row--act .__dk_rt{font-weight:600}',
      '.__dk_row--act .__dk_dotsep{background:#e5484d}',
@@ -670,6 +692,8 @@ window.__ModuleLoader__.load({
      const activeNotes = (state.notes || []).filter((n) => !n.archived
        && !((n.deletedAt || 0) > 0) && !((n.completedAt || 0) > 0) && n.shelf !== 'long')
      const latest = activeNotes.slice(0, 3)
+     // 常去:置顶优先,其余按最近打开 —— 首页直接点,不用先进「网页」页
+     const quick = (state.links || []).slice(0, 8)
 
      const row = (r, withCheck) => h('div', { key: r.id, className: '__dk_row' + (r.done ? ' __dk_done' : '') + (r.status === 'pending' && !r.done ? ' __dk_row--act' : '') }, [
        withCheck
@@ -703,6 +727,19 @@ window.__ModuleLoader__.load({
            h('div', { key: 't', className: '__dk_emptytitle' }, '今天没有要处理的'),
            h('div', { key: 'h', className: '__dk_note' }, '在上面的输入框说一句「10分钟后提醒我关火」,或者点下方「提醒」手动加一条。'),
          ]),
+
+       quick.length
+         ? h('div', { key: 's5', className: '__dk_sec' }, [
+           h('span', { key: 'a' }, '常去'),
+           onGo ? h('button', { key: 'b', className: '__dk_linkbtn', onClick: () => onGo('links') }, '全部 ' + (state.links || []).length + ' 个') : null,
+         ])
+         : null,
+       quick.length
+         ? h('div', { key: 'qg', className: '__dk_grid __dk_grid--home' }, quick.map((l) => h(LinkTile, {
+           key: l.id, l, run, notify, favicons: !!(state.settings && state.settings.linkFavicons),
+           onEdit: () => onGo && onGo('links'),
+         })))
+         : null,
 
        upcoming.length
          ? h('div', { key: 's2', className: '__dk_sec' }, [h('span', { key: 'a' }, '接下来'), h('span', { key: 'b' }, String(upcoming.length))])
@@ -1039,6 +1076,7 @@ window.__ModuleLoader__.load({
      // 便签页的搜索框也顺手当全局搜:提醒和保险库的标题一起找
      const remHits = kw ? (state.reminders || []).filter((r) => !((r.deletedAt || 0) > 0) && String(r.title || '').toLowerCase().includes(kw)) : []
      const secHits = kw ? (state.secrets || []).filter((x) => String(x.title || '').toLowerCase().includes(kw)) : []
+     const linkHits = kw ? (state.links || []).filter((l) => (String(l.title || '') + ' ' + String(l.url || '')).toLowerCase().includes(kw)) : []
 
      const add = async () => {
        const text = draft.trim()
@@ -1194,7 +1232,7 @@ window.__ModuleLoader__.load({
        kw
          ? (searched.length
            ? searched.map((n) => row(n, n.shelf === 'long' && !n.archived ? 'long' : 'daily'))
-           : (remHits.length || secHits.length
+           : (remHits.length || secHits.length || linkHits.length
              ? null
              : h('div', { key: 'e', className: '__dk_empty' }, [
                h('div', { key: 't', className: '__dk_emptytitle' }, '没搜到「' + q.trim() + '」'),
@@ -1208,6 +1246,17 @@ window.__ModuleLoader__.load({
              h('div', { key: 'm', className: '__dk_rowmain' }, [
                h('div', { key: 't', className: '__dk_rt' }, r.title),
                h('div', { key: 's', className: '__dk_rm' }, reminderMeta(r)),
+             ]),
+           ])),
+         ])
+         : null,
+       kw && linkHits.length
+         ? h('div', { key: 'sl' }, [
+           h('div', { key: 'h', className: '__dk_sec' }, [h('span', { key: 'a' }, '网页里命中'), h('span', { key: 'b' }, String(linkHits.length))]),
+           ...linkHits.slice(0, 5).map((l) => h('div', { key: l.id, className: '__dk_row' }, [
+             h('div', { key: 'm', className: '__dk_rowmain' }, [
+               h('div', { key: 't', className: '__dk_rt' }, l.title),
+               h('div', { key: 's', className: '__dk_rm' }, linkHost(l.url) + (l.group ? ' · ' + l.group : '')),
              ]),
            ])),
          ])
@@ -1249,6 +1298,205 @@ window.__ModuleLoader__.load({
        ]),
        showDone && !kw ? buckets.done.map((n) => row(n, 'done')) : null,
        showArchived && !kw ? buckets.archived.map((n) => row(n, 'daily')) : null,
+     ])
+   }
+
+   // ---------------------------------------------------------------- 网页页
+   /**
+    * 网页收藏 = 手机桌面那种格子:一个图标 + 名字,点一下在新标签页打开。
+    * 图标优先用用户填的(emoji 或图片地址),否则用「首字 + 按域名算出来的底色」,
+    * 这样同一个站点永远是同一个颜色,不联网也能一眼认出来。
+    */
+   function linkHost(url) {
+     return String(url || '').replace(/^https?:\/\//i, '').split('/')[0].replace(/^www\./i, '')
+   }
+
+   function linkHue(url) {
+     const host = linkHost(url)
+     let h = 0
+     for (let i = 0; i < host.length; i++) h = (h * 31 + host.charCodeAt(i)) % 360
+     return h
+   }
+
+   function linkInitial(l) {
+     const t = String((l && l.title) || '').trim() || linkHost(l && l.url)
+     if (!t) return '?'
+     // 中文取第一个字,英文取首字母(「GitHub」→ G,别搞成 GI)
+     return t.slice(0, 1).toUpperCase()
+   }
+
+   function isImageIcon(icon) {
+     return /^(https?:\/\/|data:image\/)/i.test(String(icon || ''))
+   }
+
+   /** 打开一次:记一笔(用于「最近用的排前面」),然后交给系统浏览器。 */
+   function openLink(run, l) {
+     run('link.touch', { id: l.id })
+     try {
+       const w = window.open(l.url, '_blank', 'noopener,noreferrer')
+       if (!w) window.location.href = l.url
+     } catch { window.location.href = l.url }
+   }
+
+   /** 一个格子。 */
+   function LinkTile({ l, run, onEdit, notify, favicons }) {
+     const custom = String(l.icon || '').trim()
+     const img = isImageIcon(custom) ? custom : ''
+     const emoji = custom && !img ? custom : ''
+     const showFav = !custom && favicons
+     return h('div', { className: '__dk_tile', title: l.url },
+       h('div', { key: 'w', className: '__dk_appbtn' }, [
+         h('button', {
+           key: 'b', className: '__dk_app',
+           style: custom ? { background: 'var(--dsw-alias-bg-layer-2,#24282e)' } : { background: 'hsl(' + linkHue(l.url) + ' 52% 40%)' },
+           onClick: () => openLink(run, l),
+           title: l.title + ' · ' + l.url,
+         }, [
+           h('span', { key: 'c', className: '__dk_appchar', style: custom ? { fontSize: '22px' } : null }, emoji || linkInitial(l)),
+           showFav ? h('img', {
+             key: 'f', className: '__dk_appimg', src: 'https://icons.duckduckgo.com/ip3/' + linkHost(l.url) + '.ico', alt: '',
+             onError: (e) => { e.currentTarget.style.display = 'none' },
+           }) : null,
+           img ? h('img', { key: 'i', className: '__dk_appimg', src: img, alt: '' }) : null,
+           l.pinned ? h('span', { key: 'p', className: '__dk_apppin' }, '★') : null,
+         ]),
+         h('div', { key: 'act', className: '__dk_appact' }, [
+           h('button', {
+             key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑',
+             onClick: () => onEdit(l),
+           }, h(Ico, { name: 'edit', size: 11 })),
+           h('button', {
+             key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
+             onClick: async () => {
+               await run('link.delete', { id: l.id })
+               if (notify) notify('已移入垃圾箱', { action: 'link.restore', payload: { id: l.id } })
+             },
+           }, h(Ico, { name: 'x', size: 11 })),
+         ]),
+       ]),
+       h('div', { key: 'n', className: '__dk_appname' }, l.title),
+     )
+   }
+
+   function LinksPage({ state, run, notify }) {
+     const links = state.links || []
+     const trashed = state.trashedLinks || []
+     const groups = (state.linkGroups && state.linkGroups.groups) || []
+     const ungrouped = (state.linkGroups && state.linkGroups.ungrouped) || 0
+     const [group, setGroup] = useState('')          // '' = 全部
+     const [view, setView] = useState('all')         // all | trash
+     const [form, setForm] = useState(null)          // { id?, title, url, group, icon }
+     const say = (text, undo) => { if (notify) notify(text, undo) }
+     const favicons = !!(state.settings && state.settings.linkFavicons)
+
+     const shown = links.filter((l) => !group || (group === '\u0000' ? !l.group : l.group === group))
+
+     const startAdd = () => setForm({ title: '', url: '', group: group && group !== '\u0000' ? group : '', icon: '' })
+     const startEdit = (l) => setForm({ id: l.id, title: l.title, url: l.url, group: l.group, icon: l.icon || '' })
+     const save = async () => {
+       const f = form || {}
+       const title = String(f.title || '').trim()
+       const url = String(f.url || '').trim()
+       if (!url) return
+       const payload = { title, url, group: f.group || '', icon: f.icon || '' }
+       const body = f.id
+         ? await run('link.update', { id: f.id, ...payload })
+         : await run('link.add', payload)
+       if (!body || body.ok === false) return
+       const deduped = body.result && body.result.deduped
+       setForm(null)
+       if (f.id) say('已保存')
+       else say(deduped ? '这个网址已经收过了,已顶到前面' : '已收藏网页')
+     }
+
+     // ---- 垃圾箱 ----
+     if (view === 'trash') {
+       return h(React.Fragment, null, [
+         h('div', { key: 'bar', className: '__dk_toolbar' }, [
+           h('button', { key: 'b', className: '__dk_btn', onClick: () => setView('all') }, [h(Ico, { key: 'i', name: 'chevronLeft', size: 14 }), ' 返回']),
+           h('span', { key: 'h', className: '__dk_hint' }, '删掉的网页都在这里,可恢复'),
+         ]),
+         trashed.length
+           ? trashed.map((l) => h('div', { key: l.id, className: '__dk_item' }, [
+             h('div', { key: 't', className: '__dk_itop' }, [
+               h('div', { key: 'x', className: '__dk_itext' }, l.title),
+               h('div', { key: 'act', className: '__dk_iact' }, [
+                 h('button', { key: 'rs', className: '__dk_mini', title: '恢复', onClick: () => run('link.restore', { id: l.id }) }, h(Ico, { name: 'undo', size: 15 })),
+                 h('button', {
+                   key: 'pg', className: '__dk_mini', title: '彻底删除',
+                   onClick: () => { if (window.confirm('彻底删除「' + l.title + '」?不可恢复')) run('link.purge', { id: l.id }) },
+                 }, h(Ico, { name: 'x', size: 15 })),
+               ]),
+             ]),
+             h('div', { key: 'm', className: '__dk_imeta' }, [h('span', { key: 'u' }, linkHost(l.url)), h('span', { key: 'd' }, '删除于 ' + fmtWhen(l.deletedAt))]),
+           ]))
+           : h('div', { key: 'e', className: '__dk_empty' }, [
+             h('div', { key: 't', className: '__dk_emptytitle' }, '垃圾箱是空的'),
+             h('div', { key: 'h', className: '__dk_note' }, '删掉的网页会先放这儿,想找回随时来。'),
+           ]),
+       ])
+     }
+
+     return h(React.Fragment, null, [
+       h('div', { key: 'bar', className: '__dk_toolbar' }, [
+         h('button', { key: 'a', className: '__dk_btn p', onClick: startAdd }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), ' 新网页']),
+         h('span', { key: 'h', className: '__dk_hint' }, links.length + ' 个 · ' + groups.length + ' 个分类'),
+       ]),
+
+       form ? h('div', { key: 'form', className: '__dk_form' }, [
+         h('div', { key: 'g', className: '__dk_group' }, [
+           h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, form.id ? '编辑网页' : '收藏一个网页'), h('span', { key: 'b' }, '点一下就能跳')]),
+           h('input', {
+             key: 'u', className: '__dk_input', autoFocus: true, placeholder: '网址(example.com 也行)',
+             value: form.url, onChange: (e) => setForm((f) => ({ ...f, url: e.target.value })),
+             onKeyDown: (e) => { if (e.key === 'Enter') { e.preventDefault(); save() } },
+           }),
+           h('input', {
+             key: 't', className: '__dk_input', placeholder: '叫什么(不填就用域名)',
+             value: form.title, onChange: (e) => setForm((f) => ({ ...f, title: e.target.value })),
+             onKeyDown: (e) => { if (e.key === 'Enter') { e.preventDefault(); save() } },
+           }),
+           h('input', {
+             key: 'g2', className: '__dk_input', placeholder: '分类(可选,如「工作」「工具」)', list: '__dk_groups',
+             value: form.group, onChange: (e) => setForm((f) => ({ ...f, group: e.target.value })),
+             onKeyDown: (e) => { if (e.key === 'Enter') { e.preventDefault(); save() } },
+           }),
+           h('datalist', { key: 'dl', id: '__dk_groups' }, groups.map((g) => h('option', { key: g.name, value: g.name }))),
+           h('input', {
+             key: 'i', className: '__dk_input', placeholder: '图标(可选:一个 emoji,或图片地址)',
+             value: form.icon, onChange: (e) => setForm((f) => ({ ...f, icon: e.target.value })),
+           }),
+         ]),
+         h('div', { key: 'r', className: '__dk_frow' }, [
+           h('button', { key: 's', className: '__dk_btn p', disabled: !String(form.url || '').trim(), onClick: save }, '保存'),
+           h('button', { key: 'c', className: '__dk_btn', onClick: () => setForm(null) }, '取消'),
+         ]),
+       ]) : null,
+
+       // 分类 chips:全部 / 各分类 / 未分类
+       h('div', { key: 'chips', className: '__dk_groupchips' }, [
+         h('button', { key: 'all', className: '__dk_chip' + (group === '' ? ' on' : ''), onClick: () => setGroup('') }, '全部 ' + links.length),
+         ...groups.map((g) => h('button', {
+           key: g.name, className: '__dk_chip' + (group === g.name ? ' on' : ''), onClick: () => setGroup(g.name),
+         }, g.name + ' ' + g.count)),
+         ungrouped ? h('button', { key: 'none', className: '__dk_chip' + (group === '\u0000' ? ' on' : ''), onClick: () => setGroup('\u0000') }, '未分类 ' + ungrouped) : null,
+       ]),
+
+       shown.length
+         ? h('div', { key: 'grid', className: '__dk_grid' }, shown.map((l) => h(LinkTile, {
+           key: l.id, l, run, notify, favicons, onEdit: startEdit,
+         })))
+         : h('div', { key: 'e', className: '__dk_empty' }, [
+           h('div', { key: 't', className: '__dk_emptytitle' }, links.length ? '这个分类还是空的' : '还没有收藏网页'),
+           h('div', { key: 'h', className: '__dk_note' }, links.length
+             ? '点「新网页」加一个,或者在上面把这条的分类改掉。'
+             : '点「新网页」手动加;也可以在首页说一句「收藏 https://example.com 分类:工具」。'),
+         ]),
+
+       h('div', { key: 'foot', className: '__dk_foot' }, [
+         h('span', { key: 'sp', className: '__dk_spacer' }),
+         h('button', { key: 't', className: '__dk_chip', onClick: () => setView('trash') }, '垃圾箱 (' + (state.linkCounts ? state.linkCounts.trash : trashed.length) + ')'),
+       ]),
      ])
    }
 
@@ -1531,6 +1779,20 @@ window.__ModuleLoader__.load({
            }),
          ]),
        ]),
+       h('div', { key: 'fav', className: '__dk_setrow' }, [
+         h('span', { key: 'l' }, '网页用网站图标'),
+         h('button', {
+           key: 'b', className: '__dk_switch' + (s.linkFavicons ? ' on' : ''),
+           title: s.linkFavicons ? '改回首字色块(不联网)' : '去取网站图标(会联网)',
+           onClick: () => update({ linkFavicons: !s.linkFavicons }),
+         }),
+       ]),
+       h('div', { key: 'favh', className: '__dk_setrow __dk_setrow--col' }, [
+         h('span', { key: 'r', className: '__dk_hint' },
+           s.linkFavicons
+             ? '现在会去 icons.duckduckgo.com 取图标 —— 等于把域名告诉它。不想联网就关掉,改用「首字 + 按域名算的底色」。'
+             : '关着:用「首字 + 按域名算出来的底色」,不联网也能一眼认。打开才会去第三方取图标。'),
+       ]),
        h('div', { key: 'm', className: '__dk_setrow' }, [
          h('span', { key: 'l' }, '静音提醒'),
          h('button', {
@@ -1557,6 +1819,7 @@ window.__ModuleLoader__.load({
          h('span', { key: 'r', className: '__dk_hint' },
            (state.reminderCounts ? state.reminderCounts.active : (state.reminders || []).length) + ' 条提醒 · '
            + (state.notes || []).filter((n) => !((n.deletedAt || 0) > 0)).length + ' 条便签 · '
+           + (state.links || []).length + ' 个网页 · '
            + (state.secrets || []).length + ' 条保险库'),
        ]),
        h('div', { key: 'bk', className: '__dk_setrow __dk_setrow--col' }, [
@@ -1589,7 +1852,7 @@ window.__ModuleLoader__.load({
    }
 
    // ---------------------------------------------------------------- 主体
-   const TITLES = { home: '随手台', reminders: '提醒', notes: '便签 / 合集', vault: '保险库', settings: '设置' }
+   const TITLES = { home: '随手台', links: '网页', reminders: '提醒', notes: '便签 / 合集', vault: '保险库', settings: '设置' }
 
    /**
     * 重要等级(界面只表达四档,不再细分):
@@ -1600,6 +1863,7 @@ window.__ModuleLoader__.load({
     */
    const LEVELS = {
      home: { code: 'L1', name: '待行动', color: '#e5484d' },
+     links: { code: 'L2', name: '常用入口', color: 'var(--dsw-alias-brand-primary)' },
      reminders: { code: 'L1', name: '待行动', color: '#e5484d' },
      notes: { code: 'L2', name: '记录', color: 'var(--dsw-alias-brand-primary)' },
      vault: { code: 'L3', name: '备查', color: '#8b949e' },
@@ -1788,8 +2052,8 @@ window.__ModuleLoader__.load({
    const TABS = [
      ['reminders', 'bell', '提醒'],
      ['notes', 'note', '便签'],
+     ['links', 'grid', '网页'],
      ['vault', 'lock', '保险库'],
-     ['settings', 'gear', '设置'],
    ]
 
    /** 底部导航:左右各两格,中间是首页圆键。 */
@@ -2013,11 +2277,13 @@ window.__ModuleLoader__.load({
        const raw = (r.parsed && (r.parsed.raw || r.parsed.text)) || ''
        let undo = null
        // 去重命中时没有「新建」这回事,别给出会删掉旧便签的撤销
-       if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       if (c && c.kind === 'link' && c.id && !c.deduped) undo = { action: 'link.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       else if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'reminder' && c.id && !c.deduped) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        showReply(r.reply || '已保存', undo)
-       if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
+       if (r.parsed && r.parsed.kind === 'link') { setDir('left'); setPage('links'); setSeq((s) => s + 1) }
+       else if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setDir('left'); setPage('notes'); setSeq((s) => s + 1) }
        else setPage('home')
      }, [showReply])
@@ -2058,6 +2324,7 @@ window.__ModuleLoader__.load({
        if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify })]
+       if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
        if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify })]
        return [h(Settings, { key: 's', state, run, sidebarReady: sidebar.ready })]
      })()
@@ -2095,7 +2362,13 @@ window.__ModuleLoader__.load({
                  h('i', { key: 'i' }), lv.code + ' ' + lv.name,
                ]),
              ]),
-             h('button', { key: 'x', className: '__dk_icobtn', title: '关闭 (Esc)', onClick: () => setOpen(false) }, h(Ico, { name: 'x', size: 17 })),
+             h('div', { key: 'act', className: '__dk_headact' }, [
+               h('button', {
+                 key: 's', className: '__dk_icobtn' + (page === 'settings' ? ' on' : ''), title: '设置',
+                 onClick: () => go('settings'),
+               }, h(Ico, { name: 'gear', size: 16 })),
+               h('button', { key: 'x', className: '__dk_icobtn', title: '关闭 (Esc)', onClick: () => setOpen(false) }, h(Ico, { name: 'x', size: 17 })),
+             ]),
            ]),            h('div', { key: 'body', className: '__dk_body', onPointerDown, onPointerUp }, [
              h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply('') }),
              err ? h('div', { key: 'err', className: '__dk_err' }, err) : null,
@@ -2202,11 +2475,13 @@ window.__ModuleLoader__.load({
        const raw = (r.parsed && (r.parsed.raw || r.parsed.text)) || ''
        let undo = null
        // 去重命中时没有「新建」这回事,别给出会删掉旧便签的撤销
-       if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       if (c && c.kind === 'link' && c.id && !c.deduped) undo = { action: 'link.delete', payload: { id: c.id }, after: () => setSeed(raw) }
+       else if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'reminder' && c.id && !c.deduped) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        showReply(r.reply || '已保存', undo)
-       if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
+       if (r.parsed && r.parsed.kind === 'link') { setPage('links'); setSeq((s) => s + 1) }
+       else if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setPage('notes'); setSeq((s) => s + 1) }
        else setPage('home')
      }, [showReply])
@@ -2246,6 +2521,7 @@ window.__ModuleLoader__.load({
        if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify })]
+       if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
        if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify })]
        return [h(Settings, { key: 's', state, run, sidebarReady: sidebar.ready })]
      })()
@@ -2392,6 +2668,7 @@ window.__ModuleLoader__.load({
      Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, HeaderButton,
      Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO, alertHead,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
+     LinksPage, LinkTile, linkInitial, linkHue, linkHost,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,

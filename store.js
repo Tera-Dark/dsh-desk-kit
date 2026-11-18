@@ -16,6 +16,15 @@ const ALERT_KEEP_MS = 7 * 24 * 3600 * 1000
 const MAX_NOTES = 2000
 const MAX_CHECKINS = 60
 
+/** 从 URL 取主机名(不带 www.),给标题/图标兜底。 */
+export function hostOf(url) {
+  try {
+    return new URL(String(url)).hostname.replace(/^www\./i, '')
+  } catch {
+    return String(url || '').replace(/^https?:\/\//i, '').split('/')[0] || '未命名'
+  }
+}
+
 /** 本地 YYYY-MM-DD(不要用 toISOString:那是 UTC,晚上会串日)。 */
 export function localYmd(date = new Date()) {
   const y = date.getFullYear()
@@ -159,6 +168,7 @@ export class DeskStore {
       version: 1,
       notes: [],
       reminders: [],
+      links: [],
       alerts: [],
       settings: { tickSeconds: 20, muted: false, sound: true },
     }
@@ -181,6 +191,7 @@ export class DeskStore {
       ...raw,
       notes,
       reminders: Array.isArray(raw.reminders) ? raw.reminders : [],
+      links: Array.isArray(raw.links) ? raw.links : [],
       alerts: Array.isArray(raw.alerts) ? raw.alerts : [],
       settings: { ...base.settings, ...(raw.settings && typeof raw.settings === 'object' ? raw.settings : {}) },
     }
@@ -687,6 +698,157 @@ export class DeskStore {
     return this.data.alerts.filter((a) => !a.acked).sort((a, b) => b.at - a.at)
   }
 
+
+  // ---------------- 网页收藏 ----------------
+
+  /** 网址归一化:没写协议补 https://,顺手把跟踪参数和末尾斜杠去掉。 */
+  static normalizeUrl(input) {
+    let u = String(input || '').trim()
+    if (!u) throw new Error('网址不能为空')
+    if (!/^https?:\/\//i.test(u)) {
+      if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+([/?#]|$)/i.test(u)) throw new Error('网址看起来不对:' + u)
+      u = 'https://' + u
+    }
+    let url
+    try { url = new URL(u) } catch { throw new Error('网址看起来不对:' + u) }
+    // www 和不带 www 视为同一个站点(同一个页面存两遍的常见来源)
+    if (url.hostname.startsWith('www.')) url.hostname = url.hostname.slice(4)
+    // 常见的分享跟踪参数留着没用,反而让同一条链接存两遍
+    for (const k of [...url.searchParams.keys()]) {
+      if (/^(utm_|spm$|from$|share_|ref$|fbclid$|gclid$)/i.test(k)) url.searchParams.delete(k)
+    }
+    let out = url.toString()
+    if (out.endsWith('/') && !url.search && !url.hash) out = out.slice(0, -1)
+    return out.slice(0, 2000)
+  }
+
+  /** 分类名归一化:去掉首尾空白和符号,空 = 未分类。 */
+  static normalizeGroup(input) {
+    return String(input || '').trim().replace(/^[#\s]+/, '').replace(/\s+/g, ' ').slice(0, 24)
+  }
+
+  /** 网页:一条一条存的常用入口(手机桌面那种格子)。 */
+  addLink(input = {}) {
+    const url = DeskStore.normalizeUrl(input.url)
+    const now = Date.now()
+    const title = String(input.title || '').trim().slice(0, 80) || hostOf(url)
+    const link = {
+      id: uid('w-'),
+      title,
+      url,
+      group: DeskStore.normalizeGroup(input.group),
+      icon: String(input.icon || '').trim().slice(0, 400),
+      note: String(input.note || '').slice(0, 2000),
+      pinned: !!input.pinned,
+      hits: 0,
+      lastOpenedAt: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: 0,
+    }
+    // 同一条链接不存两遍:已经有了就把它顶回前面(顺手补上分类/图标)
+    const same = this.data.links.find((x) => !((x.deletedAt || 0) > 0) && x.url === url)
+    if (same) {
+      if (link.group && !same.group) same.group = link.group
+      if (link.icon && !same.icon) same.icon = link.icon
+      if (input.title && !same.title) same.title = link.title
+      same.updatedAt = now
+      this.save()
+      return { ...same, deduped: true }
+    }
+    this.data.links.unshift(link)
+    this.save()
+    return link
+  }
+
+  updateLink(id, patch = {}) {
+    const x = this.data.links.find((l) => l.id === id)
+    if (!x) throw new Error('找不到网页 ' + id)
+    if (typeof patch.title === 'string' && patch.title.trim()) x.title = patch.title.trim().slice(0, 80)
+    if (typeof patch.url === 'string') {
+      const url = DeskStore.normalizeUrl(patch.url)
+      const clash = this.data.links.find((l) => l.id !== id && !((l.deletedAt || 0) > 0) && l.url === url)
+      if (clash) throw new Error('这个网址已经收过了:' + clash.title)
+      x.url = url
+    }
+    if (patch.group !== undefined) x.group = DeskStore.normalizeGroup(patch.group)
+    if (typeof patch.icon === 'string') x.icon = patch.icon.trim().slice(0, 400)
+    if (typeof patch.note === 'string') x.note = patch.note.slice(0, 2000)
+    if (typeof patch.pinned === 'boolean') x.pinned = patch.pinned
+    x.updatedAt = Date.now()
+    this.save()
+    return x
+  }
+
+  /** 打开一次:记一笔,方便「最近用的排前面」。 */
+  touchLink(id) {
+    const x = this.data.links.find((l) => l.id === id)
+    if (!x) return null
+    x.hits = (x.hits || 0) + 1
+    x.lastOpenedAt = Date.now()
+    this.save()
+    return { id: x.id, hits: x.hits, lastOpenedAt: x.lastOpenedAt }
+  }
+
+  deleteLink(id) {
+    const x = this.data.links.find((l) => l.id === id)
+    if (!x) throw new Error('找不到网页 ' + id)
+    x.deletedAt = Date.now()
+    x.pinned = false
+    x.updatedAt = Date.now()
+    this.save()
+    return { trashed: x.id, id: x.id }
+  }
+
+  restoreLink(id) {
+    const x = this.data.links.find((l) => l.id === id)
+    if (!x) throw new Error('找不到网页 ' + id)
+    x.deletedAt = 0
+    x.updatedAt = Date.now()
+    this.save()
+    return x
+  }
+
+  purgeLink(id) {
+    const before = this.data.links.length
+    this.data.links = this.data.links.filter((l) => l.id !== id)
+    if (this.data.links.length === before) throw new Error('找不到网页 ' + id)
+    this.save()
+    return { purged: id }
+  }
+
+  /** 活跃网页:置顶 → 最近打开 → 新收的在前。 */
+  listLinks(view = 'all') {
+    const sort = (a, b) => (Number(b.pinned) - Number(a.pinned))
+      || ((b.lastOpenedAt || 0) - (a.lastOpenedAt || 0))
+      || ((b.createdAt || 0) - (a.createdAt || 0))
+    if (view === 'trash') {
+      return this.data.links.filter((l) => (l.deletedAt || 0) > 0).sort((a, b) => b.deletedAt - a.deletedAt)
+    }
+    return this.data.links.filter((l) => !((l.deletedAt || 0) > 0)).sort(sort)
+  }
+
+  /** 分类列表:按条数从多到少,未收分类的单独算。 */
+  linkGroups() {
+    const counts = new Map()
+    let ungrouped = 0
+    for (const l of this.listLinks()) {
+      const g = l.group || ''
+      if (!g) { ungrouped++; continue }
+      counts.set(g, (counts.get(g) || 0) + 1)
+    }
+    const groups = [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    return { groups, ungrouped }
+  }
+
+  linkCounts() {
+    const links = this.data.links
+    const trash = links.filter((l) => (l.deletedAt || 0) > 0).length
+    return { active: links.length - trash, trash }
+  }
+
   // ---------------- 保险库 ----------------
 
   vaultRaw() {
@@ -865,6 +1027,10 @@ export class DeskStore {
       trashedReminders: this.data.reminders
         .filter((r) => (r.deletedAt || 0) > 0)
         .map((r) => ({ id: r.id, title: r.title, time: r.time, url: r.url, deletedAt: r.deletedAt, annual: r.annual, lunar: r.lunar })),
+      links: this.listLinks(),
+      trashedLinks: this.listLinks('trash').map((l) => ({ id: l.id, title: l.title, url: l.url, group: l.group, deletedAt: l.deletedAt })),
+      linkGroups: this.linkGroups(),
+      linkCounts: this.linkCounts(),
       secrets: this.listSecrets(),
       settings: this.data.settings,
       root: this.root,

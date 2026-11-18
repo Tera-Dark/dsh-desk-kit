@@ -40,6 +40,15 @@ function persistParsed(s, parsed, rawText) {
       + (created.length ? ':' + created.map((r2) => r2.title.replace(' 打卡', '')).join('、') : '')
     return { parsed, reply, item: created, created: { kind: 'reminder', ids: created.map((r2) => r2.id) } }
   }
+  if (parsed.kind === 'link') {
+    const item = s.addLink({ title: parsed.title, url: parsed.url, group: parsed.group })
+    return {
+      parsed,
+      reply: item.deduped ? '这个网址已经收过了,已把它顶到前面:' + item.title : describeCapture(parsed),
+      item,
+      created: { kind: 'link', id: item.id, deduped: !!item.deduped },
+    }
+  }
   if (parsed.kind === 'secret') {
     const item = s.addSecret({ title: parsed.title, username: parsed.username, password: parsed.password, url: parsed.url, note: parsed.note })
     return { parsed, reply: describeCapture(parsed), item, created: { kind: 'secret', id: item.id } }
@@ -230,7 +239,7 @@ export const name = 'dsh-desk-kit'
 export const inject = ['webServer']
 
 const ROUTE = '/desk-kit-api'
-const PLUGIN_VERSION = '1.7.0'
+const PLUGIN_VERSION = '1.8.0'
 const TICK_MS = 15000
 
 function dshHome() {
@@ -392,6 +401,13 @@ async function act(ctx, s, action, payload) {
     case 'alert.ack': return s.ackAlert(payload.id)
     case 'alert.ackAll': return s.ackAll()
     case 'alert.unackAll': return s.unackAll()
+    // 网页收藏:手机桌面那种格子,按分类放
+    case 'link.add': return s.addLink(payload)
+    case 'link.update': return s.updateLink(payload.id, payload)
+    case 'link.delete': return s.deleteLink(payload.id)
+    case 'link.restore': return s.restoreLink(payload.id)
+    case 'link.purge': return s.purgeLink(payload.id)       // 彻底删除
+    case 'link.touch': return s.touchLink(payload.id)       // 打开一次,记一笔
     case 'secret.add': return s.addSecret(payload)
     case 'secret.update': return s.updateSecret(payload.query || payload.id, payload)
     case 'secret.delete': return s.deleteSecret(payload.query || payload.id)
@@ -677,6 +693,58 @@ export function apply(ctx) {
         ? alerts.map((a) => '- ' + a.title + (a.over ? '【已过截止时间】' : '【快到点了】') + ' 计划 ' + fmtTime(a.dueAt)).join('\n')
         : '当前没有到期待处理的提醒。'
       return out(text, alerts)
+    },
+  })))
+
+  reg('desk_link_add', () => ctx.tools.register(defineTool({
+    name: 'desk_link_add',
+    description: '收藏一个网页到「网页」分类(手机桌面式格子,点一下就能跳过去)。用户说「收藏这个网址」「把 xx 加到常用」时用。',
+    parameters: {
+      url: { type: 'string', description: '网址;不写 https:// 会自动补' },
+      title: { type: 'string', description: '显示名(建议 2~6 个字),不写就用域名' },
+      group: { type: 'string', description: '分类名,如「工作」「工具」「常用」;不写就是未分类' },
+      icon: { type: 'string', description: '可选图标:一个 emoji,或图片地址' },
+      note: { type: 'string', description: '备注(可选)' },
+    },
+    output: outputSpec,
+    async execute(args) {
+      const l = s.addLink(args)
+      return out((l.deduped ? '这个网址已经收过了,已更新:' : '已收藏网页:') + l.title + ' · ' + l.url, l)
+    },
+  })))
+
+  reg('desk_link_list', () => ctx.tools.register(defineTool({
+    name: 'desk_link_list',
+    description: '列出收藏的网页(可按分类过滤),用户问「我的常用网站有哪些」时用。',
+    parameters: {
+      group: { type: 'string', description: '只看这个分类;不传 = 全部' },
+    },
+    output: outputSpec,
+    async execute(args) {
+      const want = String(args && args.group || '').trim()
+      const items = s.listLinks().filter((l) => !want || l.group === want)
+      const text = items.length
+        ? items.map((l) => '- ' + l.title + ' | ' + (l.group || '未分类') + ' | ' + l.url).join('\n')
+        : (want ? '「' + want + '」这个分类下还没有网页。' : '还没有收藏网页。')
+      return out(text, items)
+    },
+  })))
+
+  reg('desk_link_delete', () => ctx.tools.register(defineTool({
+    name: 'desk_link_delete',
+    description: '把收藏的网页移入垃圾箱(可恢复)。',
+    parameters: {
+      title: { type: 'string', description: '网页的名字(或 id;名字唯一时按名字找)' },
+    },
+    output: outputSpec,
+    async execute(args) {
+      const q = String(args && args.title || '').trim()
+      const hit = s.listLinks().find((l) => l.id === q)
+        || s.listLinks().find((l) => l.title === q)
+        || s.listLinks().find((l) => l.title.includes(q))
+      if (!hit) throw new Error('找不到网页 ' + q)
+      s.deleteLink(hit.id)
+      return out('已移入垃圾箱:' + hit.title, { id: hit.id, title: hit.title })
     },
   })))
 

@@ -48,9 +48,10 @@ const state = {
 }
 const run = async () => ({ ok: true, state })
 
-test('底部导航:4 个分类 + 中间首页圆键 + 角标', () => {
+test('底部导航:4 个分类 + 中间首页圆键 + 角标(设置挪到标题栏)', () => {
   const html = renderToString(h(T.TabBar, { page: 'notes', go: () => {}, due: 2 }))
-  for (const label of ['提醒', '便签', '保险库', '设置']) assert.ok(html.includes(label), '缺 ' + label)
+  for (const label of ['提醒', '便签', '网页', '保险库']) assert.ok(html.includes(label), '缺 ' + label)
+  assert.ok(!html.includes('设置'), '设置不该再占底部一格')
   assert.ok(html.includes('__dk_tabhome'), '缺中间圆键')
   assert.ok(html.includes('__dk_tab on'), '当前页要高亮')
   assert.ok(html.includes('__dk_dot'), '有待办要出角标')
@@ -421,8 +422,8 @@ test('better-sidebar:注册「随手台」侧栏标签页', () => {
   assert.ok(renderToString(h(d.component, { visible: false })).includes('__dk_sp'), '侧栏页面用整页布局')
 })
 
-test('侧栏页面分类条:五个页面都有标题和图标(不能是 undefined)', () => {
-  assert.deepEqual([...T.ORDER].sort(), ['home', 'notes', 'reminders', 'settings', 'vault'])
+test('侧栏页面分类条:每个页面都有标题和图标(不能是 undefined)', () => {
+  assert.deepEqual([...T.ORDER].sort(), ['home', 'links', 'notes', 'reminders', 'settings', 'vault'])
   for (const id of T.ORDER) {
     assert.equal(typeof T.PANEL_LABELS[id], 'string', id + ' 缺标题')
     assert.ok(T.PANEL_LABELS[id].length > 0, id + ' 标题为空')
@@ -699,4 +700,40 @@ test('开机补提醒:卡片写「错过的提醒」而不是普通的到点了'
   assert.equal(T.alertHead(late), '错过的提醒 · ')
   assert.equal(T.alertHead({ over: true }), '到点了 · ')
   assert.equal(T.alertHead({ over: false }), '快到点了 · ')
+})
+
+test('网页页:格子 + 分类 + 空分类提示', () => {
+  const links = [
+    { id: 'w1', title: '文档中心', url: 'https://docs.example.com', group: '工作', icon: '', pinned: true },
+    { id: 'w2', title: 'Figma', url: 'https://www.figma.com/files', group: '设计', icon: '' },
+    { id: 'w3', title: '新闻', url: 'https://news.example.com', group: '' },
+  ]
+  const st = {
+    ...state, links,
+    linkGroups: { groups: [{ name: '工作', count: 1 }, { name: '设计', count: 1 }], ungrouped: 1 },
+    linkCounts: { active: 3, trash: 1 },
+    trashedLinks: [{ id: 'w9', title: '旧站', url: 'https://old.example.com', group: '', deletedAt: 1 }],
+  }
+  const html = renderToString(h(T.LinksPage, { state: st, run, notify: () => {} }))
+  assert.ok(html.includes('__dk_grid'), '要用格子排,不是列表')
+  assert.ok(html.includes('文档中心') && html.includes('Figma'), '标题要在')
+  for (const g of ['全部 3', '工作 1', '设计 1', '未分类 1']) assert.ok(html.includes(g), '缺分类 chip:' + g)
+  assert.ok(html.includes('垃圾箱 (1)'))
+  // 首字 + 底色:hue 由域名算,同一个站点永远一样
+  assert.equal(T.linkInitial({ title: 'GitHub', url: 'https://github.com' }), 'G')
+  assert.equal(T.linkInitial({ title: '设计稿', url: 'x' }), '设')
+  assert.equal(T.linkHue('https://a.example.com'), T.linkHue('https://a.example.com/x?y=1'))
+  assert.notEqual(T.linkHue('https://a.example.com'), T.linkHue('https://b.example.com'))
+  // 空分类要说话
+  const empty = renderToString(h(T.LinksPage, { state: { ...st, links: [] }, run, notify: () => {} }))
+  assert.ok(empty.includes('还没有收藏网页'))
+})
+
+test('首页有「常去」:直接点常用网页,不用先进网页页', () => {
+  const st = { ...state, links: [{ id: 'w1', title: '文档中心', url: 'https://docs.example.com', group: '' }] }
+  const html = renderToString(h(T.Home, { state: st, run, notify: () => {}, onLink: () => {}, onGo: () => {} }))
+  assert.ok(html.includes('常去'), '缺常去分区')
+  assert.ok(html.includes('文档中心'))
+  const none = renderToString(h(T.Home, { state: { ...state, links: [] }, run, notify: () => {}, onLink: () => {}, onGo: () => {} }))
+  assert.ok(!none.includes('常去'), '没有网页就别占位')
 })

@@ -226,6 +226,41 @@ export function parseMultiSite(text) {
   return { kind: 'multi', sites: urls.map((url) => ({ url, title: siteTitle(url) + ' 打卡' })) }
 }
 
+const LINK_WORDS = /网页|书签|收藏|网址栏|入口|常用站|收藏夹|加进|放进/i
+
+/**
+ * 「收藏这个网页」这类说法 → 网页收藏(手机桌面那种格子)。
+ * 只认带网址的句子:没网址的话仍交给便签,别把「收藏这句话」当网页。
+ * @returns {{kind:'link',title:string,url:string,group:string,raw:string}|null}
+ */
+export function parseLink(text, now = new Date()) {
+  const raw = String(text || '')
+  const urlIn = /(https?:\/\/[^\s,，、;；"'<>)\]]+)/i.exec(raw) || /(?:^|\s)((?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s,，、;；]*)?)/i.exec(raw)
+  if (!urlIn) return null
+  const url = urlIn[1].replace(/[)。，,；;]+$/, '')
+  // 说了「收藏/网页/书签/入口」才算网页;光贴一个链接还是便签(可能只是备忘)
+  if (!LINK_WORDS.test(raw)) return null
+  // 取分类:分类:xxx / 放到「xxx」/ 放进 xxx 分组
+  let group = ''
+  const gm = /(?:分类|分组|组)[:：\s]*[「"']?([^」"'\s,，。；]{1,24})/.exec(raw)
+    || /(?:放到|放进|加到|存放在)[「"']([^」"']{1,24})[」"']/.exec(raw)
+  if (gm) group = gm[1]
+  const LINK_FILLER = /(?:收藏|书签|网页|网址|网站|存成|存一下|存起来|保存|记一下|记下|添加到|加到|放进|放到|放入|加入|这个|那个|一下|给我|帮我|麻烦|请|吧|呢|里|中|的|把|到|了|叫|叫做|名叫|命名)/g
+  const title = raw
+    .replace(urlIn[0], ' ')
+    // 分类说明整段拿掉(「分类:设计」「放进「工具」」),别混进名字
+    .replace(/(?:分类|分组|组)(?:\s*[:：]?\s*[「"']?[^」"'\s,，。；]{1,24}[」"']?)?/g, ' ')
+    .replace(/[「"'][^」"']{1,24}[」"']/g, ' ')
+    .replace(LINK_FILLER, ' ')
+    .replace(/缺少|^[,，。；:：\-—]+|[,，。；:：\-—]+$/g, ' ')
+    .replace(/[()（）\[\]{}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  // 只剩一两个字(「当」「看」)说明用户没起名,用域名更清楚
+  const nice = title.length >= 2 ? title : siteTitle(url)
+  return { kind: 'link', title: nice.slice(0, 40), url, group, raw }
+}
+
 /**
  * 便签正文:去掉口语前缀,但整句都是前缀时原样保留。
  * 以前「记一下:周末去修耳机」会把「记一下:」一起存进去,几百条之后搜什么都命中。
@@ -294,6 +329,10 @@ export function parseCapture(raw, now = new Date()) {
     }
   }
 
+  // 1.5) 网页收藏:带网址 + 「收藏/网页/书签」这类词
+  const asLink = parseLink(text, now)
+  if (asLink) return asLink
+
   // 2) 提醒:有明确时间点、相对时间、或「明天/周三/每月几号」这类有日期的说法
   const hasClock = !!clock
   const hasDate = !!rel || !!when.date || !!when.monthly || when.weekdays.length > 0
@@ -342,6 +381,9 @@ export function describeCapture(parsed) {
   if (parsed.kind === 'secret') {
     const bits = [parsed.username && '账号 ' + parsed.username, parsed.password && '密码已加密', parsed.url && '网址已存'].filter(Boolean)
     return '已进保险库:' + parsed.title + (bits.length ? '(' + bits.join(' · ') + ')' : '')
+  }
+  if (parsed.kind === 'link') {
+    return '已收进网页:' + parsed.title + ' · ' + parsed.url + (parsed.group ? '(分类:' + parsed.group + ')' : '')
   }
   if (parsed.kind === 'reminder' && parsed.yearly) {
     const when = parsed.lunar

@@ -401,3 +401,51 @@ test('开机补提醒只补一次:再 tick 不会把标记翻新或重复补', (
   assert.equal(s.pendingAlerts().length, 1, '还是那一张')
   assert.equal(s.pendingAlerts()[0].late, true, '标记保留')
 })
+
+// ---------------------------------------------------------------- 网页收藏
+
+test('网页:网址归一化 + 重复不存两份', () => {
+  const s = fresh()
+  const a = s.addLink({ url: 'example.com' })
+  assert.equal(a.url, 'https://example.com')
+  assert.equal(a.title, 'example.com', '没给名字就用域名')
+  const b = s.addLink({ url: 'https://www.example.com/', title: '示例' })
+  assert.equal(b.id, a.id, 'www / 末尾斜杠算同一条')
+  assert.equal(b.deduped, true)
+  assert.equal(s.listLinks().length, 1)
+  assert.throws(() => s.addLink({ url: '这不是网址' }), /网址看起来不对/)
+  // 跟踪参数要清掉,但正常参数保留
+  const c = s.addLink({ url: 'https://example.org/p?a=1&utm_source=x&id=2' })
+  assert.equal(c.url, 'https://example.org/p?a=1&id=2')
+})
+
+test('网页:分类、置顶、最近打开的排序', () => {
+  const s = fresh()
+  const a = s.addLink({ url: 'https://a.example.com', title: 'A', group: '常用' })
+  const b = s.addLink({ url: 'https://b.example.com', title: 'B', group: '干活' })
+  const c = s.addLink({ url: 'https://c.example.com', title: 'C' })
+  assert.deepEqual(s.linkGroups(), { groups: [{ name: '常用', count: 1 }, { name: '干活', count: 1 }], ungrouped: 1 })
+  // 最近打开过的排前面
+  s.touchLink(b.id)
+  assert.equal(s.listLinks()[0].id, b.id)
+  // 置顶永远在最前
+  s.updateLink(c.id, { pinned: true })
+  assert.equal(s.listLinks()[0].id, c.id)
+  // 改分类、改网址
+  s.updateLink(a.id, { group: '每天', title: 'A 站' })
+  assert.equal(s.listLinks().find((x) => x.id === a.id).group, '每天')
+  assert.throws(() => s.updateLink(a.id, { url: 'https://b.example.com' }), /已经收过了/)
+})
+
+test('网页:软删可恢复,彻底删除才真没了', () => {
+  const s = fresh()
+  const a = s.addLink({ url: 'https://example.com', title: '示例' })
+  s.deleteLink(a.id)
+  assert.deepEqual(s.linkCounts(), { active: 0, trash: 1 })
+  assert.equal(s.listLinks('trash').length, 1)
+  s.restoreLink(a.id)
+  assert.deepEqual(s.linkCounts(), { active: 1, trash: 0 })
+  s.deleteLink(a.id)
+  s.purgeLink(a.id)
+  assert.deepEqual(s.linkCounts(), { active: 0, trash: 0 })
+})

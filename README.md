@@ -1,12 +1,36 @@
 # dsh-desk-kit · 随手台
 
-给 DSH 的一个三合一插件：**定时提醒 + 随手便签 + 加密保险库**。
+给 DSH 的一个插件集合：**定时提醒 + 随手便签 + 网页收藏 + 加密保险库**。
 主入口是 **dsh-better-sidebar 的「随手台」侧栏标签页**；没装侧栏插件时自动退回右下角浮标。
 数据只落在本机 `~/.dsh/desk-kit`，不发网络请求（分类模型只在你配了之后才会调用）。
 
 ```bash
 dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 ```
+
+## 1.8.0 · 网页:手机桌面那样的格子
+
+日常要开的网页又多又杂,单独给一个分类。
+
+### 是格子,不是列表
+
+- 一个图标 + 名字,点一下在新标签页打开;悬停才浮出「编辑 / 删」。
+- **图标不联网**:中文取首字、英文取首字母,底色按域名算 hash —— 同一个站永远同一个颜色,一眼认出来。也可以给每条填 emoji 或图片地址。
+- 想用真·网站图标:设置里有开关,打开后会去 `icons.duckduckgo.com` 取(等于把域名告诉它);关着就用色块。
+
+### 分类与排序
+
+- 每条一个 `分类` 字段,顶部 chips 一筛,「未分类」单独一格。
+- 顺序:置顶 → 最近打开过 → 新收的在前,常用的自然浮到前面。
+- 首页也出一排「常去」(最多 8 个),不用先进网页页。
+
+### 三种加法
+
+1. 页面里「新网页」:网址 + 名字 + 分类 + 图标。
+2. 首页一句话:`收藏 https://example.com 分类:工具 叫 示例` / `把 https://x.com 存成网页`。
+3. Agent 工具:`desk_link_add` / `desk_link_list` / `desk_link_delete`。
+
+网址自动补 `https://`、去掉 `www.` 和 `utm_*` 之类跟踪参数,同一条链接不会存两份;改网址撞了会直接说「已经收过了」。删除是软删(进垃圾箱),可恢复。
 
 ## 1.7.0 · 把「说过的」和「做到的」对上
 
@@ -74,9 +98,9 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 
 ```
 node --check store.js capture.js index.js client.js
-node test.mjs           # 28 pass（静音、稍后、撤销、过期、每月、去重、导出、未来一次性、周期互斥、时间线、开机补提醒）
-node client-test.mjs    # 48 pass
-node capture.test.mjs   # 8 pass
+node test.mjs           # 31 pass（提醒 + 网页:归一化、去重、分类排序、软删）
+node client-test.mjs    # 50 pass
+node capture.test.mjs   # 9 pass
 node lunar.test.mjs     # 4 pass
 node ai-classify.test.mjs / ownership.test.mjs / harness.mjs / verify-installed.mjs  全绿
 ```
@@ -116,7 +140,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs / verify-installed.
 node --check client.js
 node client-test.mjs    # 46 pass(新增 7 条:IME、撤销条、分页、查看全部、轮播暂停、自动收起、表单分组)
 node test.mjs           # 15 pass
-node capture.test.mjs   # 8 pass
+node capture.test.mjs   # 9 pass
 node lunar.test.mjs     # 4 pass
 node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 ```
@@ -136,7 +160,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 - **测试转向行为**：新增「监听挂一个 / dispose 摘一个」和 `floatEnabled` 六组契约；源码字符串断言 54 → 37。
 
 ---
-给 DSH 的一个三合一插件：**定时提醒 + 随手便签 + 加密保险库**。
+给 DSH 的一个插件集合：**定时提醒 + 随手便签 + 网页收藏 + 加密保险库**。
 主入口是 **dsh-better-sidebar 的「随手台」侧栏标签页**；没装侧栏插件时自动退回右下角浮标。
 
 ## 1.4.0 · 提醒坞 + UI 统一
@@ -153,7 +177,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 91 处 `var(--dsw-alias-*)` 没写兜底(宿主没这变量时颜色整个失效)。现在兜底全补上，`issues: 0`。
 
 ---
-给 DSH 的一个三合一插件：**定时提醒 + 随手便签 + 加密保险库**。
+给 DSH 的一个插件集合：**定时提醒 + 随手便签 + 网页收藏 + 加密保险库**。
 主入口是 **dsh-better-sidebar 的「随手台」侧栏标签页**；没装侧栏插件时自动退回右下角浮标。
 
 ## 1.3.0 · 搬进侧边栏标签页(better-sidebar)
@@ -171,7 +195,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 ---
 # dsh-desk-kit · 随手台
 
-给 DSH 的一个三合一插件:**定时提醒 + 随手便签 + 加密保险库**。
+给 DSH 的一个插件集合:**定时提醒 + 随手便签 + 网页收藏 + 加密保险库**。
 浮标默认在右下角,但**可以拖到任何地方**;也可以直接对着 Agent 说。
 
 ## 1.2.1 · 修「点开面板甩到屏幕外」
@@ -238,7 +262,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 └─────────────────────────────────┘
 ```
 
-- 底部一排分类栏,左右各两格,**中间圆形键**回到首页(带未签数角标)。
+- 底部一排分类栏,左右各两格(提醒/便签/网页/保险库),**中间圆形键**回到首页(带待办数角标);**设置挪到标题栏齿轮**。
 - 切页有左右滑入动画;面板内**左右拖动**也能翻页(pointer 事件,鼠标/触屏都行)。
 - 图标全部是内联黑白 SVG(stroke,无 emoji):bell / note / home / lock / gear / link / copy / edit / x / pin / check / plus / send。
 - 首页只剩:一句话输入、「今天」4 行、最近 3 条。分类列表移到底栏。
@@ -305,7 +329,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 - 主密钥在 ~/.dsh/desk-kit/vault.key(0600)。**vault.key 丢了,vault.json 就解不开**,备份要一起拷。
 - 这是"本机文件权限 + 静态加密"级别,不是端到端;能读你用户目录的程序理论上都能读密钥文件。
 
-## Agent 工具(19 个)
+## Agent 工具(22 个)
 
 | 工具 | 用途 |
 |---|---|
@@ -316,6 +340,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 | desk_reminder_restore / purge | 提醒的恢复与彻底删除 |
 | desk_due | 现在有没有到期没处理的 |
 | desk_secret_add / list / get / delete | 保险库(列表不含明文) |
+| desk_link_add / list / delete | 网页收藏:加入口 / 按分类列 / 移入垃圾箱 |
 
 对 Agent 说这些话就会命中:
 
@@ -329,7 +354,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 
 ```
 ~/.dsh/desk-kit/
-├── data.json   便签 + 提醒 + 待确认告警(明文)
+├── data.json   便签 + 提醒 + 网页收藏 + 待确认告警(明文)
 ├── vault.json  保险库条目(每条独立密文)
 └── vault.key   主密钥材料(0600)
 ```
