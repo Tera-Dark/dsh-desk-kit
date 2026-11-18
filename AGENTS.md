@@ -30,5 +30,5 @@ npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址�
 
 ## 当前状态
 
-- 版本 1.21.0，27 个 Agent 工具。
+- 版本 1.22.0，27 个 Agent 工具。
 - 已知待办：store 按域拆分、动作表收敛、浅色主题实测、空 catch 收敛（见 `docs/ARCHITECTURE.md`）。

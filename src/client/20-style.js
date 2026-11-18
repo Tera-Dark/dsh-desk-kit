@@ -472,6 +472,23 @@
      '.__dk_iact--bar{display:flex;align-items:center;justify-content:flex-end;gap:1px;opacity:1;margin-top:4px;padding-top:4px;border-top:1px solid var(--dk-line)}',
      '.__dk_iact--bar .__dk_mini{width:28px;height:26px}',
      '@media (max-width:420px){.__dk_field{align-items:flex-start;flex-direction:column;gap:2px}.__dk_field .v{text-align:left}.__dk_vaulthead{align-items:flex-start}.__dk_vaultacts{margin-left:auto}}',
+     // 便签:卡片和编辑区都必须能收缩,动作单独一行,别把按钮顶出边框
+     '.__dk_item{max-width:100%;min-width:0;box-sizing:border-box}',
+     '.__dk_item .__dk_fgrid{gap:8px}',
+     '.__dk_item .__dk_fchip{width:82px;height:82px;border-radius:12px}',
+     '.__dk_iact{max-width:100%;flex-wrap:wrap}',
+     '.__dk_item .__dk_form{width:100%;max-width:100%;margin:0;box-sizing:border-box}',
+     '.__dk_editform{padding:11px;border:1px solid var(--dk-line);border-radius:12px;background:color-mix(in srgb,var(--dk-surface-strong) 70%,transparent)}',
+     '.__dk_editform .__dk_grouph{margin-bottom:0}',
+     '.__dk_editsection{border:1px solid var(--dk-line);border-radius:10px;padding:7px 8px 8px;background:color-mix(in srgb,var(--dk-surface) 70%,transparent)}',
+     '.__dk_editsectionh{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--dk-faint);margin-bottom:2px}',
+     '.__dk_editsectionh span:last-child{font-variant-numeric:tabular-nums}',
+     '.__dk_editsection .__dk_fgrid{padding:2px 0 0}',
+     '.__dk_edittools{margin-top:-1px}',
+     '.__dk_edittools .__dk_hint{margin-left:auto;font-size:10.5px}',
+     '.__dk_editacts{justify-content:flex-end;margin-top:1px}',
+     '.__dk_editacts .__dk_btn{flex:none}',
+     '@media (max-width:420px){.__dk_edittools .__dk_hint{display:none}.__dk_editacts{justify-content:stretch}.__dk_editacts .__dk_btn{flex:1 1 0}}',
      // 键盘可达性:只在键盘聚焦时出现描边,不干扰鼠标
      '.__dk_sp button:focus-visible,.__dk_panel button:focus-visible,.__dk_dock button:focus-visible,.__dk_sp input:focus-visible,.__dk_panel input:focus-visible,.__dk_sp textarea:focus-visible,.__dk_panel textarea:focus-visible,.__dk_sp a:focus-visible,.__dk_panel a:focus-visible{outline:2px solid color-mix(in srgb,var(--dk-brand) 70%,transparent);outline-offset:2px}',
    ].join('\n')

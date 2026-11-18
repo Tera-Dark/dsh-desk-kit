@@ -1003,7 +1003,7 @@ test('附件:格子/大图/剪贴板识别', () => {
   assert.equal(T.filesFromDataTransfer(null).length, 0)
 })
 
-test('便签页:有附件的便签渲染缩略图,没文字的显示占位', () => {
+test('便签页:有附件的便签渲染缩略图,纯图片不再占一行假正文', () => {
   const state = {
     now: Date.now(),
     notes: [
@@ -1023,7 +1023,10 @@ test('便签页:有附件的便签渲染缩略图,没文字的显示占位', () 
   assert.ok(html.includes('2 个附件'), '要标出附件数量')
   assert.ok(html.includes('files/f1'), '图片要有取件地址')
   assert.ok(html.includes('b.pdf') && html.includes('PDF'), '非图片显示扩展名和名字(不内联)')
-  assert.ok(html.includes('（图片）'), '没文字的纯图片便签要有占位')
+  assert.ok(!html.includes('（图片）'), '纯图片便签不再显示假正文占位')
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('__dk_editsection') && src.includes('removeEditFile'), '编辑时图片要以单位显示并可移除')
+  assert.ok(src.includes('__dk_editacts'), '编辑保存/取消要在卡片内成行')
 })
 
 test('清理卡片:用量/到期表/保留天数都能渲染', () => {

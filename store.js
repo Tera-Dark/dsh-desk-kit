@@ -621,6 +621,8 @@ export class DeskStore {
   updateNote(id, patch = {}) {
     const note = this.data.notes.find((n) => n.id === id)
     if (!note) throw new Error('找不到便签 ' + id)
+    const beforeFiles = new Set(Array.isArray(note.files) ? note.files : [])
+    const removeWanted = new Set(Array.isArray(patch.removeFiles) ? patch.removeFiles.map(String) : [])
     if (typeof patch.text === 'string') {
       const text = patch.text.trim()
       // 有附件时允许把配文清空(只留图)
@@ -636,11 +638,16 @@ export class DeskStore {
     if (patch.files !== undefined) {
       note.files = this.pickFileIds(patch.files)
       this.attachFiles('note', note.id, note.files)
+    } else if (removeWanted.size) {
+      note.files = (note.files || []).filter((fid) => !removeWanted.has(fid))
     }
     // 编辑成空文本时,只有还挂着附件才允许
     if (!note.text && !(note.files || []).length) throw new Error('便签内容不能为空')
     note.updatedAt = Date.now()
     this.save()
+    // 从这条便签里移掉的图片,保存成功后再清原件;只清原本就属于它的,别误删别人的
+    const gone = [...removeWanted].filter((fid) => beforeFiles.has(fid) && !(note.files || []).includes(fid))
+    if (gone.length) this.dropFiles(gone)
     return note
   }
 

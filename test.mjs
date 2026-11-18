@@ -674,6 +674,22 @@ test('附件:存进去、读回来,尺寸从头部读出来', () => {
   assert.deepEqual(s.addNote({ text: 'x', files: ['', 'f-nope'] }).files, [])
 })
 
+test('便签编辑:图片作为单位保留/删除,清空文字还能只留图', () => {
+  const s = fresh()
+  const f1 = s.addFile({ buffer: PNG1, name: 'a.png', mime: 'image/png' })
+  const f2 = s.addFile({ buffer: PNG1, name: 'b.png', mime: 'image/png' })
+  const n = s.addNote({ text: '配文', files: [f1.id, f2.id] })
+  s.updateNote(n.id, { text: '', files: [f1.id, f2.id] })
+  assert.equal(s.data.notes.find((x) => x.id === n.id).text, '', '有图时允许清空配文')
+  assert.deepEqual(s.data.notes.find((x) => x.id === n.id).files, [f1.id, f2.id], '编辑时没动的图要保留')
+  s.updateNote(n.id, { text: '', files: [f1.id], removeFiles: [f2.id] })
+  const after = s.data.notes.find((x) => x.id === n.id)
+  assert.deepEqual(after.files, [f1.id], '只留下没删的那张')
+  assert.equal(s.data.files.some((f) => f.id === f2.id), false, '删掉的图记录要清掉')
+  assert.ok(!existsSync(join(s.blobDir, f2.id + '.bin')), '删掉的图原件要清掉')
+  assert.equal(s.filesFor('note', n.id).length, 1)
+})
+
 test('附件:保险库名下落盘是密文,删除条目连原件一起清', () => {
   const s = fresh()
   const f = s.addFile({ buffer: PNG1, name: 'note.png', mime: 'image/png' })

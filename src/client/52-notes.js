@@ -7,6 +7,9 @@
      const [openAdd, setOpenAdd] = useState(false)
      const [editing, setEditing] = useState('')
      const [editText, setEditText] = useState('')
+     const [editFiles, setEditFiles] = useState([])
+     const [editRemoved, setEditRemoved] = useState([])
+     const [editNew, setEditNew] = useState([])
      const [expanded, setExpanded] = useState('')
      const [showDone, setShowDone] = useState(false)
      const [showArchived, setShowArchived] = useState(false)
@@ -19,6 +22,7 @@
      const [deep, setDeep] = useState({ kw: '', hits: [], done: false })
      const [deepBusy, setDeepBusy] = useState(false)
      const filePicker = useRef(null)
+     const editPicker = useRef(null)
      const PAGE = 8
      const say = (text, undo) => { if (notify) notify(text, undo) }
 
@@ -72,29 +76,34 @@
      }
 
      /** 收文件:上传后先挂在草稿上,保存时随便签一起落库。 */
-     const attachMetas = (metas) => {
+     const attachMetas = (metas, target = 'draft') => {
        if (!metas || !metas.length) return
+       if (target === 'edit') {
+         setEditFiles((cur) => [...cur, ...metas].slice(0, 12))
+         setEditNew((cur) => [...cur, ...metas.map((m) => m.id)])
+         return
+       }
        setDraftFiles((cur) => [...cur, ...metas].slice(0, 12))
        setOpenAdd(true)
        say('附件已就位,写点什么一起存')
      }
-     const addFiles = async (list, nameOf) => {
+     const addFiles = async (list, nameOf, target = 'draft') => {
        const picked = Array.from(list || []).slice(0, 8)
        if (!picked.length) return
        setBusyFile(true)
        try {
          const metas = []
          for (const f of picked) metas.push(await uploadFile(f, nameOf ? nameOf(f) : shotName(f)))
-         attachMetas(metas)
+         attachMetas(metas, target)
        } catch (e) {
          say('没存上:' + String((e && e.message) || e))
        } finally { setBusyFile(false) }
      }
      /** 粘贴进来的可能是文件、data URL、网页图片地址,也可能只有一个本地路径。 */
-     const addPaste = async (src) => {
+     const addPaste = async (src, target = 'draft') => {
        if (!src) return
-       if (src.files) return addFiles(src.files)
-       if (src.localPath) { setOpenAdd(true); say(LOCAL_PASTE_TIP); return }
+       if (src.files) return addFiles(src.files, null, target)
+       if (src.localPath) { if (target === 'draft') setOpenAdd(true); say(LOCAL_PASTE_TIP); return }
        setBusyFile(true)
        try {
          let meta = null
@@ -104,12 +113,40 @@
          } else if (src.url) {
            meta = await uploadFromUrl(src.url)
          }
-         attachMetas(meta ? [meta] : [])
+         attachMetas(meta ? [meta] : [], target)
        } catch (e) {
          say('图片没贴进来:' + String((e && e.message) || e))
        } finally { setBusyFile(false) }
      }
-
+     const startEdit = (n) => {
+       setEditing(n.id)
+       setEditText(n.text || '')
+       setEditFiles(filesOf(n))
+       setEditRemoved([])
+       setEditNew([])
+     }
+     const removeEditFile = async (n, file) => {
+       setEditFiles((cur) => cur.filter((x) => x.id !== file.id))
+       if ((n.files || []).includes(file.id)) {
+         setEditRemoved((cur) => [...new Set([...cur, file.id])])
+         return
+       }
+       // 编辑时刚上传、还没保存的附件:取消即删,别在库里留孤儿
+       setEditNew((cur) => cur.filter((id) => id !== file.id))
+       try { await run('file.delete', { id: file.id }) } catch { /* 清不掉也不影响保存 */ }
+     }
+     const cancelEdit = async () => {
+       const loose = editNew.slice()
+       setEditing(''); setEditText(''); setEditFiles([]); setEditRemoved([]); setEditNew([])
+       for (const id of loose) { try { await run('file.delete', { id }) } catch { /* 同上 */ } }
+     }
+     const saveEdit = async (n) => {
+       const ids = editFiles.map((f) => f.id)
+       if (!editText.trim() && !ids.length) { say('便签不能为空:写一句,或至少留一张图'); return }
+       await run('note.update', { id: n.id, text: editText, files: ids, removeFiles: editRemoved })
+       setEditing(''); setEditText(''); setEditFiles([]); setEditRemoved([]); setEditNew([])
+       say(editRemoved.length ? '已保存,删掉的图片也清掉了' : '已保存')
+     }
      /** 只留图片的文件草稿:保存时如果被删掉,顺手把原件也从库里清掉。 */
      const dropDraftFile = async (file) => {
        setDraftFiles((cur) => cur.filter((x) => x.id !== file.id))
@@ -125,7 +162,7 @@
      }
 
      /** 读系统剪贴板:有图就贴成附件,只有文字就填进草稿。 */
-     const readClipboard = async () => {
+     const readClipboard = async (target = 'draft') => {
        try {
          if (!navigator.clipboard || !navigator.clipboard.read) throw new Error('这个环境读不了剪贴板')
          const items = await navigator.clipboard.read()
@@ -154,13 +191,17 @@
      const row = (n, mode) => {
        const isLong = mode === 'long'
        const open = expanded === n.id
-       const firstLine = n.text.split('\n')[0]
+       const firstLine = String(n.text || '').split('\n')[0]
+       // 纯图片便签不再用「（图片）」占位:缩略图本身就是内容,别再多一行假正文
+       const previewText = isLong && !open
+         ? ((n.pinned ? '📌 ' : '') + firstLine).trim()
+         : (n.text || (filesOf(n).length ? '' : '（空）'))
        const actions = []
        if (mode === 'trash') {
          actions.push(h('button', { key: 'rs', className: '__dk_mini', title: '恢复', 'aria-label': '恢复', onClick: () => run('note.restore', { id: n.id }) }, h(Ico, { name: 'undo', size: 14 })))
          actions.push(h('button', { key: 'pg', className: '__dk_mini', title: '彻底删除', 'aria-label': '彻底删除', onClick: () => { if (window.confirm('彻底删除?不可恢复')) run('note.purge', { id: n.id }) } }, h(Ico, { name: 'x', size: 14 })))
        } else {
-         actions.push(h('button', { key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑', onClick: () => { setEditing(n.id); setEditText(n.text) } }, h(Ico, { name: 'edit', size: 14 })))
+         actions.push(h('button', { key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑', onClick: () => startEdit(n) }, h(Ico, { name: 'edit', size: 14 })))
          actions.push(h('button', {
            key: 'ck', className: '__dk_mini', title: n.completedAt ? '取消完成' : '标记完成', 'aria-label': n.completedAt ? '取消完成' : '标记完成',
            onClick: async () => {
@@ -182,21 +223,63 @@
        }
        return h('div', { key: n.id, className: '__dk_item' + (isLong ? ' __dk_item--ref' : '') }, [
          editing === n.id
-           ? h('div', { key: 'edit', className: '__dk_form' }, [
-             h('textarea', { key: 't', className: '__dk_input __dk_area', rows: 6, value: editText, onChange: (e) => setEditText(e.target.value) }),
-             h('div', { key: 'r', className: '__dk_frow' }, [
-               h('button', { key: 's', className: '__dk_btn p', onClick: async () => { await run('note.update', { id: n.id, text: editText }); setEditing(''); say('已保存') } }, '保存'),
-               h('button', { key: 'c', className: '__dk_btn', onClick: () => setEditing('') }, '取消'),
+           ? h('div', {
+             key: 'edit', className: '__dk_form __dk_editform',
+             onPaste: (e) => {
+               const src = clipboardImage(e.clipboardData)
+               if (!src) return
+               e.preventDefault(); e.stopPropagation()
+               addPaste(src, 'edit')
+             },
+           }, [
+             h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '编辑便签'), h('span', { key: 'b' }, '图片和文字一起改')]),
+             h('textarea', {
+               key: 't', className: '__dk_input __dk_area', rows: 5, value: editText,
+               placeholder: '写点什么…(也可以只留图片)',
+               onChange: (e) => setEditText(e.target.value),
+             }),
+             editFiles.length ? h('div', { key: 'f', className: '__dk_editsection' }, [
+               h('div', { key: 'h', className: '__dk_editsectionh' }, [
+                 h('span', { key: 'a' }, '图片/附件'), h('span', { key: 'b' }, editFiles.length + ' 个'),
+               ]),
+               h(FileGrid, {
+                 key: 'g', files: editFiles,
+                 onOpen: (f) => setViewing(f),
+                 onRemove: (f) => removeEditFile(n, f),
+               }),
+             ]) : null,
+             h('div', { key: 'tools', className: '__dk_frow __dk_edittools' }, [
+               h('button', {
+                 key: 'add', className: '__dk_btn', type: 'button', disabled: busyFile,
+                 onClick: () => editPicker.current && editPicker.current.click(),
+               }, [h(Ico, { key: 'i', name: 'image', size: 13 }), ' 添加图片']),
+               h('button', {
+                 key: 'clip', className: '__dk_btn', type: 'button', disabled: busyFile,
+                 onClick: () => readClipboard('edit'),
+               }, [h(Ico, { key: 'i', name: 'clipboard', size: 13 }), ' 读剪贴板']),
+               h('span', { key: 'tip', className: '__dk_hint' }, '删图后保存才会真清掉'),
+             ]),
+             h('input', {
+               key: 'fi', ref: editPicker, type: 'file', multiple: true, style: { display: 'none' },
+               onChange: (e) => { addFiles(e.target.files, null, 'edit'); e.target.value = '' },
+             }),
+             h('div', { key: 'r', className: '__dk_frow __dk_editacts' }, [
+               h('button', {
+                 key: 's', className: '__dk_btn p',
+                 disabled: !editText.trim() && !editFiles.length,
+                 onClick: () => saveEdit(n),
+               }, '保存修改'),
+               h('button', { key: 'c', className: '__dk_btn', onClick: cancelEdit }, '取消'),
              ]),
            ])
            : h(React.Fragment, { key: 'v' }, [
-             h('div', {
+             previewText ? h('div', {
                key: 't',
                className: '__dk_itext' + (isLong && !open ? ' __dk_clamp2' : ''),
                onClick: isLong ? () => setExpanded(open ? '' : n.id) : null,
                style: isLong ? { cursor: 'pointer' } : null,
                title: isLong && !open ? '点一下展开全文' : null,
-             }, isLong && !open ? (n.pinned ? '📌 ' : '') + (firstLine || '（图片）') : (n.text || (filesOf(n).length ? '（图片）' : '（空）'))),
+             }, previewText) : null,
              filesOf(n).length
                ? h(FileGrid, { key: 'fg', files: filesOf(n), onOpen: (f) => setViewing(f) })
                : null,
@@ -209,13 +292,13 @@
                  : null,
                isLong && !open ? h('span', { key: 'sz' }, n.text.length + ' 字') : null,
                ...(n.tags || []).map((tag) => h('span', { key: tag, className: '__dk_tag' }, tag)),
-               h('div', { key: 'act', className: '__dk_iact' }, [
-                 h('button', {
-                   key: 'cp', className: '__dk_mini', title: '复制', 'aria-label': '复制',
-                   onClick: () => { if (copy(n.text)) say('已复制到剪贴板') },
-                 }, h(Ico, { name: 'copy', size: 14 })),
-                 ...actions,
-               ]),
+             ]),
+             h('div', { key: 'act', className: '__dk_iact __dk_iact--bar' }, [
+               h('button', {
+                 key: 'cp', className: '__dk_mini', title: '复制', 'aria-label': '复制',
+                 onClick: () => { if (copy(n.text)) say('已复制到剪贴板') },
+               }, h(Ico, { name: 'copy', size: 14 })),
+               ...actions,
              ]),
              moveId === n.id ? h(MoveChips, { key: 'mv', kind: 'note', id: n.id, run, notify: (t) => { setMoveId(''); say(t) } }) : null,
            ]),
