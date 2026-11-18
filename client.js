@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
    const FAB_PAD = 18
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-   const VERSION = '1.12.0'
+   const VERSION = '1.13.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -455,11 +455,31 @@ window.__ModuleLoader__.load({
    // 服务端要求这个头:跨源页面想带就得先发预检,而我们从不应答 CORS,于是拿不到。
    const HEAD = { 'x-desk-kit': '1' }
 
+   // 上一次快照的 ETag:内容没变时服务端回 304(不传那 1MB 的 JSON)
+   let lastEtag = ''
+   let lastState = null
+
+   /**
+    * 读快照。命中 304 返回 null —— 调用方必须「保持原样」,不能当成空数据。
+    * 顺手记住上一份 state:同一面板里多处并发调用(浮标角标 + 当前页)时,
+    * 拿到 304 的那一处能直接用上一份,不必再发一次请求。
+    */
    async function apiGet() {
-     const res = await fetch(API, { cache: 'no-store', headers: HEAD })
+     const headers = lastEtag ? { ...HEAD, 'if-none-match': lastEtag } : HEAD
+     const res = await fetch(API, { cache: 'no-store', headers })
+     if (res.status === 304) return null
      const body = await res.json().catch(() => ({ ok: false, error: '宿主返回不是 JSON' }))
      if (!res.ok || body.ok === false) throw new Error(body.error || ('HTTP ' + res.status))
+     const tag = res.headers && res.headers.get ? res.headers.get('etag') : ''
+     if (tag) lastEtag = tag
+     lastState = body.state
      return body.state
+   }
+
+   /** 给「必须有数据」的地方用:304 就回上一份。 */
+   async function apiGetOrLast() {
+     const st = await apiGet()
+     return st || lastState
    }
    async function apiPost(action, payload) {
      const res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json', ...HEAD }, body: JSON.stringify({ action, payload: payload || {} }) })
@@ -2241,6 +2261,66 @@ window.__ModuleLoader__.load({
      ])
    }
 
+   /**
+    * 从 JSON 还原。默认「合并」(按 id 去重,本地优先),
+    * 「整体替换」必须二次确认 —— 服务端会先把现有 data.json 另存一份再动手。
+    */
+   function ImportRow({ run }) {
+     const [msg, setMsg] = useState('')
+     const [busy, setBusy] = useState(false)
+     const picker = useRef(null)
+     const start = () => { if (picker.current) picker.current.click() }
+     const onFile = async (e) => {
+       const file = e.target.files && e.target.files[0]
+       e.target.value = ''
+       if (!file) return
+       setBusy(true)
+       setMsg('读文件…')
+       try {
+         const text = await file.text()
+         let backup = null
+         try { backup = JSON.parse(text) } catch { throw new Error('这个文件不是 JSON') }
+         const mode = window.confirm('点「确定」= 合并(不覆盖现有数据)\n点「取消」= 整体替换(会先自动备份当前数据)') ? 'merge' : 'replace'
+         if (mode === 'replace' && !window.confirm('整体替换:现在的便签/提醒/网页/附件记录会被清掉,只保留备份里的。继续?')) {
+           setMsg('已取消'); setBusy(false); return
+         }
+         setMsg(mode === 'replace' ? '替换中…' : '合并中…')
+         const res = await fetch(API + '/import', {
+           method: 'POST',
+           headers: { 'content-type': 'application/json', ...HEAD },
+           body: JSON.stringify({ backup, mode, confirm: true }),
+         })
+         const body = await res.json().catch(() => ({ ok: false, error: 'HTTP ' + res.status }))
+         if (!res.ok || !body.ok) throw new Error(body.error || ('HTTP ' + res.status))
+         const r = body.report || {}
+         const parts = []
+         const NAMES = { notes: '便签', reminders: '提醒', links: '网页', files: '附件', secrets: '保险库', alerts: '告警' }
+         for (const [k, v] of Object.entries(r.added || {})) if (v) parts.push(v + ' 条' + (NAMES[k] || k))
+         let line = parts.length ? '已导入 ' + parts.join('、') : '没有新数据(都已在库里)'
+         if (r.skipped) line += ';跳过 ' + r.skipped + ' 条重复/无效'
+         if (r.locked) line += ';' + r.locked + ' 条保险库解不开(换过 vault.key)'
+         if (r.missingBlobs) line += ';' + r.missingBlobs + ' 个附件缺原件(备份不含原件)'
+         if (r.backupFile) line += ';原数据已另存'
+         setMsg(line)
+         if (run) await run('settings.update', {})   // 顺手拉一次新快照
+       } catch (err) {
+         setMsg('导入失败:' + String((err && err.message) || err))
+       } finally { setBusy(false) }
+     }
+     return h('div', { className: '__dk_setrow __dk_setrow--col' }, [
+       h('span', { key: 'l' }, '从 JSON 还原'),
+       h('div', { key: 'r', className: '__dk_frow' }, [
+         h('button', { key: 'b', className: '__dk_btn', disabled: busy, onClick: start }, [h(Ico, { key: 'i', name: 'undo', size: 14 }), busy ? ' 处理中…' : ' 选择备份文件']),
+         h('span', { key: 'h', className: '__dk_hint' }, '合并:按 id 去重;替换:先自动备份'),
+       ]),
+       h('input', {
+         key: 'f', ref: picker, type: 'file', accept: '.json,application/json', style: { display: 'none' },
+         onChange: onFile,
+       }),
+       msg ? h('span', { key: 'm', className: '__dk_hint __dk_okmsg' }, msg) : null,
+     ])
+   }
+
    function Settings({ state, run, sidebarReady }) {
      const s = state.settings || {};
      const update = (newS) => run('settings.update', newS);
@@ -2317,6 +2397,7 @@ window.__ModuleLoader__.load({
            + (state.secrets || []).length + ' 条保险库'),
        ]),
        h(CleanupCard, { key: 'cleanup', state, run }),
+       h(ImportRow, { key: 'import', run }),
        h('div', { key: 'bk', className: '__dk_setrow __dk_setrow--col' }, [
          h('span', { key: 'l' }, '导出备份'),
          h('div', { key: 'r', className: '__dk_frow' }, [
@@ -2531,7 +2612,7 @@ window.__ModuleLoader__.load({
      useEffect(() => {
        let alive = true
        const tick = async () => {
-         try { const s = await apiGet(); if (alive) setDue(dueCount(s)) } catch { /* 拉不到就保持原样 */ }
+         try { const s = await apiGetOrLast(); if (alive && s) setDue(dueCount(s)) } catch { /* 拉不到就保持原样 */ }
        }
        tick()
        const t = setInterval(tick, 60000)
@@ -2587,7 +2668,11 @@ window.__ModuleLoader__.load({
      const timer = useRef(null)
 
      const load = useCallback(async () => {
-       try { setState(await apiGet()); setErr('') } catch (e) { setErr(String((e && e.message) || e)) }
+       try {
+         const st = await apiGet()
+         if (st) setState(st)     // null = 304:内容没变,保持原样
+         setErr('')
+       } catch (e) { setErr(String((e && e.message) || e)) }
      }, [])
      usePoll(load)
      useAlertSound(state && state.settings, state && state.alerts)
@@ -2966,7 +3051,11 @@ window.__ModuleLoader__.load({
      const timer = useRef(null)
 
      const load = useCallback(async () => {
-       try { setState(await apiGet()); setErr('') } catch (e) { setErr(String((e && e.message) || e)) }
+       try {
+         const st = await apiGet()
+         if (st) setState(st)     // null = 304:内容没变,保持原样
+         setErr('')
+       } catch (e) { setErr(String((e && e.message) || e)) }
      }, [])
      useAlertSound(state && state.settings, state && state.alerts)
 
@@ -3098,7 +3187,7 @@ window.__ModuleLoader__.load({
      const [busy, setBusy] = useState(false)
      useEffect(() => {
        let alive = true
-       apiGet().then((st) => { if (alive) setState(st) }).catch((e) => { if (alive) setErr(String((e && e.message) || e)) })
+       apiGet().then((st) => { if (alive && st) setState(st) }).catch((e) => { if (alive) setErr(String((e && e.message) || e)) })
        return () => { alive = false }
      }, [])
      const set = async (patch) => {
@@ -3306,7 +3395,7 @@ window.__ModuleLoader__.load({
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,
      FileChip, FileGrid, Lightbox, isImage, fmtSize, extOf, filesFromDataTransfer, shotName,
-     CleanupCard, daysText,
+     CleanupCard, daysText, ImportRow,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,

@@ -8,6 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
+import { request as httpRequest } from 'node:http'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'desk-kit-home-'))
 
@@ -323,6 +324,50 @@ console.log('✓ 网页收藏:', snap.state.links.length, '个 ·', snap.state.l
   const run1 = await post('cleanup.run', {})
   assert.ok(run1.ok && typeof run1.result.bytes === 'number', 'cleanup.run 要回清理结果')
   console.log('✓ 查找/用量/清理:search.all · storage.get · cleanup.run(保留 ' + run1.result.keepDays + ' 天)')
+}
+
+// 7) 导入:走真实请求(merge 去重 + replace 回滚文件 + 坏文件被拒)
+{
+  const exported = (await (await fetch(base + '/export')).json()).backup
+  const first = await (await fetch(base + '/import', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-desk-kit': '1' },
+    body: JSON.stringify({ backup: exported, mode: 'merge' }),
+  })).json()
+  assert.equal(first.report.added.notes, 0, '同一份再导一次不该产生新便签')
+  assert.ok(first.report.skipped > 0, '要报跳过多少')
+  const bad = await fetch(base + '/import', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-desk-kit': '1' },
+    body: JSON.stringify({ backup: { hello: 1 } }),
+  })
+  assert.equal(bad.status, 400, '不是备份的文件要 400')
+  const noConfirm = await fetch(base + '/import', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-desk-kit': '1' },
+    body: JSON.stringify({ backup: exported, mode: 'replace' }),
+  })
+  assert.equal(noConfirm.status, 400, 'replace 不确认要拒')
+  const replaced = await (await fetch(base + '/import', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-desk-kit': '1' },
+    body: JSON.stringify({ backup: exported, mode: 'replace', confirm: true }),
+  })).json()
+  assert.ok(replaced.report.backupFile, 'replace 要留回滚文件')
+  console.log('✓ 导入:merge 去重 · 坏文件 400 · replace 需确认 + 留回滚文件')
+}
+
+// 8) 安全闸:Host 头必须是本机名字
+{
+  const png = Buffer.from('89504e470d0a1a0a', 'hex')
+  // fetch 会覆盖 Host(它是 forbidden header),所以这里用 http.request 直接发
+  const post2 = (host) => new Promise((resolve, reject) => {
+    const req = httpRequest({ host: '127.0.0.1', port, path: '/desk-kit-api/files', method: 'POST', headers: { host, 'x-desk-kit': '1', 'content-type': 'image/png', 'content-length': png.length } }, (res) => {
+      res.resume()
+      res.on('end', () => resolve(res.statusCode))
+    })
+    req.on('error', reject)
+    req.end(png)
+  })
+  assert.equal(await post2('evil.example'), 403, 'Host 不是本机名字要拒(DNS rebinding)')
+  assert.equal(await post2('127.0.0.1:' + port), 200, '本机 Host 要放行')
+  console.log('✓ 请求围栏:Host 头必须本机(挡 DNS rebinding)')
 }
 
 server.close()

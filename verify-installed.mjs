@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dk-inst-'))
-const { apply, name } = await import('dsh-desk-kit')
+// 本地是软链('dsh-desk-kit'),CI 上没有链 —— 退回当前目录
+const mod = await import('dsh-desk-kit').catch(() => import('./index.js'))
+const { apply, name } = mod
 assert.equal(name, 'dsh-desk-kit')
 const routes = []
 const srv = createServer((req, res) => { for (const r of routes) if (String(req.url || '').startsWith(r.path)) return r.handler(req, res); res.writeHead(404); res.end('nf') })

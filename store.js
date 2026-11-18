@@ -1166,6 +1166,114 @@ export class DeskStore {
     return { active: links.length - trash, trash }
   }
 
+  // ---------------- 导入 ----------------
+
+  /**
+   * 从导出的 JSON 还原。两种模式:
+   *   merge   按 id 去重,本地优先 —— 合并两份机器上的数据用这个
+   *   replace 整份替换(会先把当前 data.json 另存一份 .before-import-<时间>)
+   *
+   * 保险库条目逐条用**本机钥匙**试解:解不开的(换过 vault.key)整条跳过并计数,
+   * 不塞进来假装成功 —— 否则列表里会出现一条永远打不开的条目。
+   */
+  importBackup(input, opts = {}) {
+    const backup = input && input.backup ? input.backup : input
+    if (!backup || typeof backup !== 'object') throw new Error('这不是一份备份文件')
+    if (backup.kind !== 'dsh-desk-kit-backup') throw new Error('文件不像是随手台的备份(缺少 kind 标记)')
+    if (Number(backup.version) !== 1) throw new Error('备份版本不认识:' + backup.version)
+    const mode = opts.mode === 'replace' ? 'replace' : 'merge'
+    if (mode === 'replace' && opts.confirm !== true) throw new Error('整体替换要先确认(confirm: true)')
+
+    const incoming = backup.data && typeof backup.data === 'object' ? backup.data : {}
+    const now = Date.now()
+    const report = { mode, added: { notes: 0, reminders: 0, links: 0, files: 0, alerts: 0, secrets: 0 }, skipped: 0, locked: 0, missingBlobs: 0, backupFile: '' }
+
+    if (mode === 'replace') {
+      // 先把现在这份存起来:替换是「整份盖掉」,没有回滚文件就是不可逆操作
+      const stamp = new Date(now).toISOString().replace(/[:.]/g, '-')
+      const keep = join(this.root, 'data.json.before-import-' + stamp)
+      try {
+        mkdirSync(this.root, { recursive: true })
+        writeFileSync(keep, JSON.stringify(this.data, null, 2))
+        report.backupFile = keep
+      } catch { /* 写不了回滚文件就别替换 —— 下面这行会抛 */ }
+      if (!report.backupFile) throw new Error('没法先备份现有数据,停止替换')
+      this.data.notes = []
+      this.data.reminders = []
+      this.data.links = []
+      this.data.files = []
+      this.data.alerts = []
+    }
+
+    const mergeList = (key, list, countKey) => {
+      if (!Array.isArray(list)) return
+      const seen = new Set((this.data[key] || []).map((x) => x && x.id))
+      for (const item of list) {
+        if (!item || typeof item !== 'object' || !item.id) { report.skipped++; continue }
+        if (seen.has(item.id)) { report.skipped++; continue }
+        seen.add(item.id)
+        this.data[key].push(item)
+        if (countKey) report.added[countKey]++
+      }
+    }
+    mergeList('notes', incoming.notes, 'notes')
+    mergeList('reminders', incoming.reminders, 'reminders')
+    mergeList('links', incoming.links, 'links')
+    mergeList('alerts', incoming.alerts, 'alerts')
+    mergeList('files', incoming.files, 'files')
+
+    // 附件:记录进来了,原件不一定在(导出不含 blobs/)
+    for (const f of this.data.files || []) {
+      if (!existsSync(this.blobFile(f.id, !!f.secret))) { f.missingBlob = true; report.missingBlobs++ }
+      else if (f.missingBlob) delete f.missingBlob
+    }
+
+    // 设置:替换时被备份覆盖(清理时间这类运行状态保留本机的)
+    if (incoming.settings && typeof incoming.settings === 'object') {
+      const keepSweep = this.data.settings.lastSweepAt
+      this.data.settings = { ...this.data.settings, ...incoming.settings, lastSweepAt: keepSweep }
+    }
+
+    // 保险库:密文逐条试解,解得开才收
+    const vin = backup.vault && Array.isArray(backup.vault.entries) ? backup.vault : null
+    if (vin) {
+      const vault = this.vaultRaw()
+      // 保险库的盐在 vault.json 里,密钥材料在 vault.key。还原到一台新机器时,
+      // 本机密钥是新生成的 —— 只有把备份的盐一并接手,用户拷过来的 vault.key 才对得上。
+      // 本机已有条目时绝不能换盐(会把它们变成解不开的废文)。
+      if (vin.kdf && vin.kdf.salt) {
+        const empty = mode === 'replace' || vault.entries.length === 0
+        if (empty && vin.kdf.salt !== vault.kdf.salt) {
+          vault.kdf = vin.kdf
+          this._mk = null
+          this._mkSalt = ''
+          // 先落盘:masterKey() 是重新读盘的,不写下去校验用的还是旧盐
+          writeJson(this.vaultFile, vault)
+        }
+      }
+      const seen = new Set(vault.entries.map((e) => e.id))
+      if (mode === 'replace') { vault.entries = []; seen.clear() }
+      for (const entry of vin.entries) {
+        if (!entry || !entry.id) { report.skipped++; continue }
+        if (seen.has(entry.id)) { report.skipped++; continue }
+        try {
+          this.decryptPayload(entry)      // 只是验证:解不开就别塞进来
+        } catch {
+          report.locked++
+          continue
+        }
+        vault.entries.push(entry)
+        seen.add(entry.id)
+        report.added.secrets++
+      }
+      writeJson(this.vaultFile, vault)
+    }
+
+    this.save()
+    report.total = Object.values(report.added).reduce((n, v) => n + v, 0)
+    return report
+  }
+
   // ---------------- 查找 / 用量 / 清理 ----------------
 
   /**

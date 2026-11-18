@@ -860,3 +860,10 @@ test('便签页搜索:附件按文件名命中,能点开看', () => {
   // 没有关键词时不该出现「附件里命中」
   assert.ok(!html.includes('附件里命中'), '没搜索就别显示命中分组')
 })
+
+test('设置页:还原备份的入口在,措辞说清两种模式', () => {
+  const html = renderToString(h(T.ImportRow, { run: async () => null }))
+  assert.ok(html.includes('从 JSON 还原'), '要有还原入口')
+  assert.ok(html.includes('合并') && html.includes('替换'), '要说明两种模式')
+  assert.ok(html.includes('先自动备份'), '替换会备份,得写出来')
+})

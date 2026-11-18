@@ -11,6 +11,7 @@
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { DeskStore, localYmd } from './store.js'
 import { localDefineTool } from './tool.js'
 import { parseCapture, describeCapture } from './capture.js'
@@ -262,7 +263,9 @@ export const inject = ['webServer']
 const ROUTE = '/desk-kit-api'
 /** 和 store.js 的 MAX_FILE_BYTES 对齐:上传时先在这里挡一道,免得读进内存才发现太大。 */
 const MAX_FILE_BYTES = 24 * 1024 * 1024
-const PLUGIN_VERSION = '1.12.0'
+/** 附件总量上限(单文件 24MB,总量 512MB)。超了就提示清理,不静默写满盘。 */
+const MAX_BLOB_BYTES = 512 * 1024 * 1024
+const PLUGIN_VERSION = '1.13.0'
 const TICK_MS = 15000
 
 function dshHome() {
@@ -300,6 +303,13 @@ function isLoopbackName(host) {
  *   · 写操作要求自定义头 x-desk-kit:跨源要带它就得先过预检,而我们不放行 CORS
  */
 function guardRequest(req, method) {
+  // Host 头必须是本机名字。攻击者可以把域名解析到 127.0.0.1(DNS rebinding),
+  // 此时 socket 来源、Origin 都「看着像本机」—— 只有 Host 会暴露它的真名。
+  const host = String(req.headers.host || '').toLowerCase()
+  if (host) {
+    const name = host.replace(/:\d+$/, '').replace(/^\[|\]$/g, '')
+    if (!isLoopbackName(name)) return '只接受本机地址访问(Host 不是 127.0.0.1/localhost)'
+  }
   const site = String(req.headers['sec-fetch-site'] || '').toLowerCase()
   if (site === 'cross-site' || site === 'same-site') return '只允许本机页面调用'
   const origin = String(req.headers.origin || '').trim()
@@ -508,6 +518,7 @@ async function act(ctx, s, action, payload) {
     case 'file.delete': return { deleted: s.dropFiles([String(payload.id || '')]) }
     // 用量明细(只在打开设置/点刷新时算,轮询不碰磁盘)
     case 'storage.get': return s.storage()
+    case 'import.run': return s.importBackup(payload.backup || payload, { mode: payload.mode, confirm: payload.confirm === true })
     // 立刻清理一次:带 keepDays 时按新天数算,顺便把设置存下来
     case 'cleanup.run': {
       // 传什么都夹到 0~3650:负数当「不清」,超大值当「十年」,不因为脏输入改变语义
@@ -1161,9 +1172,26 @@ export function apply(ctx) {
           const bytes = await readRawBody(req, MAX_FILE_BYTES + 1024)
           if (!bytes.length) { json(res, 400, { ok: false, error: '空文件' }); return }
           const mime = String(req.headers['content-type'] || '').split(';')[0].trim()
+          // 配额:别让插件变成网盘。超了给一句「先清理」,而不是写满磁盘
+          const used = s.storage().bytes.blobs
+          if (used + bytes.length > MAX_BLOB_BYTES) {
+            json(res, 413, {
+              ok: false,
+              error: '附件总量到上限了(已用 ' + DeskStore.humanBytes(used) + ',上限 ' + DeskStore.humanBytes(MAX_BLOB_BYTES) + ')。到设置 → 存储与清理 清一下再传',
+            })
+            return
+          }
           const file = s.addFile({ buffer: bytes, name, mime })
           s.tick()
           json(res, 200, { ok: true, file, state: s.snapshot() })
+          return
+        }
+        // 整库导入:备份文件可能几 MB(2000 条便签 ≈ 1.1MB),单独放宽到 32MB
+        if (method === 'POST' && url.pathname === ROUTE + '/import') {
+          const body = await readBody(req, 32 * 1024 * 1024)
+          const report = s.importBackup(body.backup || body, { mode: body.mode, confirm: body.confirm === true })
+          s.tick()
+          json(res, 200, { ok: true, report, state: s.snapshot() })
           return
         }
         // 整库导出:给设置页的「备份」按钮,浏览器直接落成 .json
@@ -1174,7 +1202,22 @@ export function apply(ctx) {
         if (method === 'GET') {
           const s2 = s
           s2.tick()
-          json(res, 200, { ok: true, state: s2.snapshot() })
+          // 快照一次序列化:既当响应体,又当 ETag 的原料。2000 条便签时约 1.1MB,
+          // 20 秒一次白烧流量 —— 内容没变就回 304,客户端连 setState 都不做。
+          const payload = JSON.stringify({ ok: true, state: s2.snapshot() })
+          // now 每秒都在变,但它只是「服务端当前时间」,客户端自己用 Date.now();
+          // 不把它排除掉,每次轮询都会是 200 —— 等于白做。
+          const stable = payload.replace(/"now":\d+/, '"now":0')
+          // 哈希必须覆盖 tick() 刚刚造的告警,否则「到点了但面板不动」
+          const etag = '"' + createHash('sha1').update(stable).digest('hex').slice(0, 20) + '"'
+          const ifNoneMatch = String(req.headers['if-none-match'] || '')
+          if (ifNoneMatch && ifNoneMatch === etag) {
+            res.writeHead(304, { etag, 'cache-control': 'no-store' })
+            res.end()
+            return
+          }
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', etag })
+          res.end(payload)
           return
         }
         if (method === 'POST') {

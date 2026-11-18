@@ -1,0 +1,44 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20.18', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 语法
+        run: |
+          node --check index.js
+          node --check client.js
+          node --check store.js
+
+      # 客户端渲染测试要 react;平时从 DSH profile 取,CI 上没有 profile
+      - name: 装宿主 react
+        run: npm install --no-save --no-audit --no-fund react@18.3.1 react-dom@18.3.1
+
+      - name: 单元 / 渲染 / 入口
+        run: npm test
+
+      - name: 宿主集成(真起 HTTP,27 个工具)
+        run: npm run test:host
+
+      - name: 安装形态冒烟
+        run: npm run test:installed
+
+      - name: 生成物与源码一致
+        run: npm run build:check --if-present

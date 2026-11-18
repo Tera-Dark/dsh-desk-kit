@@ -799,3 +799,88 @@ test('清理:快照里的到期表算得对(0 天 = 下次就清)', () => {
   s.save()
   assert.equal(s.snapshot().trash.find((t) => t.id === n.id).daysLeft, null, '0 天 = 不会自动清')
 })
+
+// ---------------- 备份导入 ----------------
+
+test('导入:导出 → 清空 → 导入,逐字段回来', () => {
+  const a = fresh()
+  a.addNote({ text: '往返便签', tags: ['x'], files: [] })
+  const r = a.addReminder({ title: '往返提醒', time: '09:30', days: [1, 3] })
+  a.checkin(r.id, '2026-11-16')
+  a.addLink({ url: 'https://example.com/roundtrip', title: '往返网页' })
+  const f = a.addFile({ buffer: PNG1, name: '往返图.png', mime: 'image/png' })
+  a.addNote({ text: '', files: [f.id] })
+  a.addSecret({ title: '往返条目', fields: { 密码: 'pw' } })
+  const backup = JSON.parse(JSON.stringify(a.exportAll()))
+
+  // 目标库要能解保险库,得是同一把钥匙(同一台机器/一起拷了 vault.key)
+  const b = new DeskStore(mkdtempSync(join(tmpdir(), 'desk-kit-imp-')))
+  writeFileSync(b.keyFile, readFileSync(a.keyFile), { mode: 0o600 })
+  const rep = b.importBackup(backup, { mode: 'merge' })
+  assert.equal(rep.added.notes, 2)
+  assert.equal(rep.added.reminders, 1)
+  assert.equal(rep.added.links, 1)
+  assert.equal(rep.added.files, 1)
+  assert.equal(rep.added.secrets, 1, '保险库条目要能解才收')
+  assert.equal(b.listNotes().length, 2)
+  assert.equal(b.listLinks().length, 1)
+  assert.equal(b.getSecret('往返条目').fields['密码'], 'pw', '解出来的明文要一致')
+  assert.ok(b.data.reminders[0].doneDates.includes('2026-11-16'), '签到记录也要回来')
+  // 附件原件不在备份里 → 明确标缺,而不是假装成功
+  assert.ok(rep.missingBlobs >= 1, '缺原件要报出来')
+  assert.equal(b.data.files[0].missingBlob, true)
+})
+
+test('导入:合并模式按 id 去重,本地优先', () => {
+  const a = fresh()
+  const n = a.addNote({ text: '本地这条' })
+  const backup = JSON.parse(JSON.stringify(a.exportAll()))
+  // 同一份再导一次:不该出现副本
+  const rep = a.importBackup(backup, { mode: 'merge' })
+  assert.equal(rep.added.notes, 0)
+  assert.ok(rep.skipped >= 1)
+  assert.equal(a.listNotes().length, 1)
+  assert.equal(a.data.notes[0].text, '本地这条', '本地内容不被盖')
+  // 导入方改了同一个 id 的正文:也不覆盖本地
+  const tampered = JSON.parse(JSON.stringify(backup))
+  tampered.data.notes[0].text = '备份里的版本'
+  a.importBackup(tampered, { mode: 'merge' })
+  assert.equal(a.data.notes.find((x) => x.id === n.id).text, '本地这条')
+})
+
+test('导入:替换模式会先留一份回滚文件,且不确认就拒绝', () => {
+  const a = fresh()
+  a.addNote({ text: '会被换掉的' })
+  const backup = JSON.parse(JSON.stringify(a.exportAll()))
+  assert.throws(() => a.importBackup(backup, { mode: 'replace' }), /确认/)
+  a.addNote({ text: '替换前的第二条' })
+  const rep = a.importBackup(backup, { mode: 'replace', confirm: true })
+  assert.ok(rep.backupFile, '要留回滚文件')
+  assert.ok(existsSync(rep.backupFile), '回滚文件真的写出来了')
+  assert.equal(a.data.notes.length, 1, '替换后只剩备份里那一条')
+  const kept = JSON.parse(readFileSync(rep.backupFile, 'utf8'))
+  assert.equal(kept.notes.length, 2, '回滚文件里是替换前的两份数据')
+})
+
+test('导入:不是备份的文件要拒,并说人话', () => {
+  const a = fresh()
+  assert.throws(() => a.importBackup(null), /备份/)
+  assert.throws(() => a.importBackup({ hello: 1 }), /kind/)
+  assert.throws(() => a.importBackup({ kind: 'dsh-desk-kit-backup', version: 99 }), /版本/)
+  assert.throws(() => a.importBackup('字符串'), /备份/)
+})
+
+test('导入:换过 vault.key 的条目跳过并计数,不污染其它数据', () => {
+  const a = fresh()
+  const item = a.addSecret({ title: '旧机器的条目', fields: { 密码: 'x' } })
+  a.addNote({ text: '同批的便签' })
+  const backup = JSON.parse(JSON.stringify(a.exportAll()))
+  // 模拟换机器:新库换一把钥匙
+  const b = fresh()
+  writeFileSync(b.keyFile, randomBytes(48).toString('hex'), { mode: 0o600 })
+  const rep = b.importBackup(backup, { mode: 'merge' })
+  assert.equal(rep.locked, 1, '解不开的保险库条目要计数')
+  assert.equal(rep.added.secrets, 0, '不能塞进来一条永远打不开的')
+  assert.equal(rep.added.notes, 1, '同批的明文数据照常导入')
+  assert.equal(b.vaultRaw().entries.length, 0)
+})

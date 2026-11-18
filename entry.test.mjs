@@ -6,13 +6,26 @@
  */
 import { createRequire } from 'node:module'
 import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 
-const HERE = 'E:/DSH/plugins/dsh-desk-kit'
-const req = createRequire('C:/Users/wjx19/.dsh/profiles/desktop/package.json')
+const HERE = dirname(fileURLToPath(import.meta.url))
+// 宿主 react 可能在 DSH profile 里,也可能装在本仓库(CI 上就是后者)
+const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
+function hostRequire() {
+  const candidates = [join(DSH_HOME, 'profiles', 'desktop', 'package.json'), join(HERE, 'package.json')]
+  for (const from of candidates) {
+    try {
+      const r = createRequire(from)
+      r.resolve('react')
+      return r
+    } catch (error) { /* 换下一个位置 */ }
+  }
+  throw new Error('找不到宿主 react:请在 DSH profile 或本仓库装好 react / react-dom')
+}
+const req = hostRequire()
 const React = req('react')
 const { renderToString } = req('react-dom/server')
 
