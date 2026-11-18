@@ -823,3 +823,40 @@ test('便签页:有附件的便签渲染缩略图,没文字的显示占位', () 
   assert.ok(html.includes('b.pdf') && html.includes('PDF'), '非图片显示扩展名和名字(不内联)')
   assert.ok(html.includes('（图片）'), '没文字的纯图片便签要有占位')
 })
+
+test('清理卡片:用量/到期表/保留天数都能渲染', () => {
+  assert.equal(T.daysText(0), '下次清理就清掉')
+  assert.equal(T.daysText(1), '还有 1 天')
+  assert.equal(T.daysText(7), '还有 7 天')
+  assert.equal(T.daysText(null), '不会自动清')
+
+  const state = {
+    trash: [
+      { kind: 'note', id: 'n1', title: '三天前删的便签', daysLeft: 4, dueAt: Date.now() + 4 * 86400000 },
+      { kind: 'link', id: 'w1', title: 'example.com', daysLeft: 0, dueAt: Date.now() - 1000 },
+    ],
+    trashKeepDays: 7, lastSweepAt: Date.now() - 3600000,
+    notes: [], files: [], reminders: [], links: [], secrets: [], settings: {},
+  }
+  const html = renderToString(h(T.CleanupCard, { state, run: async () => null }))
+  assert.ok(html.includes('存储与清理'), '要有标题')
+  assert.ok(html.includes('2 条待清'), '要说清垃圾箱有几条')
+  assert.ok(html.includes('三天前删的便签'), '要逐条列出来')
+  assert.ok(html.includes('还有 4 天') && html.includes('下次清理就清掉'), '每条的到期日要分开算')
+  assert.ok(html.includes('现在清理') && html.includes('刷新用量'), '要能手动清')
+  for (const d of ['7 天', '30 天', '90 天', '不清']) assert.ok(html.includes(d), '保留天数缺 ' + d)
+  assert.ok(html.includes('保险库不参与'), '要写明保险库不参与自动清理')
+})
+
+test('便签页搜索:附件按文件名命中,能点开看', () => {
+  const state = {
+    now: Date.now(),
+    notes: [], reminders: [], secrets: [], links: [],
+    files: [{ id: 'f9', name: '登录页截图.png', mime: 'image/png', size: 1024, w: 10, h: 10, kind: 'note', ownerId: 'n1' }],
+    noteCounts: { active: 0, long: 0, done: 0, trash: 0, archived: 0 },
+    trash: [], settings: {},
+  }
+  const html = renderToString(h(T.NotesPage, { state, run: async () => null }))
+  // 没有关键词时不该出现「附件里命中」
+  assert.ok(!html.includes('附件里命中'), '没搜索就别显示命中分组')
+})

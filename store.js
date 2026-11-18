@@ -281,7 +281,13 @@ export class DeskStore {
       links: [],
       files: [],
       alerts: [],
-      settings: { tickSeconds: 20, muted: false, sound: true },
+      settings: {
+        tickSeconds: 20, muted: false, sound: true,
+        // 垃圾箱里的东西留几天(0 = 永不自动清)
+        trashKeepDays: 30,
+        // 上次自动清理的时间戳,给「什么时候清过」一个凭据
+        lastSweepAt: 0,
+      },
     }
     const raw = readJson(this.dataFile, null)
     if (!raw || typeof raw !== 'object') return base
@@ -795,7 +801,12 @@ export class DeskStore {
     // 清理 7 天前的告警
     const cutoff = nowMs - ALERT_KEEP_MS
     this.data.alerts = alerts.filter((a) => a.at >= cutoff).slice(-300)
-    if (created || mutated) this.save()
+    // 到期的垃圾箱/孤儿附件:每 6 小时最多跑一次,不用等用户点
+    let swept = null
+    if (nowMs - (this.data.settings.lastSweepAt || 0) > 6 * 3600 * 1000) {
+      try { swept = this.sweepTrash({ nowMs }) } catch { /* 清理失败不能连累提醒 */ }
+    }
+    if (created || mutated || swept) this.save()
     return created
   }
 
@@ -1153,6 +1164,233 @@ export class DeskStore {
     const links = this.data.links
     const trash = links.filter((l) => (l.deletedAt || 0) > 0).length
     return { active: links.length - trash, trash }
+  }
+
+  // ---------------- 查找 / 用量 / 清理 ----------------
+
+  /**
+   * 一次搜全库:便签、提醒、网页、附件、保险库标题。
+   *
+   * 为什么要有:分开搜意味着用户得记住「那句话我记在哪一格了」——
+   * 而随手记的东西,恰恰是记不清才记的。这里只返回**定位**(kind + id + 命中字段),
+   * 具体内容去对应的页面看,不在搜索结果里再拼一份。
+   */
+  searchAll(query, opts = {}) {
+    const q = String(query || '').trim().toLowerCase()
+    if (!q) return { query: '', hits: [], total: 0 }
+    const limit = Math.max(1, Math.min(200, Number(opts.limit) || 50))
+    const hits = []
+    const add = (kind, id, title, where, extra) => {
+      hits.push({ kind, id, title: String(title || '').slice(0, 200), where, ...(extra || {}) })
+    }
+    const inText = (text) => String(text || '').toLowerCase().includes(q)
+
+    for (const n of this.data.notes || []) {
+      if ((n.deletedAt || 0) > 0 && !opts.includeTrash) continue
+      const where = []
+      if (inText(n.text)) where.push('正文')
+      if ((n.tags || []).some((t) => String(t).toLowerCase().includes(q))) where.push('标签')
+      if (where.length) add('note', n.id, n.text || '（图片）', where.join('/'), { trashed: (n.deletedAt || 0) > 0 })
+    }
+    for (const r of this.data.reminders || []) {
+      if ((r.deletedAt || 0) > 0 && !opts.includeTrash) continue
+      const where = []
+      if (inText(r.title)) where.push('标题')
+      if (inText(r.note)) where.push('备注')
+      if (where.length) add('reminder', r.id, r.title, where.join('/'), { trashed: (r.deletedAt || 0) > 0 })
+    }
+    for (const l of this.data.links || []) {
+      if ((l.deletedAt || 0) > 0 && !opts.includeTrash) continue
+      const where = []
+      if (inText(l.title)) where.push('标题')
+      if (inText(l.url)) where.push('网址')
+      if (inText(l.note)) where.push('备注')
+      if (inText(l.group)) where.push('分类')
+      if (where.length) add('link', l.id, l.title || l.url, where.join('/'), { trashed: (l.deletedAt || 0) > 0 })
+    }
+    // 附件:按文件名找。名字记不清也能靠「截图 2026」这种前缀捞到
+    for (const f of this.data.files || []) {
+      if (f.secret) continue          // 保险库名下的附件不在全局出现,免得标题泄漏
+      if (!inText(f.name)) continue
+      add('file', f.id, f.name, '文件名', { ownerKind: f.kind, ownerId: f.ownerId, mime: f.mime, size: f.size })
+    }
+    // 保险库:只搜标题(内容加密,搜不了也不该搜)
+    for (const e of this.vaultRaw().entries) {
+      if (!inText(e.title)) continue
+      add('secret', e.id, e.title, '标题', {})
+    }
+    hits.sort((a, b) => (a.kind === b.kind ? 0 : a.kind.localeCompare(b.kind)))
+    return { query: q, hits: hits.slice(0, limit), total: hits.length }
+  }
+
+  /** 一个便签/提醒/网页/保险库条目名下的附件(按 id 找,不看 kind)。 */
+  filesOfAny(kind, id) {
+    return this.filesFor(kind, id)
+  }
+
+  /** 磁盘用量与「有什么在等着被清」。设置页那张卡片就靠它。 */
+  storage(nowMs = Date.now()) {
+    const sizeOf = (file) => {
+      try { return statSync(file).size } catch { return 0 }
+    }
+    let blobBytes = 0
+    let blobCount = 0
+    try {
+      for (const name of readdirSync(this.blobDir)) {
+        blobBytes += sizeOf(join(this.blobDir, name))
+        blobCount++
+      }
+    } catch { /* 目录还没建 */ }
+    const keep = Number(this.data.settings.trashKeepDays ?? 30)
+    const dueAt = (deletedAt) => (keep > 0 ? (deletedAt || 0) + keep * 86400000 : 0)
+    const trash = []
+    const pushTrash = (kind, item) => {
+      const at = dueAt(item.deletedAt)
+      trash.push({
+        kind, id: item.id,
+        title: String(item.title || item.text || item.url || '').slice(0, 80),
+        deletedAt: item.deletedAt || 0,
+        dueAt: at,
+        daysLeft: at ? Math.max(0, Math.ceil((at - nowMs) / 86400000)) : null,
+      })
+    }
+    for (const n of this.data.notes) if ((n.deletedAt || 0) > 0) pushTrash('note', n)
+    for (const r of this.data.reminders) if ((r.deletedAt || 0) > 0) pushTrash('reminder', r)
+    for (const l of this.data.links) if ((l.deletedAt || 0) > 0) pushTrash('link', l)
+    // 「传上来一直没挂上」的临时附件:一天后会被清
+    const strayFiles = (this.data.files || []).filter((f) => !f.kind)
+    const orphans = (this.data.files || []).filter((f) => {
+      if (!f.kind) return false
+      const set = {
+        note: this.data.notes, reminder: this.data.reminders, link: this.data.links,
+      }[f.kind]
+      if (f.kind === 'secret') return false
+      return !set || !set.some((x) => x.id === f.ownerId)
+    })
+    return {
+      bytes: {
+        data: sizeOf(this.dataFile),
+        vault: sizeOf(this.vaultFile),
+        key: sizeOf(this.keyFile),
+        blobs: blobBytes,
+        total: sizeOf(this.dataFile) + sizeOf(this.vaultFile) + sizeOf(this.keyFile) + blobBytes,
+      },
+      counts: {
+        notes: this.data.notes.length,
+        notesTrashed: this.data.notes.filter((n) => (n.deletedAt || 0) > 0).length,
+        reminders: this.data.reminders.length,
+        remindersTrashed: this.data.reminders.filter((r) => (r.deletedAt || 0) > 0).length,
+        links: this.data.links.length,
+        linksTrashed: this.data.links.filter((l) => (l.deletedAt || 0) > 0).length,
+        secrets: this.vaultRaw().entries.length,
+        files: (this.data.files || []).length,
+        blobFiles: blobCount,
+        strayFiles: strayFiles.length,
+        orphanFiles: orphans.length,
+        alerts: this.data.alerts.length,
+      },
+      trash: trash.sort((a, b) => (a.dueAt || 0) - (b.dueAt || 0)),
+      // 现在就到期、下次清理真的会动的条数(垃圾箱里「还有 20 天」的不算)
+      trashDueNow: trash.filter((t) => t.daysLeft === 0).length,
+      trashKeepDays: keep,
+      lastSweepAt: this.data.settings.lastSweepAt || 0,
+      dir: this.root,
+    }
+  }
+
+  /**
+   * 清理。三类东西,分开算:
+   *   1. 垃圾箱里超过保留天数的记录(连附件原件一起删)
+   *   2. 宿主已经不存在的附件
+   *   3. 传上来一天还没挂上的临时附件
+   *
+   * 保险库没有垃圾箱 —— 删就是删,不参与自动清理(不能替用户做这个决定)。
+   * 返回每一类清了什么,方便回执说人话。
+   */
+  sweepTrash({ nowMs = Date.now(), keepDays = null } = {}) {
+    const keep = Number.isFinite(Number(keepDays)) ? Number(keepDays) : Number(this.data.settings.trashKeepDays ?? 30)
+    const cutoff = keep > 0 ? nowMs - keep * 86400000 : 0
+    const done = { notes: 0, reminders: 0, links: 0, alerts: 0, files: 0, bytes: 0, keepDays: keep }
+
+    const dropNote = (n) => {
+      for (const id of n.files || []) {
+        const rec = (this.data.files || []).find((f) => f.id === id)
+        if (rec) done.bytes += rec.size || 0
+      }
+      this.dropFiles(n.files)
+      done.notes++
+    }
+    if (cutoff) {
+      const keepNotes = []
+      for (const n of this.data.notes) {
+        if ((n.deletedAt || 0) > 0 && n.deletedAt <= cutoff) dropNote(n)
+        else keepNotes.push(n)
+      }
+      this.data.notes = keepNotes
+
+      const keepRem = []
+      for (const r of this.data.reminders) {
+        if ((r.deletedAt || 0) > 0 && r.deletedAt <= cutoff) {
+          this.dropFiles(r.files)
+          this.data.alerts = this.data.alerts.filter((a) => a.refId !== r.id)
+          done.reminders++
+        } else keepRem.push(r)
+      }
+      this.data.reminders = keepRem
+
+      const keepLinks = []
+      for (const l of this.data.links) {
+        if ((l.deletedAt || 0) > 0 && l.deletedAt <= cutoff) { this.dropFiles(l.files); done.links++ }
+        else keepLinks.push(l)
+      }
+      this.data.links = keepLinks
+    }
+
+    // 告警本身也有寿命,顺手清
+    const alertCutoff = nowMs - ALERT_KEEP_MS
+    const beforeAlerts = this.data.alerts.length
+    this.data.alerts = this.data.alerts.filter((a) => a.at >= alertCutoff)
+    done.alerts = beforeAlerts - this.data.alerts.length
+
+    // 孤儿 + 临时附件(一天)
+    const alive = {
+      note: new Set(this.data.notes.map((n) => n.id)),
+      reminder: new Set(this.data.reminders.map((r) => r.id)),
+      link: new Set(this.data.links.map((l) => l.id)),
+    }
+    const dead = []
+    for (const f of this.data.files || []) {
+      const recBytes = f.size || 0
+      if (!f.kind) {
+        if (nowMs - (f.createdAt || 0) > 86400000) { dead.push(f.id); done.files++; done.bytes += recBytes }
+        continue
+      }
+      if (f.kind === 'secret') continue
+      const set = alive[f.kind]
+      if (!set || !set.has(f.ownerId)) { dead.push(f.id); done.files++; done.bytes += recBytes }
+    }
+    if (dead.length) this.dropFiles(dead)
+    // blobs/ 里没有记录的散件
+    try {
+      const known = new Set((this.data.files || []).map((f) => f.id))
+      for (const name of readdirSync(this.blobDir)) {
+        const id = name.replace(/\.(bin|enc)$/, '')
+        if (!known.has(id)) { done.files++; try { unlinkSync(join(this.blobDir, name)) } catch { } }
+      }
+    } catch { /* 目录不存在 */ }
+
+    this.data.settings.lastSweepAt = nowMs
+    this.save()
+    return done
+  }
+
+  /** 空手清理掉的字节数,给回执用一句人话。 */
+  static humanBytes(n) {
+    const v = Number(n) || 0
+    if (v >= 1073741824) return (v / 1073741824).toFixed(2) + 'GB'
+    if (v >= 1048576) return (v / 1048576).toFixed(1) + 'MB'
+    if (v >= 1024) return Math.round(v / 1024) + 'KB'
+    return v + 'B'
   }
 
   // ---------------- 附件 ----------------
@@ -1571,6 +1809,27 @@ export class DeskStore {
         secret: (this.data.files || []).filter((f) => f.secret).length,
         bytes: (this.data.files || []).reduce((n, f) => n + (f.size || 0), 0),
       },
+      // 垃圾箱到期表:每条还有几天被自动清掉(0 天 = 已经到期,下次清理就没)
+      trash: (() => {
+        const keep = Number(this.data.settings.trashKeepDays ?? 30)
+        const out = []
+        const push = (kind, item) => {
+          const at = keep > 0 ? (item.deletedAt || 0) + keep * 86400000 : 0
+          out.push({
+            kind, id: item.id,
+            title: String(item.title || item.text || item.url || '').slice(0, 80),
+            deletedAt: item.deletedAt || 0,
+            dueAt: at,
+            daysLeft: at ? Math.max(0, Math.ceil((at - now.getTime()) / 86400000)) : null,
+          })
+        }
+        for (const n of this.data.notes) if ((n.deletedAt || 0) > 0) push('note', n)
+        for (const r of this.data.reminders) if ((r.deletedAt || 0) > 0) push('reminder', r)
+        for (const l of this.data.links) if ((l.deletedAt || 0) > 0) push('link', l)
+        return out.sort((a, b) => (a.dueAt || 0) - (b.dueAt || 0))
+      })(),
+      trashKeepDays: Number(this.data.settings.trashKeepDays ?? 30),
+      lastSweepAt: this.data.settings.lastSweepAt || 0,
       secrets: this.listSecrets(),
       settings: this.data.settings,
       root: this.root,

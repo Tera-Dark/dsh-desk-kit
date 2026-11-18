@@ -129,7 +129,7 @@ assert.equal(noteRes.data.text, '周末去修耳机')
 const listRes = await tools.get('desk_note_list').execute({})
 assert.ok(listRes.text.includes('修耳机'))
 console.log('✓ 便签工具:', listRes.text.split('\n')[0])
-assert.equal(tools.size, 25, '应注册 25 个工具,实际 ' + tools.size)
+assert.equal(tools.size, 27, '应注册 27 个工具,实际 ' + tools.size)
 
 // 一句话入口:模型侧工具
 const cap = await tools.get('desk_capture').execute({ text: '明天10点提醒我交电费' })
@@ -308,6 +308,22 @@ assert.equal(pvMove.ok, false, '带密码搬到网页必须被拦下')
 console.log('✓ 转存:便签⇄网页⇄保险库 · 工具 desk_item_move')
 
 console.log('✓ 网页收藏:', snap.state.links.length, '个 ·', snap.state.linkGroups.groups.length, '个分类')
+
+{
+  const s1 = await post('search.all', { query: '修耳机' })
+  assert.ok(s1.result.hits.some((h) => h.kind === 'note'), 'search.all 要能搜到便签')
+  const s2 = await post('search.all', { query: '不存在的关键词zzz' })
+  assert.equal(s2.result.total, 0)
+  const st = await post('storage.get', {})
+  assert.ok(st.result.bytes.total > 0, 'storage.get 要有用量')
+  assert.ok(Array.isArray(st.result.trash), '要带回垃圾箱到期表')
+  // 保留天数:设置要真的存下来
+  const keep = await post('settings.update', { trashKeepDays: 7 })
+  assert.equal(keep.state.trashKeepDays, 7, '设置页改的保留天数要生效')
+  const run1 = await post('cleanup.run', {})
+  assert.ok(run1.ok && typeof run1.result.bytes === 'number', 'cleanup.run 要回清理结果')
+  console.log('✓ 查找/用量/清理:search.all · storage.get · cleanup.run(保留 ' + run1.result.keepDays + ' 天)')
+}
 
 server.close()
 console.log('\nALL HOST TESTS PASSED')

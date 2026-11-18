@@ -696,3 +696,106 @@ test('带附件的便签允许把配文清空', () => {
   const plain = s.addNote({ text: '空的会被拦' })
   assert.throws(() => s.updateNote(plain.id, { text: '' }), /不能为空/)
 })
+
+// ---------------- 查找 / 用量 / 清理 ----------------
+
+test('统一查找:五类都能按 id 定位,保险库只露标题', () => {
+  const s = fresh()
+  s.addNote({ text: '周末去修耳机', tags: ['生活'] })
+  const rem = s.addReminder({ title: '交电费', time: '09:00' })
+  s.addLink({ url: 'https://example.com/earphone', title: '耳机评测' })
+  const f = s.addFile({ buffer: PNG1, name: '耳机截图.png', mime: 'image/png' })
+  s.addSecret({ title: '耳机店账号', fields: { 密码: 'x' } })
+  const res = s.searchAll('耳机')
+  const kinds = res.hits.map((h) => h.kind).sort()
+  assert.deepEqual(kinds, ['file', 'link', 'note', 'secret'], '五类里该命中的都要在')
+  const noteHit = res.hits.find((h) => h.kind === 'note')
+  assert.ok(noteHit.id.startsWith('n-'), '要给出可定位的 id')
+  assert.equal(noteHit.where, '正文')
+  assert.equal(res.hits.find((h) => h.kind === 'file').id, f.id)
+  // 保险库条目在命中列表里只有标题,没有字段
+  const secHit = res.hits.find((h) => h.kind === 'secret')
+  assert.equal(secHit.title, '耳机店账号')
+  assert.equal(JSON.stringify(secHit).includes('密码'), false)
+  // 空查询不返回东西;垃圾箱默认不搜
+  assert.equal(s.searchAll('').total, 0)
+  s.deleteNote(noteHit.id)
+  assert.equal(s.searchAll('耳机').hits.some((h) => h.kind === 'note'), false)
+  assert.ok(s.searchAll('耳机', { includeTrash: true }).hits.some((h) => h.kind === 'note'))
+  assert.ok(s.searchAll('电费').hits.some((h) => h.kind === 'reminder' && h.id === rem.id))
+})
+
+test('用量:分开算数据/保险库/附件,柔性数据不糊在一起', () => {
+  const s = fresh()
+  const f = s.addFile({ buffer: PNG1, name: 'a.png', mime: 'image/png' })
+  s.addNote({ text: '一条便签', files: [f.id] })
+  s.addSecret({ title: 'x', fields: { 密码: 'y' } })
+  const info = s.storage()
+  assert.ok(info.bytes.data > 0)
+  assert.ok(info.bytes.vault > 0)
+  assert.ok(info.bytes.key > 0)
+  assert.equal(info.bytes.blobs, PNG1.length)
+  assert.equal(info.counts.files, 1)
+  assert.equal(info.counts.blobFiles, 1)
+  assert.equal(info.bytes.total, info.bytes.data + info.bytes.vault + info.bytes.key + info.bytes.blobs)
+  assert.equal(info.dir, s.root)
+})
+
+test('清理:过期的垃圾箱连附件一起清,没到期的留着', () => {
+  const s = fresh()
+  const f1 = s.addFile({ buffer: PNG1, name: 'old.png', mime: 'image/png' })
+  const n1 = s.addNote({ text: '过期', files: [f1.id] })
+  const f2 = s.addFile({ buffer: PNG1, name: 'new.png', mime: 'image/png' })
+  const n2 = s.addNote({ text: '还早', files: [f2.id] })
+  // 手动把删除时间设成 40 天前 / 1 天前
+  const day = 86400000
+  s.deleteNote(n1.id); s.deleteNote(n2.id)
+  s.data.notes.find((n) => n.id === n1.id).deletedAt = Date.now() - 40 * day
+  s.data.notes.find((n) => n.id === n2.id).deletedAt = Date.now() - 1 * day
+  s.save()
+  const done = s.sweepTrash({ keepDays: 30 })
+  assert.equal(done.notes, 1, '只清过期那一条')
+  assert.ok(done.bytes >= PNG1.length, '要报释放的字节')
+  assert.equal(s.data.notes.filter((n) => n.id === n2.id).length, 1, '没到期的要留着')
+  assert.ok(!existsSync(join(s.blobDir, f1.id + '.bin')), '过期条目的附件原件也要删')
+  assert.ok(existsSync(join(s.blobDir, f2.id + '.bin')), '没到期的附件不能动')
+  assert.ok(s.data.settings.lastSweepAt > 0, '要记下清过的时间')
+})
+
+test('清理:保险库不参与自动清理(删了就不可恢复)', () => {
+  const s = fresh()
+  const item = s.addSecret({ title: '别动我', fields: { 密码: 'x' } })
+  s.sweepTrash({ keepDays: 0 })
+  assert.equal(s.getSecret(item.id).title, '别动我')
+})
+
+test('清理:保留 0 天 = 不清垃圾箱,但孤儿附件照样清', () => {
+  const s = fresh()
+  const note = s.addNote({ text: '删了' })
+  s.deleteNote(note.id)
+  s.data.notes.find((n) => n.id === note.id).deletedAt = Date.now() - 400 * 86400000
+  const orphan = s.addFile({ buffer: PNG1, name: 'o.png', mime: 'image/png' })
+  s.data.files.find((f) => f.id === orphan.id).kind = 'note'
+  s.data.files.find((f) => f.id === orphan.id).ownerId = 'n-gone'
+  const done = s.sweepTrash({ keepDays: 0 })
+  assert.equal(done.notes, 0, '保留 0 天就永远不清垃圾箱')
+  assert.equal(s.data.notes.length, 1)
+  assert.equal(done.files, 1, '孤儿附件该清')
+  assert.equal(s.data.files.length, 0)
+})
+
+test('清理:快照里的到期表算得对(0 天 = 下次就清)', () => {
+  const s = fresh()
+  s.data.settings.trashKeepDays = 7
+  const n = s.addNote({ text: '三天前删的' })
+  s.deleteNote(n.id)
+  s.data.notes.find((x) => x.id === n.id).deletedAt = Date.now() - 3 * 86400000
+  s.save()
+  const snap = s.snapshot()
+  const row = snap.trash.find((t) => t.id === n.id)
+  assert.equal(snap.trashKeepDays, 7)
+  assert.equal(row.daysLeft, 4, '7 - 3 = 还剩 4 天')
+  s.data.settings.trashKeepDays = 0
+  s.save()
+  assert.equal(s.snapshot().trash.find((t) => t.id === n.id).daysLeft, null, '0 天 = 不会自动清')
+})

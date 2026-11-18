@@ -262,7 +262,7 @@ export const inject = ['webServer']
 const ROUTE = '/desk-kit-api'
 /** 和 store.js 的 MAX_FILE_BYTES 对齐:上传时先在这里挡一道,免得读进内存才发现太大。 */
 const MAX_FILE_BYTES = 24 * 1024 * 1024
-const PLUGIN_VERSION = '1.11.0'
+const PLUGIN_VERSION = '1.12.0'
 const TICK_MS = 15000
 
 function dshHome() {
@@ -506,6 +506,19 @@ async function act(ctx, s, action, payload) {
     case 'note.add': return s.addNote(payload)
     // 附件:上传走 POST /desk-kit-api/files(字节流),这里只做「删」和「重新挂」
     case 'file.delete': return { deleted: s.dropFiles([String(payload.id || '')]) }
+    // 用量明细(只在打开设置/点刷新时算,轮询不碰磁盘)
+    case 'storage.get': return s.storage()
+    // 立刻清理一次:带 keepDays 时按新天数算,顺便把设置存下来
+    case 'cleanup.run': {
+      // 传什么都夹到 0~3650:负数当「不清」,超大值当「十年」,不因为脏输入改变语义
+      const raw = Number(payload.keepDays)
+      const keep = Number.isFinite(raw) ? Math.max(0, Math.min(3650, Math.round(raw))) : undefined
+      if (keep !== undefined) s.data.settings.trashKeepDays = keep
+      const done = s.sweepTrash({ keepDays: keep })
+      return { ...done, human: DeskStore.humanBytes(done.bytes) }
+    }
+    // 统一查找(面板里搜的是本地快照,这个给工具和「搜索兜底」用)
+    case 'search.all': return s.searchAll(payload.query, { includeTrash: !!payload.includeTrash })
     case 'file.attach': return s.attachFiles(String(payload.kind || 'note'), String(payload.ownerId || ''), payload.ids || [])
     case 'note.update': return s.updateNote(payload.id, payload)
     case 'note.delete': return s.deleteNote(payload.id)      // 软删:进垃圾箱
@@ -571,6 +584,10 @@ async function act(ctx, s, action, payload) {
       if (typeof payload.classifyModel === 'string') s.data.settings.classifyModel = payload.classifyModel
       // 浮标是兜底入口:显式 true/false 才记,不设就是「有侧栏就当没有」
       if (typeof payload.floatFab === 'boolean') s.data.settings.floatFab = payload.floatFab
+      // 垃圾箱保留天数:0 = 永不自动清
+      if (Number.isFinite(payload.trashKeepDays)) {
+        s.data.settings.trashKeepDays = Math.max(0, Math.min(3650, Math.round(payload.trashKeepDays)))
+      }
       s.save()
       return s.data.settings
     }
@@ -643,6 +660,53 @@ export function apply(ctx) {
       const note = s.addNote({ text: args.text, tags: args.tags, pinned: args.pinned, files: ids })
       const extra = ids.length ? '(' + ids.length + ' 个附件)' : ''
       return out('已记下便签「' + (note.text || '图片').slice(0, 40) + '」' + extra + ',id=' + note.id, { ...note, files: s.filesFor('note', note.id) })
+    },
+  })))
+
+  reg('desk_search', () => ctx.tools.register(defineTool({
+    name: 'desk_search',
+    description: '在随手台里一次搜完:便签、提醒、网页、附件文件名、保险库标题。用户说「我记过/存过那个…叫什么来着」时用。',
+    parameters: {
+      query: { type: 'string', description: '关键词' },
+      includeTrash: { type: 'boolean', description: '是否连垃圾箱一起搜' },
+    },
+    output: outputSpec,
+    async execute(args) {
+      const res = s.searchAll(args.query, { includeTrash: !!args.includeTrash })
+      const NAMES = { note: '便签', reminder: '提醒', link: '网页', file: '附件', secret: '保险库' }
+      const text = res.hits.length
+        ? res.hits.map((x, i) => (i + 1) + '. [' + (NAMES[x.kind] || x.kind) + '] ' + x.title + '  (' + x.where + ', id=' + x.id + ')' + (x.trashed ? ' [在垃圾箱]' : '')).join('\n')
+          + (res.total > res.hits.length ? '\n…还有 ' + (res.total - res.hits.length) + ' 条,缩小关键词' : '')
+        : '没搜到「' + String(args.query || '') + '」。'
+      return out(text, res)
+    },
+  })))
+
+  reg('desk_cleanup', () => ctx.tools.register(defineTool({
+    name: 'desk_cleanup',
+    description: '清理随手台:清掉垃圾箱里过期的记录(连附件原件)、宿主已不存在的附件、以及临时附件。返回清了什么、释放多少。',
+    parameters: {
+      keepDays: { type: 'number', description: '垃圾箱保留天数(默认用设置里的,通常 30;0 = 不清垃圾箱)' },
+      dryRun: { type: 'boolean', description: '只报会清多少,不动手' },
+    },
+    output: outputSpec,
+    async execute(args) {
+      if (args.dryRun) {
+        const info = s.storage()
+        const due = info.trashDueNow + info.counts.strayFiles + info.counts.orphanFiles
+        return out(due
+          ? '会清 ' + info.trashDueNow + ' 条到期记录、' + (info.counts.strayFiles + info.counts.orphanFiles) + ' 个孤儿/临时附件'
+          : '现在没有到期的东西(垃圾箱里还有 ' + info.trash.length + ' 条,按保留 ' + info.trashKeepDays + ' 天算)'
+          , info)
+      }
+      const done = s.sweepTrash({ keepDays: Number.isFinite(args.keepDays) ? args.keepDays : undefined })
+      const human = DeskStore.humanBytes(done.bytes)
+      const parts = []
+      if (done.notes) parts.push(done.notes + ' 条便签')
+      if (done.links) parts.push(done.links + ' 个网页')
+      if (done.reminders) parts.push(done.reminders + ' 条提醒')
+      if (done.files) parts.push(done.files + ' 个附件')
+      return out(parts.length ? '清掉了 ' + parts.join('、') + ',释放 ' + human : '没有需要清的东西', done)
     },
   })))
 

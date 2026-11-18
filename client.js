@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
    const FAB_PAD = 18
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-   const VERSION = '1.11.0'
+   const VERSION = '1.12.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -290,6 +290,19 @@ window.__ModuleLoader__.load({
      '.__dk_fname{font-size:9px;line-height:1.2;padding:0 3px;color:var(--dsw-alias-label-tertiary,#8b949e);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
      '.__dk_fdel{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:8px;border:0;padding:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.62);color:#fff;cursor:pointer}',
      '.__dk_draftfiles{padding:2px 0 6px}',
+     // 存储与清理卡片
+     '.__dk_usewrap{display:flex;flex-direction:column;gap:5px}',
+     '.__dk_use{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary,#9aa4b2)}',
+     '.__dk_uselabel{width:58px;flex:none}',
+     '.__dk_usebar{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden}',
+     '.__dk_usebar i{display:block;height:100%;border-radius:3px;background:var(--dsw-alias-brand-primary,#4d7cf3);opacity:.75}',
+     '.__dk_usenum{width:56px;flex:none;text-align:right;font-variant-numeric:tabular-nums}',
+     '.__dk_trashtop{display:flex;flex-direction:column;gap:3px;border-top:1px solid var(--dsw-alias-border-l1,rgba(255,255,255,.08));padding-top:8px}',
+     '.__dk_trashrow{display:flex;align-items:baseline;gap:6px;font-size:11.5px;line-height:1.5}',
+     '.__dk_trashkind{flex:none;font-size:10px;padding:0 5px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--dsw-alias-label-secondary,#9aa4b2)}',
+     '.__dk_trashtitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary,#e6edf3)}',
+     '.__dk_okmsg{color:var(--dsw-alias-label-primary,#e6edf3)}',
+     '.__dk_expire{color:var(--dsw-alias-label-tertiary,#8b949e)}',
      // 看大图
      '.__dk_light{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px}',
      '.__dk_lightimg{max-width:100%;max-height:calc(100vh - 120px);object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5)}',
@@ -1271,6 +1284,8 @@ window.__ModuleLoader__.load({
      const remHits = kw ? (state.reminders || []).filter((r) => !((r.deletedAt || 0) > 0) && String(r.title || '').toLowerCase().includes(kw)) : []
      const secHits = kw ? (state.secrets || []).filter((x) => String(x.title || '').toLowerCase().includes(kw)) : []
      const linkHits = kw ? (state.links || []).filter((l) => (String(l.title || '') + ' ' + String(l.url || '')).toLowerCase().includes(kw)) : []
+     // 附件也能按文件名搜到(「那张截图叫什么来着」)
+     const fileHits = kw ? (state.files || []).filter((f) => String(f.name || '').toLowerCase().includes(kw)) : []
 
      /** 收文件:上传后先挂在草稿上,保存时随便签一起落库。 */
      const addFiles = async (list, nameOf) => {
@@ -1381,6 +1396,10 @@ window.__ModuleLoader__.load({
              h('div', { key: 'm', className: '__dk_imeta' }, [
                h('span', { key: 'd' }, fmtWhen(n.updatedAt)),
                filesOf(n).length ? h('span', { key: 'fc' }, filesOf(n).length + ' 个附件') : null,
+               // 在垃圾箱里:说清楚什么时候会被自动清掉
+               (state.trash || []).find((t) => t.kind === 'note' && t.id === n.id)
+                 ? h('span', { key: 'tl', className: '__dk_expire' }, daysText((state.trash || []).find((t) => t.kind === 'note' && t.id === n.id).daysLeft))
+                 : null,
                isLong && !open ? h('span', { key: 'sz' }, n.text.length + ' 字') : null,
                ...(n.tags || []).map((tag) => h('span', { key: tag, className: '__dk_tag' }, tag)),
                h('div', { key: 'act', className: '__dk_iact' }, [
@@ -1519,7 +1538,7 @@ window.__ModuleLoader__.load({
        kw
          ? (searched.length
            ? searched.map((n) => row(n, n.shelf === 'long' && !n.archived ? 'long' : 'daily'))
-           : (remHits.length || secHits.length || linkHits.length
+           : (remHits.length || secHits.length || linkHits.length || fileHits.length
              ? null
              : h('div', { key: 'e', className: '__dk_empty' }, [
                h('div', { key: 't', className: '__dk_emptytitle' }, '没搜到「' + q.trim() + '」'),
@@ -1546,6 +1565,12 @@ window.__ModuleLoader__.load({
                h('div', { key: 's', className: '__dk_rm' }, linkHost(l.url) + (l.group ? ' · ' + l.group : '')),
              ]),
            ])),
+         ])
+         : null,
+       kw && fileHits.length
+         ? h('div', { key: 'sf' }, [
+           h('div', { key: 'h', className: '__dk_sec' }, [h('span', { key: 'a' }, '附件里命中'), h('span', { key: 'b' }, String(fileHits.length))]),
+           h(FileGrid, { key: 'g', files: fileHits.slice(0, 12), onOpen: (f) => setViewing(f) }),
          ])
          : null,
        kw && secHits.length
@@ -2106,6 +2131,116 @@ window.__ModuleLoader__.load({
      }
    }
 
+   /** 「N 天」这种人话:0 天就是到期,别显示「还有 0 天」 */
+   function daysText(daysLeft) {
+     if (daysLeft === null || daysLeft === undefined) return '不会自动清'
+     if (daysLeft <= 0) return '下次清理就清掉'
+     if (daysLeft === 1) return '还有 1 天'
+     return '还有 ' + daysLeft + ' 天'
+   }
+
+   /**
+    * 存储与清理。
+    *
+    * 两件事必须说清楚,否则用户不敢用自动清理:
+    *   1. 现在占多少(按数据/保险库/附件分开);
+    *   2. 垃圾箱里每条**具体**还有几天被清 —— 不是一个笼统的「30 天后清理」。
+    * 清理本身是先算后删(store.sweepTrash),保险库不参与(删了不可恢复,不能替用户决定)。
+    */
+   function CleanupCard({ state, run }) {
+     const [info, setInfo] = useState(null)
+     const [busy, setBusy] = useState(false)
+     const [msg, setMsg] = useState('')
+     const load = useCallback(async () => {
+       try {
+         const body = await apiPost('storage.get', {})
+         if (body && body.result) setInfo(body.result)
+       } catch (e) { setMsg('读不到用量:' + String((e && e.message) || e)) }
+     }, [])
+     useEffect(() => { load() }, [load, state.lastSweepAt])
+
+     const keep = info ? info.trashKeepDays : (state.trashKeepDays || 0)
+     const trash = (state.trash || [])
+     const setKeep = async (days) => {
+       await run('settings.update', { trashKeepDays: days })
+       setMsg(days > 0 ? '垃圾箱保留 ' + days + ' 天' : '不再自动清垃圾箱')
+       load()
+     }
+     const sweep = async () => {
+       setBusy(true)
+       try {
+         const body = await apiPost('cleanup.run', {})
+         const d = (body && body.result) || {}
+         const parts = []
+         if (d.notes) parts.push(d.notes + ' 条便签')
+         if (d.links) parts.push(d.links + ' 个网页')
+         if (d.reminders) parts.push(d.reminders + ' 条提醒')
+         if (d.files) parts.push(d.files + ' 个附件')
+         setMsg(parts.length ? '清掉了 ' + parts.join('、') + ',释放 ' + (d.human || '0B') : '没有需要清的东西')
+         load()
+       } catch (e) { setMsg('清理失败:' + String((e && e.message) || e)) } finally { setBusy(false) }
+     }
+     const bytes = (info && info.bytes) || {}
+     const counts = (info && info.counts) || {}
+     const bar = (label, n, total) => {
+       const pct = total > 0 ? Math.max(2, Math.round((n / total) * 100)) : 0
+       return h('div', { key: label, className: '__dk_use' }, [
+         h('span', { key: 'l', className: '__dk_uselabel' }, label),
+         h('span', { key: 'b', className: '__dk_usebar' }, h('i', { key: 'i', style: { width: pct + '%' } })),
+         h('span', { key: 'n', className: '__dk_usenum' }, fmtSize(n)),
+       ])
+     }
+     return h('div', { className: '__dk_card' }, [
+       h('div', { key: 'h', className: '__dk_cardtop' }, [
+         h('span', { key: 't', className: '__dk_cardtitle' }, '存储与清理'),
+         h('span', { key: 'b', className: '__dk_hint' }, '共 ' + fmtSize(bytes.total || 0)),
+       ]),
+       info
+         ? h('div', { key: 'u', className: '__dk_usewrap' }, [
+           bar('附件', bytes.blobs || 0, bytes.total || 1),
+           bar('便签/提醒', bytes.data || 0, bytes.total || 1),
+           bar('保险库', bytes.vault || 0, bytes.total || 1),
+         ])
+         : h('div', { key: 'u', className: '__dk_hint' }, '算一下…'),
+       h('div', { key: 'c', className: '__dk_cardrows' }, [
+         h('div', { key: 'c1', className: '__dk_cardrow' }, [
+           h('span', { key: 'l' }, '垃圾箱'),
+           h('span', { key: 'r', className: '__dk_hint' }, trash.length + ' 条待清' + (counts.strayFiles ? ' · ' + counts.strayFiles + ' 个临时附件' : '')),
+         ]),
+         h('div', { key: 'c2', className: '__dk_cardrow' }, [
+           h('span', { key: 'l' }, '保留'),
+           h('div', { key: 'r', className: '__dk_frow' }, [7, 30, 90, 0].map((d) =>
+             h('button', {
+               key: d, className: '__dk_chip' + (Number(keep) === d ? ' on' : ''),
+               title: d === 0 ? '不自动清(要自己删)' : '删除后 ' + d + ' 天自动清',
+               onClick: () => setKeep(d),
+             }, d === 0 ? '不清' : d + ' 天'))),
+         ]),
+         h('div', { key: 'c3', className: '__dk_cardrow' }, [
+           h('span', { key: 'l' }, '上次自动清理'),
+           h('span', { key: 'r', className: '__dk_hint' }, state.lastSweepAt ? fmtWhen(state.lastSweepAt) : '还没清过'),
+         ]),
+       ]),
+       trash.length
+         ? h('div', { key: 'tl', className: '__dk_trashtop' }, [
+           h('div', { key: 'h', className: '__dk_hint' }, '这些会被自动清掉(想留就先恢复):'),
+           ...trash.slice(0, 6).map((t) => h('div', { key: t.kind + t.id, className: '__dk_trashrow' }, [
+             h('span', { key: 'k', className: '__dk_trashkind' }, { note: '便签', reminder: '提醒', link: '网页' }[t.kind] || t.kind),
+             h('span', { key: 't', className: '__dk_trashtitle', title: t.title }, t.title || '（无标题）'),
+             h('span', { key: 'd', className: '__dk_hint' }, daysText(t.daysLeft)),
+           ])),
+           trash.length > 6 ? h('div', { key: 'm', className: '__dk_hint' }, '…还有 ' + (trash.length - 6) + ' 条') : null,
+         ])
+         : h('div', { key: 'te', className: '__dk_hint' }, '垃圾箱是空的,没有东西等着被清。'),
+       h('div', { key: 'a', className: '__dk_frow' }, [
+         h('button', { key: 'go', className: '__dk_btn p', disabled: busy, onClick: sweep }, busy ? '清理中…' : '现在清理'),
+         h('button', { key: 'rf', className: '__dk_btn', onClick: load }, '刷新用量'),
+       ]),
+       h('div', { key: 'n', className: '__dk_hint __dk_cardkbd' }, '自动清理每 6 小时最多跑一次(DSH 开着的时候);保险库不参与,删了就是删了。附件原件不在导出的 JSON 里,备份要连数据目录一起拷。'),
+       msg ? h('div', { key: 'm', className: '__dk_hint __dk_okmsg' }, msg) : null,
+     ])
+   }
+
    function Settings({ state, run, sidebarReady }) {
      const s = state.settings || {};
      const update = (newS) => run('settings.update', newS);
@@ -2181,6 +2316,7 @@ window.__ModuleLoader__.load({
            + (state.links || []).length + ' 个网页 · '
            + (state.secrets || []).length + ' 条保险库'),
        ]),
+       h(CleanupCard, { key: 'cleanup', state, run }),
        h('div', { key: 'bk', className: '__dk_setrow __dk_setrow--col' }, [
          h('span', { key: 'l' }, '导出备份'),
          h('div', { key: 'r', className: '__dk_frow' }, [
@@ -3170,6 +3306,7 @@ window.__ModuleLoader__.load({
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,
      FileChip, FileGrid, Lightbox, isImage, fmtSize, extOf, filesFromDataTransfer, shotName,
+     CleanupCard, daysText,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,

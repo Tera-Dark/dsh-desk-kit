@@ -121,3 +121,25 @@ data.json files[] { id, name, mime, size, w, h, secret, kind, ownerId, createdAt
   好处是「传完后悔了」可以直接 `file.delete`,不用先造一条空记录。
 - **取件不做鉴权头**:`<img src>` 带不了自定义头,所以 GET 只靠来源校验 + `CORP: same-origin`;
   写操作(POST)才要求 `x-desk-kit`。
+
+## 查找与清理(1.12.0)
+
+**一条数据只有一个家**:每条记录有稳定 id(`n-`/`r-`/`w-`/`s-`/`f-` 前缀),
+`searchAll()` 只回 `kind + id + 命中字段`,不回内容 —— 搜到的东西永远指向磁盘上那一份,
+不会出现「搜索结果里是旧副本」。
+
+| 数据 | 怎么找 |
+|---|---|
+| 便签/提醒/网页 | 记录自身的字段(正文/标题/网址/备注/标签) |
+| 附件 | `data.json.files[].name`;归属靠 `kind + ownerId`,一条归一个宿主 |
+| 保险库 | 只搜 `title`(entry 的明文字段);内容要 `secret.get` 解密才见 |
+| 垃圾箱 | 默认不搜,`includeTrash` 才带上 |
+
+**清理分三层,互不越权**:
+
+1. `tick()` 每 6 小时最多跑一次 `sweepTrash()` —— 但只清「到期」和「孤儿」;
+2. 保留天数由 `settings.trashKeepDays` 决定(0 = 不清垃圾箱),`cleanup.run` 可手动触发;
+3. 保险库永不自动清:它没有垃圾箱,删即不可恢复。
+
+`sweepTrash` 是**先算后删**:先把要清的条目、要释放的字节算出来返回,再落盘,
+所以回执能说「清了 3 条便签,释放 1.2MB」而不是「完成」。
