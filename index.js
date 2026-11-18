@@ -10,7 +10,7 @@
  */
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { DeskStore, localYmd } from './store.js'
 import { localDefineTool } from './tool.js'
 import { parseCapture, describeCapture } from './capture.js'
@@ -260,7 +260,9 @@ export const name = 'dsh-desk-kit'
 export const inject = ['webServer']
 
 const ROUTE = '/desk-kit-api'
-const PLUGIN_VERSION = '1.10.0'
+/** 和 store.js 的 MAX_FILE_BYTES 对齐:上传时先在这里挡一道,免得读进内存才发现太大。 */
+const MAX_FILE_BYTES = 24 * 1024 * 1024
+const PLUGIN_VERSION = '1.11.0'
 const TICK_MS = 15000
 
 function dshHome() {
@@ -346,6 +348,79 @@ function readBody(req, maxBytes = 1024 * 1024) {
   })
 }
 
+/** 从一个本机路径收进附件库。工具用,跳过读不到/不是文件/超限的,不让一个坏路径毁掉整次调用。 */
+function importOne(s, path, name) {
+  const abs = String(path || '').trim()
+  if (!abs) throw new Error('要给一个文件路径')
+  let st
+  try { st = statSync(abs) } catch { throw new Error('读不到这个文件:' + abs) }
+  if (!st.isFile()) throw new Error('这不是文件:' + abs)
+  const buf = readFileSync(abs)
+  const base = abs.split(/[\\/]/).pop() || 'file'
+  return s.addFile({ buffer: buf, name: String(name || base), mime: guessMime(base) })
+}
+
+/** 工具里一次可以带多个路径;坏的跳过,好的照存。 */
+function importPaths(s, list) {
+  if (!Array.isArray(list)) return []
+  const ids = []
+  for (const path of list.slice(0, 8)) {
+    try { ids.push(importOne(s, path).id) } catch { /* 这个路径不行,下一个 */ }
+  }
+  return ids
+}
+
+/** 按扩展名猜类型。只为让浏览器知道怎么展示,猜错也不影响保存。 */
+function guessMime(name) {
+  const ext = String(name || '').toLowerCase().split('.').pop()
+  const map = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+    bmp: 'image/bmp', avif: 'image/avif', svg: 'image/svg+xml', pdf: 'application/pdf',
+    txt: 'text/plain', md: 'text/markdown', json: 'application/json', zip: 'application/zip',
+    mp4: 'video/mp4', mp3: 'audio/mpeg', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  }
+  return map[ext] || 'application/octet-stream'
+}
+
+/** 读原始字节(附件上传用)。和 readBody 同样的处理:超限回 413,不直接掐连接。 */
+function readRawBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    let total = 0
+    let tooBig = false
+    const chunks = []
+    req.on('data', (c) => {
+      total += c.length
+      if (total > maxBytes) { tooBig = true; chunks.length = 0; return }
+      if (!tooBig) chunks.push(c)
+    })
+    req.on('end', () => {
+      if (tooBig) {
+        const error = new Error('文件太大,上限 ' + Math.round(maxBytes / 1048576) + 'MB')
+        error.code = 'E_TOO_BIG'
+        reject(error)
+        return
+      }
+      resolve(chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0))
+    })
+    req.on('error', reject)
+  })
+}
+
+/** 下载/内联时用的头:图片可以直接 <img>,其余一律当附件下载(防 SVG/HTML 变同源脚本)。 */
+function fileHeaders(rec) {
+  const inline = /^image\/(png|jpeg|gif|webp|bmp|avif)$/i.test(rec.mime || '')
+  return {
+    'content-type': inline ? rec.mime : 'application/octet-stream',
+    'content-length': String(rec.size),
+    'content-disposition': (inline ? 'inline' : 'attachment') + "; filename*=UTF-8''" + encodeURIComponent(rec.name || rec.id),
+    'cache-control': 'private, max-age=31536000, immutable',
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "sandbox; default-src 'none'",
+    'cross-origin-resource-policy': 'same-origin',
+  }
+}
+
 /**
  * 冷启动时 ctx.tools 可能还没 ACTIVE:同步 register 不抛错但不进表。
  * 照 dsh-meme 的兜底做法,先 ctx.inject(['tools']) 等依赖就绪。
@@ -429,6 +504,9 @@ async function act(ctx, s, action, payload) {
   switch (action) {
     case 'capture': return await applyCaptureSmart(ctx, s, payload.text)
     case 'note.add': return s.addNote(payload)
+    // 附件:上传走 POST /desk-kit-api/files(字节流),这里只做「删」和「重新挂」
+    case 'file.delete': return { deleted: s.dropFiles([String(payload.id || '')]) }
+    case 'file.attach': return s.attachFiles(String(payload.kind || 'note'), String(payload.ownerId || ''), payload.ids || [])
     case 'note.update': return s.updateNote(payload.id, payload)
     case 'note.delete': return s.deleteNote(payload.id)      // 软删:进垃圾箱
     case 'note.restore': return s.restoreNote(payload.id)    // 从垃圾箱恢复
@@ -557,11 +635,54 @@ export function apply(ctx) {
       text: { type: 'string', description: '便签正文,保留用户原话要点' },
       tags: { type: 'array', items: { type: 'string' }, description: '可选标签,如 ["灵感","购物"]' },
       pinned: { type: 'boolean', description: '是否置顶' },
+      files: { type: 'array', items: { type: 'string' }, description: '可选:本机文件路径(截图/图片/PDF 等),会连同便签一起存进随手台' },
     },
     output: outputSpec,
     async execute(args) {
-      const note = s.addNote({ text: args.text, tags: args.tags, pinned: args.pinned })
-      return out('已记下便签「' + note.text.slice(0, 40) + '」,id=' + note.id, note)
+      const ids = importPaths(s, args.files)
+      const note = s.addNote({ text: args.text, tags: args.tags, pinned: args.pinned, files: ids })
+      const extra = ids.length ? '(' + ids.length + ' 个附件)' : ''
+      return out('已记下便签「' + (note.text || '图片').slice(0, 40) + '」' + extra + ',id=' + note.id, { ...note, files: s.filesFor('note', note.id) })
+    },
+  })))
+
+  reg('desk_file_add', () => ctx.tools.register(defineTool({
+    name: 'desk_file_add',
+    description: '把本机上的一个文件(截图、图片、PDF、任意格式)存进随手台的附件库。用户说「把这张图存起来」「保存这个文件」时用。',
+    parameters: {
+      path: { type: 'string', description: '本机文件的绝对路径' },
+      name: { type: 'string', description: '可选:显示名(默认用原文件名)' },
+      noteId: { type: 'string', description: '可选:挂到某个便签 id 下' },
+    },
+    output: outputSpec,
+    async execute(args) {
+      const file = importOne(s, args.path, args.name)
+      if (args.noteId) {
+        const note = s.data.notes.find((n) => n.id === args.noteId)
+        if (!note) throw new Error('找不到便签 ' + args.noteId)
+        note.files = [...new Set([...(note.files || []), file.id])]
+        note.updatedAt = Date.now()
+        s.attachFiles('note', note.id, [file.id])
+        s.save()
+      }
+      return out('已存为附件「' + file.name + '」(' + Math.round(file.size / 1024) + 'KB,id=' + file.id + ')', file)
+    },
+  })))
+
+  reg('desk_file_list', () => ctx.tools.register(defineTool({
+    name: 'desk_file_list',
+    description: '列出随手台里的附件(名字、大小、类型、挂在哪条记录下)。',
+    parameters: {
+      query: { type: 'string', description: '可选关键词' },
+      kind: { type: 'string', description: '可选:note / reminder / link / secret' },
+    },
+    output: outputSpec,
+    async execute(args) {
+      const files = s.listFiles({ query: args.query, kind: args.kind })
+      const text = files.length
+        ? files.slice(0, 100).map((f, i) => (i + 1) + '. ' + f.name + '  ' + Math.round(f.size / 1024) + 'KB  ' + (f.kind || '未归档') + '  id=' + f.id).join('\n')
+        : '还没有附件。'
+      return out(text, files)
     },
   })))
 
@@ -575,7 +696,7 @@ export function apply(ctx) {
     async execute(args) {
       const notes = s.listNotes({ query: args.query, includeArchived: !!args.includeArchived })
       const text = notes.length
-        ? notes.map((n, i) => (i + 1) + '. ' + (n.pinned ? '[置顶] ' : '') + n.text.replace(/\n/g, ' ') + '  (' + fmtTime(n.updatedAt) + ', id=' + n.id + ')').join('\n')
+        ? notes.map((n, i) => (i + 1) + '. ' + (n.pinned ? '[置顶] ' : '') + (n.text || '（只有附件）').replace(/\n/g, ' ') + ((n.files || []).length ? ' [' + n.files.length + ' 个附件]' : '') + '  (' + fmtTime(n.updatedAt) + ', id=' + n.id + ')').join('\n')
         : '还没有便签。'
       return out(text, notes)
     },
@@ -956,6 +1077,29 @@ export function apply(ctx) {
             }
           }
           json(res, 200, { ok: true, providers })
+          return
+        }
+        // 取附件原件。注意:这里是 GET 且要能被 <img src> 直接用,所以不要求 x-desk-kit 头;
+        // 靠来源校验 + same-origin 的 CORP 头挡住别的站点。
+        if (method === 'GET' && url.pathname.startsWith(ROUTE + '/files/')) {
+          const id = decodeURIComponent(url.pathname.slice((ROUTE + '/files/').length))
+          const { rec, bytes } = s.readFileBytes(id)
+          res.writeHead(200, fileHeaders({ ...rec, size: bytes.length }))
+          res.end(bytes)
+          return
+        }
+        // 传附件:请求体就是文件本身,文件名放在自定义头里(和 x-desk-kit 一起走预检)
+        if (method === 'POST' && url.pathname === ROUTE + '/files') {
+          const name = (() => {
+            const raw = String(req.headers['x-file-name'] || '')
+            try { return decodeURIComponent(raw) } catch { return raw }
+          })()
+          const bytes = await readRawBody(req, MAX_FILE_BYTES + 1024)
+          if (!bytes.length) { json(res, 400, { ok: false, error: '空文件' }); return }
+          const mime = String(req.headers['content-type'] || '').split(';')[0].trim()
+          const file = s.addFile({ buffer: bytes, name, mime })
+          s.tick()
+          json(res, 200, { ok: true, file, state: s.snapshot() })
           return
         }
         // 整库导出:给设置页的「备份」按钮,浏览器直接落成 .json

@@ -8,6 +8,52 @@
 dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 ```
 
+## 1.11.0 · 便签能带图了(Ctrl+V 直接存)
+
+截图之后最烦的一步是「先存成文件、再去某处上传」。现在:面板里 **Ctrl+V**,
+图就直接变成一张便签;想配一句话,就在便签页的新便签框里粘贴,图和文字一起存。
+
+### 三种收图方式
+
+| 怎么给 | 结果 |
+|---|---|
+| 面板里任意位置 `Ctrl+V`(截好的图) | 立刻存成一条便签,回执带 6 秒撤销 |
+| 便签页 → 新便签 → `Ctrl+V` / 拖文件进来 | 挂在草稿上,写完字一起保存 |
+| 便签页 → 「附件」按钮 | 打开文件选择器,任意格式(PDF、docx、zip…) |
+| 保险库 → 新条目 → 粘贴/「附件」 | 和正文一起加密,点「显示」才看得到 |
+
+`读剪贴板` 按钮走的是 `navigator.clipboard.read()`:能拿到图就直接贴,只有文字就填进草稿。
+读不了会明确说一句「也可以直接 Ctrl+V」,而不是静默失败。
+
+### 存进去之后
+
+- 便签行里显示 64px 缩略图,点开看大图(`Esc` 关闭),右下角直接下载。
+- 非图片显示扩展名 + 文件名,照样点开下载。
+- 只有图、没写字的便签也能存 —— 行里显示「（图片）」。
+- 附件跟着便签走:彻底删除便签时原件一起清;转存到别的分类时附件一起搬过去。
+- 保险库名下的附件**落盘前整块加密**(AES-256-GCM,和正文同一把钥匙),`blobs/` 里看到的是 `.enc`。
+
+### 边界
+
+- 单个附件上限 24MB,每条最多 12 个;总附件数上限 3000(到顶会明说,不是静默丢)。
+- 附件存在 `~/.dsh/desk-kit/blobs/`,**不在导出的 JSON 里** —— 完整备份要连目录一起拷。
+- 浏览器取件时只有 png/jpeg/gif/webp/bmp/avif 允许内联,其余一律 `application/octet-stream` 下载;
+  另外压了 `X-Content-Type-Options: nosniff` 和 `CSP: sandbox` —— 免得有人塞个 SVG/HTML 进来当同源脚本跑。
+- 孤儿清理:宿主记录没了的附件、以及传上来一天没人认领的,启动和每小时清一次。
+
+### Agent 侧
+
+工具从 23 个变 25 个:
+
+- `desk_file_add({ path, name?, noteId? })` —— 把一个本机文件存进随手台(可指定挂到哪条便签)。
+- `desk_file_list({ query?, kind? })` —— 列附件。
+- `desk_note_add` 也收 `files: [路径]`,`desk_note_list` 会带上附件数量。
+
+### 顺手修的
+
+- 保险库条目允许「只有附件、没有正文」(一张截图 + 标题就是很多人的记法)。
+- 保险库转存到便签时,附件会**先解密再搬**,不会搬出一个解不开的文件。
+
 ## 1.10.0 · 入口铺到「人一定会经过的地方」
 
 以前只有两条主路:侧栏的「随手台」标签页,或者右下角浮标。都藏在界面里 ——
@@ -215,8 +261,8 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 
 ```
 node --check store.js capture.js index.js client.js
-node test.mjs           # 43 pass（提醒 + 网页 + 转存 + 脏数据 + 双实例）
-node client-test.mjs    # 51 pass
+node test.mjs           # 49 pass（提醒 + 网页 + 转存 + 附件 + 脏数据 + 双实例）
+node client-test.mjs    # 53 pass
 node capture.test.mjs   # 10 pass
 node lunar.test.mjs     # 4 pass
 node entry.test.mjs     # 六个入口 + 设置卡片都能登记/渲染

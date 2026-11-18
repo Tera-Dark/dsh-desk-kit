@@ -72,6 +72,55 @@ assert.equal(s0.state.reminders.length, 0, '首次启动不要塞默认提醒')
 assert.equal(s0.state.notes.length, 0)
 console.log('✓ 首次启动是空面板(不造默认提醒)')
 
+// 3.5) 附件:传字节 → 取回来 → 挂到便签 → 彻底删除时原件一起清
+{
+  // 1×1 的 PNG(手写最小合法文件,顺带验证尺寸解析)
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+  const up = await fetch(base + '/files', {
+    method: 'POST',
+    headers: { 'x-desk-kit': '1', 'content-type': 'image/png', 'x-file-name': encodeURIComponent('截图 2026.png') },
+    body: png,
+  })
+  assert.equal(up.status, 200, '上传要成功')
+  const upped = await up.json()
+  const f = upped.file
+  assert.equal(f.mime, 'image/png')
+  assert.equal(f.size, png.length)
+  assert.equal(f.w, 1, 'PNG 宽度要从头部读出来')
+  assert.equal(f.h, 1)
+  assert.equal(f.name, '截图 2026.png', '文件名要能带中文')
+
+  const got = await fetch(base + '/files/' + f.id)
+  assert.equal(got.status, 200)
+  assert.equal(got.headers.get('content-type'), 'image/png', '图片要能内联给 <img>')
+  assert.equal(got.headers.get('x-content-type-options'), 'nosniff')
+  assert.ok(Buffer.from(await got.arrayBuffer()).equals(png), '取回的字节要和上传的一致')
+
+  const note = await post('note.add', { text: '看这张图', files: [f.id] })
+  const withFile = note.state.notes.find((n) => n.id === note.result.id)
+  assert.deepEqual(withFile.files, [f.id], '便签要记住附件')
+  assert.equal(note.state.files.find((x) => x.id === f.id).kind, 'note', '附件要认领到便签名下')
+
+  // 只有图、没文字的便签也要能存
+  const blank = await post('note.add', { text: '', files: [f.id] })
+  assert.ok(blank.ok, '纯图片便签不该被「内容不能为空」挡住')
+
+  // 外站来的上传请求要拒
+  const evil = await fetch(base + '/files', { method: 'POST', headers: { 'x-desk-kit': '1', origin: 'https://evil.example' }, body: png })
+  assert.equal(evil.status, 403, '外站来源的上传要拒')
+
+  await post('note.purge', { id: note.result.id })
+  const afterPurge = await get()
+  assert.equal(afterPurge.state.files.filter((x) => x.id === f.id).length, 0, '彻底删除便签要连附件记录一起清')
+  const gone = await fetch(base + '/files/' + f.id)
+  assert.equal(gone.status, 400, '原件没了就取不到(回 400 一句人话,不是 500)')
+  await post('note.purge', { id: blank.result.id })
+  console.log('✓ 附件:上传/取回/挂便签/纯图片便签/外站拒绝/彻底删除清原件 全过')
+}
+
 // 4) 工具:便签
 const add = tools.get('desk_note_add')
 assert.ok(add, 'desk_note_add 应已注册')
@@ -80,7 +129,7 @@ assert.equal(noteRes.data.text, '周末去修耳机')
 const listRes = await tools.get('desk_note_list').execute({})
 assert.ok(listRes.text.includes('修耳机'))
 console.log('✓ 便签工具:', listRes.text.split('\n')[0])
-assert.equal(tools.size, 23, '应注册 23 个工具,实际 ' + tools.size)
+assert.equal(tools.size, 25, '应注册 25 个工具,实际 ' + tools.size)
 
 // 一句话入口:模型侧工具
 const cap = await tools.get('desk_capture').execute({ text: '明天10点提醒我交电费' })

@@ -27,22 +27,23 @@ assert.equal(name, 'dsh-desk-kit')
 apply(ctx)
 
 assert.equal(effects.length >= 3, true, 'apply 至少要登记 tick / 工具回收 / 路由 三个 effect,实际 ' + effects.length)
-assert.equal(toolDisposers.length, 23, '23 个工具的 disposer 都要被收集,实际 ' + toolDisposers.length)
+assert.equal(toolDisposers.length, 25, '25 个工具的 disposer 都要被收集,实际 ' + toolDisposers.length)
 assert.equal(routeDisposers.length, 1, '路由注册的 disposer 要被 ctx.effect 持有')
 
 // 按 Cordis 语义逆序回收
 for (const { dispose } of effects.slice().reverse()) dispose()
 
-assert.equal(toolDisposers.filter((d) => typeof d === 'function').length, 23, '23 个工具 disposer 都得跑')
+assert.equal(toolDisposers.filter((d) => typeof d === 'function').length, 25, '25 个工具 disposer 都得跑')
 const released = toolDisposers.filter((d) => typeof d === 'string')
 assert.deepEqual(released.slice().sort(), [
-  'desk_capture', 'desk_due', 'desk_note_add', 'desk_note_complete', 'desk_note_delete',
+  'desk_capture', 'desk_due', 'desk_file_add', 'desk_file_list',
+  'desk_note_add', 'desk_note_complete', 'desk_note_delete',
   'desk_note_list', 'desk_note_purge', 'desk_note_restore', 'desk_note_update',
   'desk_reminder_add', 'desk_reminder_checkin', 'desk_reminder_delete', 'desk_reminder_list',
   'desk_reminder_purge', 'desk_reminder_restore', 'desk_secret_add', 'desk_secret_delete',
   'desk_secret_get', 'desk_secret_list',
   'desk_link_add', 'desk_link_list', 'desk_link_delete', 'desk_item_move',
-].sort(), 'dispose 后 23 个工具都要被注销')
+].sort(), 'dispose 后 25 个工具都要被注销')
 assert.equal(routeDisposers.includes('unregistered'), true, 'dispose 后路由要取消注册')
 
 console.log('OWNERSHIP TESTS PASSED · effects=' + effects.length + ' tools=' + released.length + ' routes=1')

@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
    const FAB_PAD = 18
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-   const VERSION = '1.10.0'
+   const VERSION = '1.11.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -85,6 +85,7 @@ window.__ModuleLoader__.load({
      download: ['M12 4v11', 'M8 11l4 4 4-4', 'M5 20h14'],
      grid: ['M4 4h7v7H4z', 'M13 4h7v7h-7z', 'M4 13h7v7H4z', 'M13 13h7v7h-7z'],
      globe: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18', 'M3.6 9h16.8', 'M3.6 15h16.8', 'M12 3c2.5 2.4 3.8 5.4 3.8 9S14.5 18.6 12 21c-2.5-2.4-3.8-5.4-3.8-9S9.5 5.4 12 3'],
+     image: ['M4 5h16v14H4z', 'M4 15l4.5-4.5 4 4 3-3L20 15', 'M8.5 9.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2'],
    }
    function Ico({ name, size, className }) {
      const paths = PATHS[name] || []
@@ -281,6 +282,20 @@ window.__ModuleLoader__.load({
      '.__dk_cardrows{display:flex;flex-direction:column;gap:6px}',
      '.__dk_cardrow{display:flex;align-items:center;justify-content:space-between;gap:10px}',
      '.__dk_cardkbd{font-size:11px;line-height:1.6;color:var(--dsw-alias-label-tertiary,#8b949e)}',
+     // 附件格子:图片 64px 方块,非图片显示扩展名
+     '.__dk_fgrid{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 2px}',
+     '.__dk_fchip{position:relative;width:64px;height:64px;border-radius:9px;overflow:hidden;border:1px solid var(--dsw-alias-border-l1,rgba(255,255,255,.10));background:var(--dsw-alias-bg-layer-2,rgba(255,255,255,.04));cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:none}',
+     '.__dk_fchip img{width:100%;height:100%;object-fit:cover;display:block}',
+     '.__dk_fext{font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-secondary,#9aa4b2)}',
+     '.__dk_fname{font-size:9px;line-height:1.2;padding:0 3px;color:var(--dsw-alias-label-tertiary,#8b949e);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+     '.__dk_fdel{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:8px;border:0;padding:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.62);color:#fff;cursor:pointer}',
+     '.__dk_draftfiles{padding:2px 0 6px}',
+     // 看大图
+     '.__dk_light{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px}',
+     '.__dk_lightimg{max-width:100%;max-height:calc(100vh - 120px);object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5)}',
+     '.__dk_lightfile{display:flex;flex-direction:column;align-items:center;gap:8px;color:#fff}',
+     '.__dk_lightbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}',
+     '.__dk_lighthint{font-size:11.5px;color:rgba(255,255,255,.72);max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
      '.__dk_appnote{max-width:78px;font-size:10.5px;line-height:1.3;color:var(--dsw-alias-label-tertiary,#8b949e);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
      '.__dk_grid--home{grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:10px 4px;padding:2px 0 10px}',
      '.__dk_grid--home .__dk_app{width:48px;height:48px;border-radius:14px}',
@@ -455,8 +470,107 @@ window.__ModuleLoader__.load({
      return true
    }
 
+   /** 附件:**原件走字节流**,元信息在快照里。传完拿到 id,再挂到便签/条目上。 */
+   async function uploadFile(file, name) {
+     const res = await fetch(API + '/files', {
+       method: 'POST',
+       headers: {
+         ...HEAD,
+         'content-type': (file && file.type) || 'application/octet-stream',
+         'x-file-name': encodeURIComponent(name || (file && file.name) || '未命名'),
+       },
+       body: file,
+     })
+     const body = await res.json().catch(() => ({ ok: false, error: 'HTTP ' + res.status }))
+     if (!res.ok || !body.ok) throw new Error(body.error || ('HTTP ' + res.status))
+     return body.file
+   }
+
+   const fileUrl = (id) => API + '/files/' + encodeURIComponent(id)
+   const isImage = (f) => /^image\/(png|jpeg|gif|webp|bmp|avif)$/i.test(String((f && f.mime) || ''))
+   const fmtSize = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : n >= 1024 ? Math.round(n / 1024) + 'KB' : (n || 0) + 'B')
+   const extOf = (name) => {
+     const parts = String(name || '').split('.')
+     return parts.length > 1 ? parts.pop().slice(0, 4).toUpperCase() : 'FILE'
+   }
+
+   /** 从剪贴板/拖拽事件里把「文件」挑出来(文本走原来的路子)。 */
+   function filesFromDataTransfer(dt) {
+     if (!dt) return []
+     const out = []
+     try {
+       for (const item of Array.from(dt.items || [])) {
+         if (item.kind !== 'file') continue
+         const f = item.getAsFile && item.getAsFile()
+         if (f) out.push(f)
+       }
+     } catch { /* 老浏览器没有 items */ }
+     if (!out.length && dt.files) for (const f of Array.from(dt.files)) out.push(f)
+     return out.slice(0, 8)
+   }
+
+   /** 截图默认名:带时间,省得一堆「image.png」。 */
+   function shotName(file) {
+     const d = new Date()
+     const pad = (n) => String(n).padStart(2, '0')
+     const stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds())
+     const ext = (String((file && file.type) || '').split('/')[1] || 'png').replace('jpeg', 'jpg')
+     return '截图 ' + stamp + '.' + ext
+   }
+
    const fmtClock = (ts) => { if (!ts) return ''; const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') }
    const fmtWhen = (ts) => { const d = new Date(ts); const n = new Date(); return d.toDateString() === n.toDateString() ? '今天 ' + fmtClock(ts) : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + fmtClock(ts) }
+   /** 附件格子:图片显示缩略图,其它显示扩展名。点开看大图/下载,可带一个「移掉」。 */
+   function FileChip({ file, onOpen, onRemove }) {
+     const img = isImage(file)
+     return h('div', {
+       className: '__dk_fchip' + (img ? ' __dk_fchip--img' : ''),
+       title: file.name + ' · ' + fmtSize(file.size) + (file.w ? ' · ' + file.w + '×' + file.h : ''),
+       onClick: () => onOpen && onOpen(file),
+     }, [
+       img
+         ? h('img', { key: 'i', src: fileUrl(file.id), alt: file.name, loading: 'lazy', draggable: false })
+         : h('div', { key: 'e', className: '__dk_fext' }, extOf(file.name)),
+       img ? null : h('div', { key: 'n', className: '__dk_fname' }, file.name),
+       onRemove
+         ? h('button', {
+           key: 'x', className: '__dk_fdel', title: '移掉', 'aria-label': '移掉这个附件',
+           onClick: (e) => { e.stopPropagation(); onRemove(file) },
+         }, h(Ico, { name: 'x', size: 11 }))
+         : null,
+     ])
+   }
+
+   function FileGrid({ files, onOpen, onRemove }) {
+     if (!files || !files.length) return null
+     return h('div', { className: '__dk_fgrid' }, files.map((f) =>
+       h(FileChip, { key: f.id, file: f, onOpen, onRemove })))
+   }
+
+   /** 看大图:点背景或 Esc 关掉。非图片直接走下载。 */
+   function Lightbox({ file, onClose }) {
+     useEffect(() => {
+       if (!file) return undefined
+       const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
+       window.addEventListener('keydown', onKey, true)
+       return () => window.removeEventListener('keydown', onKey, true)
+     }, [file, onClose])
+     if (!file) return null
+     return h('div', { className: '__dk_light', onClick: onClose }, [
+       isImage(file)
+         ? h('img', { key: 'i', className: '__dk_lightimg', src: fileUrl(file.id), alt: file.name, onClick: (e) => e.stopPropagation() })
+         : h('div', { key: 't', className: '__dk_lightfile', onClick: (e) => e.stopPropagation() }, [
+           h('div', { key: 'e', className: '__dk_fext' }, extOf(file.name)),
+           h('div', { key: 'n', className: '__dk_note' }, file.name + ' · ' + fmtSize(file.size)),
+         ]),
+       h('div', { key: 'b', className: '__dk_lightbar', onClick: (e) => e.stopPropagation() }, [
+         h('span', { key: 'h', className: '__dk_lighthint' }, file.name + ' · ' + fmtSize(file.size) + (file.w ? ' · ' + file.w + '×' + file.h : '')),
+         h('a', { key: 'd', className: '__dk_btn', href: fileUrl(file.id), download: file.name }, '下载'),
+         h('button', { key: 'c', className: '__dk_btn', onClick: onClose }, '关闭'),
+       ]),
+     ])
+   }
+
    const weekText = (days) => (Array.isArray(days) && days.length ? '周' + days.map((d) => WEEK[d]).join('、周') : '每天')
    /** 2026-11-16 → 11月16日 周日(侧栏头部用)。拿不到就返回空串。 */
    const fmtDay = (ymd) => {
@@ -1125,6 +1239,10 @@ window.__ModuleLoader__.load({
      const [limit, setLimit] = useState(8)
      const [view, setView] = useState('main')      // main | trash
      const [moveId, setMoveId] = useState('')      // 哪一条正在挑分类
+     const [draftFiles, setDraftFiles] = useState([])   // 还没保存的附件(已上传,拿到 id)
+     const [busyFile, setBusyFile] = useState(false)
+     const [viewing, setViewing] = useState(null)  // 正在看的大图
+     const filePicker = useRef(null)
      const PAGE = 8
      const say = (text, undo) => { if (notify) notify(text, undo) }
 
@@ -1144,6 +1262,8 @@ window.__ModuleLoader__.load({
                : 'active'
        buckets[b].push(n)
      }
+     const fileMap = new Map((state.files || []).map((f) => [f.id, f]))
+     const filesOf = (n) => (n.files || []).map((id) => fileMap.get(id)).filter(Boolean)
      const hit = (n) => !kw || (n.text + ' ' + (n.tags || []).join(' ')).toLowerCase().includes(kw)
      // 搜索时跨「进行中 + 长期」一起搜,平铺显示;不搜索时分成两段
      const searched = kw ? buckets.active.concat(buckets.long, buckets.archived).filter(hit) : []
@@ -1152,12 +1272,60 @@ window.__ModuleLoader__.load({
      const secHits = kw ? (state.secrets || []).filter((x) => String(x.title || '').toLowerCase().includes(kw)) : []
      const linkHits = kw ? (state.links || []).filter((l) => (String(l.title || '') + ' ' + String(l.url || '')).toLowerCase().includes(kw)) : []
 
+     /** 收文件:上传后先挂在草稿上,保存时随便签一起落库。 */
+     const addFiles = async (list, nameOf) => {
+       const picked = Array.from(list || []).slice(0, 8)
+       if (!picked.length) return
+       setBusyFile(true)
+       try {
+         const metas = []
+         for (const f of picked) metas.push(await uploadFile(f, nameOf ? nameOf(f) : shotName(f)))
+         setDraftFiles((cur) => [...cur, ...metas].slice(0, 12))
+         setOpenAdd(true)
+         if (metas.length) say('附件已就位,写点什么一起存')
+       } catch (e) {
+         say('没存上:' + String((e && e.message) || e))
+       } finally { setBusyFile(false) }
+     }
+
+     /** 只留图片的文件草稿:保存时如果被删掉,顺手把原件也从库里清掉。 */
+     const dropDraftFile = async (file) => {
+       setDraftFiles((cur) => cur.filter((x) => x.id !== file.id))
+       try { await run('file.delete', { id: file.id }) } catch { /* 清不掉也不影响 */ }
+     }
+
      const add = async () => {
        const text = draft.trim()
-       if (!text) return
-       await run('note.add', { text, tags: tags.split(/[\s,，]+/).filter(Boolean) })
-       setDraft(''); setTags(''); setOpenAdd(false)
-       say('已存进便签')
+       if (!text && !draftFiles.length) return
+       await run('note.add', { text, tags: tags.split(/[\s,，]+/).filter(Boolean), files: draftFiles.map((f) => f.id) })
+       setDraft(''); setTags(''); setDraftFiles([]); setOpenAdd(false)
+       say(draftFiles.length ? '已存进便签(带 ' + draftFiles.length + ' 个附件)' : '已存进便签')
+     }
+
+     /** 读系统剪贴板:有图就贴成附件,只有文字就填进草稿。 */
+     const readClipboard = async () => {
+       try {
+         if (!navigator.clipboard || !navigator.clipboard.read) throw new Error('这个环境读不了剪贴板')
+         const items = await navigator.clipboard.read()
+         const imgs = []
+         let text = ''
+         for (const it of items) {
+           const imgType = (it.types || []).find((t) => String(t).startsWith('image/'))
+           if (imgType) {
+             const blob = await it.getType(imgType)
+             imgs.push(new File([blob], shotName({ type: imgType }), { type: imgType }))
+             continue
+           }
+           if ((it.types || []).includes('text/plain')) {
+             const t = await (await it.getType('text/plain')).text()
+             if (t.trim()) text = t
+           }
+         }
+         if (imgs.length) await addFiles(imgs)
+         else if (text) { setDraft((cur) => (cur ? cur + '\n' + text : text)); setOpenAdd(true); say('已从剪贴板取到文字') } else say('剪贴板里没有图片或文字')
+       } catch (e) {
+         say('读不到剪贴板:' + String((e && e.message) || e) + '(也可以直接 Ctrl+V)')
+       }
      }
 
      /** 一条便签。mode: daily | long | done | trash */
@@ -1206,9 +1374,13 @@ window.__ModuleLoader__.load({
                onClick: isLong ? () => setExpanded(open ? '' : n.id) : null,
                style: isLong ? { cursor: 'pointer' } : null,
                title: isLong && !open ? '点一下展开全文' : null,
-             }, isLong && !open ? (n.pinned ? '📌 ' : '') + firstLine : n.text),
+             }, isLong && !open ? (n.pinned ? '📌 ' : '') + (firstLine || '（图片）') : (n.text || (filesOf(n).length ? '（图片）' : '（空）'))),
+             filesOf(n).length
+               ? h(FileGrid, { key: 'fg', files: filesOf(n), onOpen: (f) => setViewing(f) })
+               : null,
              h('div', { key: 'm', className: '__dk_imeta' }, [
                h('span', { key: 'd' }, fmtWhen(n.updatedAt)),
+               filesOf(n).length ? h('span', { key: 'fc' }, filesOf(n).length + ' 个附件') : null,
                isLong && !open ? h('span', { key: 'sz' }, n.text.length + ' 字') : null,
                ...(n.tags || []).map((tag) => h('span', { key: tag, className: '__dk_tag' }, tag)),
                h('div', { key: 'act', className: '__dk_iact' }, [
@@ -1277,8 +1449,13 @@ window.__ModuleLoader__.load({
          q ? h('button', { key: 'x', className: '__dk_qclear', title: '清空搜索', 'aria-label': '清空搜索', onClick: () => setQ('') }, h(Ico, { name: 'x', size: 14 })) : null,
        ])),
        kw ? h('div', { key: 'qh', className: '__dk_qhint' }, '「' + q.trim() + '」· 命中 ' + searched.length + ' 条') : null,
+       h(Lightbox, { key: 'light', file: viewing, onClose: () => setViewing(null) }),
        h('div', { key: 'bar', className: '__dk_toolbar' }, [
          h('button', { key: 'a', className: '__dk_btn p', onClick: () => setOpenAdd((v) => !v) }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), openAdd ? ' 收起' : ' 新便签']),
+         h('button', {
+           key: 'af', className: '__dk_btn', disabled: busyFile, title: '选图片或任意文件(也可以直接把文件拖到面板里)',
+           onClick: () => { setOpenAdd(true); setTimeout(() => filePicker.current && filePicker.current.click(), 30) },
+         }, [h(Ico, { key: 'i', name: 'image', size: 13 }), ' 附件']),
          h('button', {
            key: 'ca', className: '__dk_btn', title: '复制当前列表',
            onClick: () => {
@@ -1287,7 +1464,23 @@ window.__ModuleLoader__.load({
            },
          }, [h(Ico, { key: 'i', name: 'copy', size: 13 }), ' 复制']),
        ]),
-       openAdd ? h('div', { key: 'form', className: '__dk_form' }, [
+       openAdd ? h('div', {
+         key: 'form', className: '__dk_form',
+         // 表单里粘贴/拖文件:先挂在草稿上(你还想写两句),保存时一起落库
+         onPaste: (e) => {
+           const files = filesFromDataTransfer(e.clipboardData)
+           if (!files.length) return
+           e.preventDefault(); e.stopPropagation()
+           addFiles(files)
+         },
+         onDragOver: (e) => { e.preventDefault() },
+         onDrop: (e) => {
+           const files = filesFromDataTransfer(e.dataTransfer)
+           if (!files.length) return
+           e.preventDefault(); e.stopPropagation()
+           addFiles(files)
+         },
+       }, [
          h('div', { key: 'g', className: '__dk_group' }, [
            h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '新便签'), h('span', { key: 'b' }, '长文自动进「长期资料」')]),
            h('textarea', {
@@ -1298,9 +1491,27 @@ window.__ModuleLoader__.load({
            }),
            h('input', { key: 'g2', className: '__dk_input', placeholder: '标签,空格分隔(可选)', value: tags, onChange: (e) => setTags(e.target.value) }),
          ]),
+         h('div', { key: 'ft', className: '__dk_frow' }, [
+           h('button', {
+             key: 'p', className: '__dk_btn', disabled: busyFile,
+             title: '选图片或任意文件', onClick: () => filePicker.current && filePicker.current.click(),
+           }, [h(Ico, { key: 'i', name: 'image', size: 13 }), busyFile ? ' 传…' : ' 图片/文件']),
+           h('button', { key: 'c2', className: '__dk_btn', disabled: busyFile, title: '读系统剪贴板(截图后不用切窗口)', onClick: readClipboard }, [h(Ico, { key: 'i', name: 'clipboard', size: 13 }), ' 读剪贴板']),
+           h('span', { key: 'h', className: '__dk_hint' }, '也可以直接 Ctrl+V 或把文件拖进来'),
+         ]),
+         h('input', {
+           key: 'fi', ref: filePicker, type: 'file', multiple: true, style: { display: 'none' },
+           onChange: (e) => { addFiles(e.target.files); e.target.value = '' },
+         }),
+         draftFiles.length
+           ? h('div', { key: 'df', className: '__dk_draftfiles' }, [
+             h(FileGrid, { key: 'g', files: draftFiles, onRemove: dropDraftFile, onOpen: (f) => setViewing(f) }),
+             h('div', { key: 'h', className: '__dk_hint' }, draftFiles.length + ' 个附件,和便签一起保存'),
+           ])
+           : null,
          h('div', { key: 'r', className: '__dk_frow' }, [
-           h('button', { key: 's', className: '__dk_btn p', disabled: !draft.trim(), onClick: add }, '保存'),
-           h('button', { key: 'c', className: '__dk_btn', onClick: () => setOpenAdd(false) }, '取消'),
+           h('button', { key: 's', className: '__dk_btn p', disabled: !draft.trim() && !draftFiles.length, onClick: add }, '保存'),
+           h('button', { key: 'c', className: '__dk_btn', onClick: () => { setOpenAdd(false); for (const f of draftFiles) dropDraftFile(f) } }, '取消'),
          ]),
        ]) : null,
 
@@ -1613,6 +1824,9 @@ window.__ModuleLoader__.load({
      const [body, setBody] = useState('')
      const [revealed, setRevealed] = useState({})
      const [editing, setEditing] = useState(null)   // { id, title, body }
+     const [draftFiles, setDraftFiles] = useState([])
+     const [viewing, setViewing] = useState(null)
+     const filePicker = useRef(null)
      const timers = useRef({})
      const secrets = state.secrets || []
      const say = (text, undo) => { if (notify) notify(text, undo) }
@@ -1625,10 +1839,21 @@ window.__ModuleLoader__.load({
 
      // 不逼用户拆字段:想怎么记就怎么记,整段加密
      const add = async () => {
-       if (!title.trim()) return
-       await run('secret.add', { title: title.trim(), body })
-       setTitle(''); setBody(''); setOpenAdd(false)
+       if (!title.trim() && !draftFiles.length) return
+       await run('secret.add', { title: title.trim() || '未命名条目', body, files: draftFiles.map((f) => f.id) })
+       setTitle(''); setBody(''); setDraftFiles([]); setOpenAdd(false)
        say('已加密保存')
+     }
+     /** 保险库的附件:落盘前整块加密,点「显示」之后才列出来。 */
+     const addFiles = async (list) => {
+       const picked = Array.from(list || []).slice(0, 8)
+       if (!picked.length) return
+       try {
+         const metas = []
+         for (const f of picked) metas.push(await uploadFile(f, shotName(f)))
+         setDraftFiles((cur) => [...cur, ...metas].slice(0, 12))
+         setOpenAdd(true)
+       } catch (e) { say('没存上:' + String((e && e.message) || e)) }
      }
      const hide = (id) => {
        if (timers.current[id]) { clearTimeout(timers.current[id]); delete timers.current[id] }
@@ -1645,8 +1870,13 @@ window.__ModuleLoader__.load({
      }
 
      return h(React.Fragment, null, [
+       h(Lightbox, { key: 'light', file: viewing, onClose: () => setViewing(null) }),
        h('div', { key: 'bar', className: '__dk_toolbar' }, [
          h('button', { key: 'a', className: '__dk_btn p', onClick: () => setOpenAdd((v) => !v) }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), openAdd ? ' 收起' : ' 新条目']),
+         h('button', {
+           key: 'af', className: '__dk_btn', title: '给新条目加附件(截图/文件,和正文一起加密)',
+           onClick: () => { setOpenAdd(true); setTimeout(() => filePicker.current && filePicker.current.click(), 30) },
+         }, [h(Ico, { key: 'i', name: 'image', size: 13 }), ' 附件']),
          h('span', { key: 'h', className: '__dk_hint' }, '共 ' + secrets.length + ' 条 · AES-256-GCM'),
        ]),
        editing ? h('div', { key: 'edit', className: '__dk_form' }, [
@@ -1677,7 +1907,23 @@ window.__ModuleLoader__.load({
            h('button', { key: 'c', className: '__dk_btn', onClick: () => setEditing(null) }, '取消'),
          ]),
        ]) : null,
-       openAdd ? h('div', { key: 'form', className: '__dk_form' }, [
+       openAdd ? h('div', {
+         key: 'form', className: '__dk_form',
+         // 保险库里也能直接粘贴截图:截完图 Ctrl+V 就挂在新条目上
+         onPaste: (e) => {
+           const files = filesFromDataTransfer(e.clipboardData)
+           if (!files.length) return
+           e.preventDefault(); e.stopPropagation()
+           addFiles(files)
+         },
+         onDragOver: (e) => { e.preventDefault() },
+         onDrop: (e) => {
+           const files = filesFromDataTransfer(e.dataTransfer)
+           if (!files.length) return
+           e.preventDefault(); e.stopPropagation()
+           addFiles(files)
+         },
+       }, [
          h('div', { key: 'g', className: '__dk_group' }, [
            h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '新条目'), h('span', { key: 'b' }, '整段加密')]),
            h('input', {
@@ -1693,8 +1939,22 @@ window.__ModuleLoader__.load({
            }),
            h('div', { key: 'tip', className: '__dk_gtip' }, '提交后本地加密落盘,列表里只看到标题;要看内容点「显示」。'),
          ]),
+         h('input', {
+           key: 'fi', ref: filePicker, type: 'file', multiple: true, style: { display: 'none' },
+           onChange: (e) => { addFiles(e.target.files); e.target.value = '' },
+         }),
+         draftFiles.length
+           ? h('div', { key: 'df', className: '__dk_draftfiles' }, [
+             h(FileGrid, {
+               key: 'g', files: draftFiles,
+               onRemove: (f) => setDraftFiles((cur) => cur.filter((x) => x.id !== f.id)),
+               onOpen: (f) => setViewing(f),
+             }),
+             h('div', { key: 'h', className: '__dk_hint' }, draftFiles.length + ' 个附件,和正文一起加密'),
+           ])
+           : null,
          h('div', { key: 'r', className: '__dk_frow' }, [
-           h('button', { key: 's', className: '__dk_btn p', disabled: !title.trim(), onClick: add }, '加密保存'),
+           h('button', { key: 's', className: '__dk_btn p', disabled: !title.trim() && !draftFiles.length, onClick: add }, '加密保存'),
            h('button', { key: 'c', className: '__dk_btn', onClick: () => setOpenAdd(false) }, '取消'),
          ]),
        ]) : null,
@@ -1736,6 +1996,9 @@ window.__ModuleLoader__.load({
              ]))) : null,
            revealed[s.id] && revealed[s.id].note
              ? h('div', { key: 'n', className: '__dk_note', style: { whiteSpace: 'pre-wrap', padding: '2px 4px 0' } }, revealed[s.id].note)
+             : null,
+           revealed[s.id] && (revealed[s.id].files || []).length
+             ? h(FileGrid, { key: 'fg', files: revealed[s.id].files, onOpen: (f) => setViewing(f) })
              : null,
            h('div', { key: 'm', className: '__dk_imeta' }, [
              h('span', { key: 'd' }, fmtWhen(s.updatedAt || s.createdAt)),
@@ -2245,6 +2508,21 @@ window.__ModuleLoader__.load({
        timer.current = setTimeout(() => setReply(null), undo ? 6000 : 3500)
      }, [])
 
+    /** 面板里收到的文件:上传完直接存成一条便签(给 6 秒撤销)。 */
+    const intake = useCallback(async (files) => {
+      const list = Array.from(files || []).slice(0, 8)
+      if (!list.length) return
+      try {
+        const metas = []
+        for (const f of list) metas.push(await uploadFile(f, shotName(f)))
+        const r = await run('note.add', { text: '', files: metas.map((m) => m.id) })
+        if (r && r.result) showReply('已存下 ' + metas.length + ' 个附件,在便签里', { action: 'note.purge', payload: { id: r.result.id } })
+        else showReply('没存上,再试一次')
+      } catch (err) {
+        showReply('没存上:' + String((err && err.message) || err))
+      }
+    }, [run, showReply])
+
      const go = useCallback((next) => {
        setDir(ORDER.indexOf(next) >= ORDER.indexOf(page) ? 'left' : 'right')
        setPage(next)
@@ -2467,7 +2745,23 @@ window.__ModuleLoader__.load({
                }, h(Ico, { name: 'gear', size: 16 })),
                h('button', { key: 'x', className: '__dk_icobtn', title: '关闭 (Esc)', onClick: () => setOpen(false) }, h(Ico, { name: 'x', size: 17 })),
              ]),
-           ]),            h('div', { key: 'body', className: '__dk_body', onPointerDown, onPointerUp }, [
+           ]),            h('div', {
+             key: 'body', className: '__dk_body', onPointerDown, onPointerUp,
+             // 截完图直接 Ctrl+V:不用先切到便签页,也不用手动点上传
+             onPaste: (e) => {
+               const files = filesFromDataTransfer(e.clipboardData)
+               if (!files.length) return
+               e.preventDefault()
+               intake(files)
+             },
+             onDragOver: (e) => { if (filesFromDataTransfer(e.dataTransfer).length) e.preventDefault() },
+             onDrop: (e) => {
+               const files = filesFromDataTransfer(e.dataTransfer)
+               if (!files.length) return
+               e.preventDefault()
+               intake(files)
+             },
+           }, [
              h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply('') }),
              h(ReplyMove, { key: 'rmove', reply, run, onSay: (t) => showReply(t) }),
              err ? h('div', { key: 'err', className: '__dk_err' }, err) : null,
@@ -2875,6 +3169,7 @@ window.__ModuleLoader__.load({
      Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO, alertHead,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,
+     FileChip, FileGrid, Lightbox, isImage, fmtSize, extOf, filesFromDataTransfer, shotName,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,

@@ -101,3 +101,23 @@ git checkout v1.5.0
 ```
 
 按 README 的「安装」重新挂载，再重启 DSH 即可。
+
+## 附件(1.11.0)
+
+```
+blobs/<id>.bin    普通附件(明文)
+blobs/<id>.enc    保险库名下的附件(iv|tag|data,AES-256-GCM,钥匙与 vault.json 相同)
+data.json files[] { id, name, mime, size, w, h, secret, kind, ownerId, createdAt }
+```
+
+分层理由:
+
+- **字节与记录分开**:`data.json` 只放元信息,快照能一次下发图片尺寸(排版不跳),而 8MB 的照片不进 JSON。
+- **kind/ownerId 只记一个宿主**:一条附件只属于一条便签/提醒/网页/保险库条目。转存时改这两个字段,
+  不用在两个地方维护引用计数;孤儿清理只要「宿主还在不在」一个判断。
+- **保险库进出都要换文件**:`setFileSecret(id, flag)` 读明文→写密文→删旧文件(或反过来),
+  先写后删,中途失败最多多一个文件,不会只剩半截。
+- **上传两段式**:先 `POST /desk-kit-api/files` 拿 id(还不知道要挂给谁),保存时随记录带上 `files`。
+  好处是「传完后悔了」可以直接 `file.delete`,不用先造一条空记录。
+- **取件不做鉴权头**:`<img src>` 带不了自定义头,所以 GET 只靠来源校验 + `CORP: same-origin`;
+  写操作(POST)才要求 `x-desk-kit`。

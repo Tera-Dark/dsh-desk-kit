@@ -1,7 +1,7 @@
 {
   "name": "dsh-desk-kit",
-  "version": "1.10.0",
-  "description": "DSH 随手台:定时提醒、随手便签、网页收藏格子、加密保险库,四块都在侧栏标签页里(没装侧栏则右下角浮标);另带 23 个 Agent 工具,数据只落在本机 ~/.dsh/desk-kit。",
+  "version": "1.11.0",
+  "description": "定时提醒、随手便签(可带截图/文件)、网页收藏格子、加密保险库,四块都在侧栏标签页里;粘一张图就存成便签,另有 25 个 Agent 工具",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -32,7 +32,10 @@
     "notes",
     "reminder",
     "sidebar",
-    "vault"
+    "vault",
+    "attachments",
+    "screenshot",
+    "files"
   ],
   "license": "MIT",
   "engines": {

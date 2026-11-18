@@ -602,3 +602,97 @@ test('两个实例同时改:refresh 能看见对方写的,不会整份覆盖', (
   a.refresh()
   assert.equal(a.listNotes().length, 2, 'A 也要能看到 B 写的')
 })
+
+// ---------------- 附件 ----------------
+
+const PNG1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+test('附件:存进去、读回来,尺寸从头部读出来', () => {
+  const s = fresh()
+  const f = s.addFile({ buffer: PNG1, name: '截图.png', mime: 'image/png' })
+  assert.equal(f.size, PNG1.length)
+  assert.equal(f.w, 1)
+  assert.equal(f.h, 1)
+  const back = s.readFileBytes(f.id)
+  assert.ok(back.bytes.equals(PNG1), '读回的字节要和写进去的一致')
+  // 便签挂上附件;只有图没文字也算数
+  const n = s.addNote({ text: '', files: [f.id] })
+  assert.deepEqual(n.files, [f.id])
+  assert.equal(s.filesFor('note', n.id).length, 1)
+  // 空白 id / 不存在的 id 悄悄丢掉,不留悬空引用
+  assert.deepEqual(s.addNote({ text: 'x', files: ['', 'f-nope'] }).files, [])
+})
+
+test('附件:保险库名下落盘是密文,删除条目连原件一起清', () => {
+  const s = fresh()
+  const f = s.addFile({ buffer: PNG1, name: 'note.png', mime: 'image/png' })
+  const item = s.addSecret({ title: '看图', body: '账号信息', files: [f.id] })
+  const rec = s.data.files.find((x) => x.id === f.id)
+  assert.equal(rec.secret, true, '挂进保险库的附件要标成密文')
+  const onDisk = readFileSync(join(s.blobDir, f.id + '.enc'))
+  assert.ok(onDisk.length > PNG1.length, '密文要有 iv+tag 开销')
+  assert.ok(!onDisk.includes(PNG1.subarray(0, 8)), '原始 PNG 头不该出现在磁盘上')
+  const full = s.getSecret(item.id)
+  assert.equal(full.files.length, 1, '显示条目时要能拿到附件元信息')
+  assert.ok(s.readFileBytes(f.id).bytes.equals(PNG1), '读的时候自动解密')
+  s.deleteSecret(item.id)
+  assert.equal(s.data.files.length, 0, '删条目要把附件记录也清掉')
+  assert.ok(!existsSync(join(s.blobDir, f.id + '.enc')), '原件也要删')
+})
+
+test('附件:从保险库转存到便签,附件跟着解密搬出来', () => {
+  const s = fresh()
+  const f = s.addFile({ buffer: PNG1, name: 'a.png', mime: 'image/png' })
+  const item = s.addSecret({ title: '某站后台', note: '说明', files: [f.id] })
+  const moved = s.convertItem('secret', item.id, 'note')
+  assert.equal(moved.files, 1, '要报告搬了几个附件')
+  const rec = s.data.files.find((x) => x.id === f.id)
+  assert.equal(rec.secret, false, '到了便签就该是明文')
+  assert.equal(rec.kind, 'note')
+  assert.equal(rec.ownerId, moved.item.id)
+  assert.ok(readFileSync(join(s.blobDir, f.id + '.bin')).equals(PNG1), '搬出来的原件要和原来一致')
+  assert.deepEqual(moved.item.files, [f.id])
+})
+
+test('附件:孤儿清理只删没人认领的,宿主还在就不动', () => {
+  const s = fresh()
+  const keep = s.addFile({ buffer: PNG1, name: 'keep.png', mime: 'image/png' })
+  const note = s.addNote({ text: '有附件', files: [keep.id] })
+  const orphan = s.addFile({ buffer: PNG1, name: 'orphan.png', mime: 'image/png' })
+  // 假装它的宿主已经被删干净了(只改了记录,没走 purge)
+  const rec = s.data.files.find((x) => x.id === orphan.id)
+  rec.kind = 'note'
+  rec.ownerId = 'n-gone'
+  // 传上来没挂的临时文件:一天后算孤儿
+  const fresh2 = s.addFile({ buffer: PNG1, name: 'tmp.png', mime: 'image/png' })
+  s.sweepFiles(Date.now() + 3600 * 1000)
+  const ids = s.data.files.map((x) => x.id)
+  assert.deepEqual(ids.sort(), [keep.id, fresh2.id].sort(), '宿主不在的删掉,认领了的不动')
+  assert.equal(note.files.length, 1)
+  s.sweepFiles(Date.now() + 48 * 3600 * 1000)
+  assert.deepEqual(s.data.files.map((x) => x.id), [keep.id], '一天没挂上的临时文件也该清')
+})
+
+test('只有说明的便签也能转进保险库(以前会被「至少要有一点内容」挡住)', () => {
+  const s = fresh()
+  const n = s.addNote({ text: '某站的备用码在邮件里' })
+  const moved = s.convertItem('note', n.id, 'secret')
+  assert.equal(moved.to, 'secret')
+  const back = s.getSecret(moved.item.id)
+  assert.match(JSON.stringify(back), /备用码/)
+})
+
+test('带附件的便签允许把配文清空', () => {
+  const s = fresh()
+  const f = s.addFile({ buffer: PNG1, name: 'x.png', mime: 'image/png' })
+  const n = s.addNote({ text: '有字', files: [f.id] })
+  const u = s.updateNote(n.id, { text: '' })
+  assert.equal(u.text, '')
+  assert.deepEqual(u.files, [f.id])
+  // 没有附件就不许留空
+  const plain = s.addNote({ text: '空的会被拦' })
+  assert.throws(() => s.updateNote(plain.id, { text: '' }), /不能为空/)
+})

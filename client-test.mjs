@@ -759,3 +759,67 @@ test('转存:回执下能改分类,网页格子显示备注', () => {
     assert.ok(!targets.some(([to]) => to === from), from + ' 不该转给自己')
   }
 })
+
+test('附件:格子/大图/剪贴板识别', () => {
+  const png = { id: 'f1', name: '截图 1.png', mime: 'image/png', size: 2048, w: 800, h: 600 }
+  const pdf = { id: 'f2', name: '合同.pdf', mime: 'application/pdf', size: 200000, w: 0, h: 0 }
+
+  assert.equal(T.isImage(png), true)
+  assert.equal(T.isImage(pdf), false)
+  assert.equal(T.isImage({ mime: 'image/svg+xml' }), false, 'SVG 不当图片内联(它是可执行文档)')
+  assert.equal(T.fmtSize(2048), '2KB')
+  assert.equal(T.fmtSize(200000), '195KB')
+  assert.equal(T.fmtSize(3 * 1048576), '3.0MB')
+  assert.equal(T.extOf('合同.pdf'), 'PDF')
+  assert.equal(T.extOf('没有扩展名'), 'FILE')
+  assert.match(T.shotName({ type: 'image/png' }), /^截图 \d{8}-\d{6}\.png$/)
+
+  const chip = renderToString(h(T.FileChip, { file: png }))
+  assert.ok(chip.includes('/desk-kit-api/files/f1'), '图片要用取件地址当 src')
+  assert.ok(chip.includes('alt="截图 1.png"'))
+
+  const doc = renderToString(h(T.FileChip, { file: pdf }))
+  assert.ok(doc.includes('PDF'), '非图片要显示扩展名')
+  assert.ok(!doc.includes('undefined'), '别把 undefined 渲染出来')
+
+  const grid = renderToString(h(T.FileGrid, { files: [png, pdf] }))
+  assert.ok(grid.includes('__dk_fgrid'))
+  assert.equal(renderToString(h(T.FileGrid, { files: [] })), '', '没附件就什么都不渲染')
+  assert.ok(renderToString(h(T.FileChip, { file: png, onRemove: () => {} })).includes('__dk_fdel'), '可删时要有小叉')
+
+  const light = renderToString(h(T.Lightbox, { file: png, onClose: () => {} }))
+  assert.ok(light.includes('__dk_lightimg') && light.includes('800×600'), '要看得到尺寸')
+  assert.ok(light.includes('下载'), '要有下载')
+  assert.equal(renderToString(h(T.Lightbox, { file: null, onClose: () => {} })), '', '没图就别占屏')
+
+  // 剪贴板/拖拽:只挑 file 类,文本照旧走原来的路
+  const img = { kind: 'file', getAsFile: () => ({ name: 'a.png' }) }
+  const txt = { kind: 'string', getAsFile: () => null }
+  const picked = T.filesFromDataTransfer({ items: [txt, img] })
+  assert.equal(picked.length, 1)
+  assert.equal(T.filesFromDataTransfer({ files: [{ name: 'b.pdf' }] }).length, 1, '没有 items 时退回 files')
+  assert.equal(T.filesFromDataTransfer(null).length, 0)
+})
+
+test('便签页:有附件的便签渲染缩略图,没文字的显示占位', () => {
+  const state = {
+    now: Date.now(),
+    notes: [
+      { id: 'n1', text: '看这三张', tags: [], shelf: 'daily', files: ['f1', 'f2'], createdAt: Date.now(), updatedAt: Date.now() },
+      { id: 'n2', text: '', tags: [], shelf: 'daily', files: ['f1'], createdAt: Date.now(), updatedAt: Date.now() },
+      { id: 'n3', text: '', tags: [], shelf: 'daily', createdAt: Date.now(), updatedAt: Date.now() },
+    ],
+    files: [
+      { id: 'f1', name: 'a.png', mime: 'image/png', size: 1024, w: 10, h: 10, kind: 'note', ownerId: 'n1' },
+      { id: 'f2', name: 'b.pdf', mime: 'application/pdf', size: 2048, w: 0, h: 0, kind: 'note', ownerId: 'n1' },
+    ],
+    noteCounts: { active: 3, long: 0, done: 0, trash: 0, archived: 0 },
+    reminders: [], secrets: [], links: [], settings: {},
+  }
+  const html = renderToString(h(T.NotesPage, { state, run: async () => null }))
+  assert.ok(html.includes('__dk_fgrid'), '要渲染附件格子')
+  assert.ok(html.includes('2 个附件'), '要标出附件数量')
+  assert.ok(html.includes('files/f1'), '图片要有取件地址')
+  assert.ok(html.includes('b.pdf') && html.includes('PDF'), '非图片显示扩展名和名字(不内联)')
+  assert.ok(html.includes('（图片）'), '没文字的纯图片便签要有占位')
+})
