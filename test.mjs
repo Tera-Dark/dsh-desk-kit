@@ -39,6 +39,26 @@ test('时间解析与周几', () => {
   assert.equal(occurrenceOf({ time: '21:00', weekdays: [] }, sat).getDate(), 14)
 })
 
+test('提醒默认到点,旧版 30 分默认只迁移一次', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '喂猫粮', time: '16:00' })
+  assert.equal(r.leadMin, 0, '新提醒默认准时')
+  const dir = mkdtempSync(join(tmpdir(), 'desk-kit-legacy-'))
+  writeFileSync(join(dir, 'data.json'), JSON.stringify({
+    version: 1,
+    reminders: [{ id: 'r-old', title: '旧提醒', time: '21:00', leadMin: 30, createdAt: 1 }],
+    settings: {},
+  }))
+  const old = new DeskStore(dir)
+  assert.equal(old.data.reminders[0].leadMin, 0, '旧默认 30 分迁移为准时')
+  assert.equal(old.data.settings.leadDefaultMigrated, true, '迁移只跑一次')
+  // 已经迁移过的数据不动用户后来选的 30 分
+  old.data.reminders[0].leadMin = 30
+  old.save()
+  const again = new DeskStore(dir)
+  assert.equal(again.data.reminders[0].leadMin, 30, '迁移后用户自己选的 30 分要保留')
+})
+
 test('提醒:提前 30 分钟弹一次,不重复,签到后静默', () => {
   const s = fresh()
   const r = s.addReminder({ title: '每日打卡', time: '21:00', leadMin: 30, snoozeMin: 20 })

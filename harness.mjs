@@ -149,6 +149,14 @@ const cap2 = await tools.get('desk_capture').execute({ text: '示例站点账号
 assert.equal(cap2.data.parsed.kind, 'secret')
 const cap3 = await tools.get('desk_capture').execute({ text: '记一下 买牛奶' })
 assert.equal(cap3.data.parsed.kind, 'note')
+// 「帮我记一下 + 钟点」要存成提醒,标题只留事项,默认到点
+const capFeed = await tools.get('desk_capture').execute({ text: '帮我记一下，明天下午四点喂猫粮。' })
+assert.equal(capFeed.data.parsed.kind, 'reminder')
+assert.equal(capFeed.data.parsed.title, '喂猫粮')
+assert.equal(capFeed.data.parsed.time, '16:00')
+assert.equal(capFeed.data.parsed.leadMin, 0)
+assert.equal(capFeed.data.item.note, '')
+console.log('✓ 喂猫粮:', capFeed.text)
 // 带签到链接:链接要落进 url,且不污染标题
 const capUrl = await tools.get('desk_capture').execute({ text: '每天9点提醒我签到 https://example.com/qiandao' })
 assert.equal(capUrl.data.parsed.kind, 'reminder')

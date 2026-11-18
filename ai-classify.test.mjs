@@ -77,8 +77,21 @@ llmReply = '{"kind":"reminder","title":"吃药","time":"8:00","leadMin":15}'
 const r3 = await post('capture', { text: '早饭后一小时吃降压药' })
 assert.equal(r3.result.parsed.kind, 'reminder')
 assert.equal(r3.result.item.time, '08:00', '9:00 要补零成 08:00')
-assert.equal(r3.result.item.leadMin, 15)
+assert.equal(r3.result.item.leadMin, 0, '模型自己填的提前量不采信,默认到点')
 console.log('✓ AI 提醒:time =', r3.result.item.time, '| leadMin =', r3.result.item.leadMin)
+
+// --- 3.5) 模型只写「提醒」/把提醒抄进备注:要换成事项本体 ---
+llmReply = '{"kind":"reminder","title":"提醒","time":"08:00","note":"提醒"}'
+const r3b = await post('capture', { text: '早饭后一小时吃降压药' })
+assert.notEqual(r3b.result.item.title, '提醒', '标题不能只是「提醒」')
+assert.equal(r3b.result.item.note, '', '备注不能重复「提醒」')
+console.log('✓ AI 泛化标题已修正 →', r3b.result.item.title)
+
+// --- 3.6) 原话明确「提前 15 分钟」才提前 ---
+llmReply = '{"kind":"reminder","title":"吃降压药","time":"08:00","leadMin":0}'
+const r3c = await post('capture', { text: '提前15分钟提醒我早饭后吃降压药' })
+assert.equal(r3c.result.item.leadMin, 15, '原话明确提前量要保留')
+console.log('✓ 明确提前量:leadMin =', r3c.result.item.leadMin)
 
 // --- 4) AI 生日:annual 走每年 ---
 llmReply = '{"kind":"reminder","title":"小美生日","time":"09:00","annual":"05-03","leadMin":4320}'

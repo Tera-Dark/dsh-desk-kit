@@ -14,7 +14,7 @@ import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { DeskStore, localYmd } from './store.js'
 import { localDefineTool } from './tool.js'
-import { parseCapture, describeCapture } from './capture.js'
+import { parseCapture, describeCapture, parseLeadMin, cleanTitle } from './capture.js'
 
 /** 版本号只从 package.json 读:不在代码里再写一份,发版时不会三处对不齐。 */
 const PLUGIN_VERSION = (() => {
@@ -37,13 +37,13 @@ function persistParsed(s, parsed, rawText) {
         title: site.title,
         time: '21:00',
         weekdays: [],
-        leadMin: 30,
+        leadMin: 0,
         url: site.url,
         note: '每天打卡',
       }))
       have.add(key)
     }
-    const reply = '已整理成 ' + created.length + ' 条每日打卡提醒(21:00 前,提前 30 分提醒)'
+    const reply = '已整理成 ' + created.length + ' 条每日打卡提醒(21:00 到点提醒)'
       + (skipped.length ? ';跳过已存在的 ' + skipped.length + ' 条' : '')
       + (created.length ? ':' + created.map((r2) => r2.title.replace(' 打卡', '')).join('、') : '')
     return { parsed, reply, item: created, created: { kind: 'reminder', ids: created.map((r2) => r2.id) } }
@@ -140,23 +140,45 @@ function normalizeAI(ai, raw) {
     }
   }
   if (ai.kind === 'reminder') {
+    const local = (() => { try { return parseCapture(raw) } catch { return null } })()
+    const generic = /^(提醒|未命名提醒|便签|记录|备忘|待办|任务)$/
+    const aiTitle = str(ai.title)
+    const fallbackTitle = local && local.kind === 'reminder' && local.title && !generic.test(local.title)
+      ? local.title
+      : cleanTitle(raw)
+    const title = aiTitle && !generic.test(aiTitle) ? aiTitle : (fallbackTitle || '未命名提醒')
+    const aiNote = str(ai.note)
+    const note = aiNote && aiNote !== title && !generic.test(aiNote) ? aiNote : ''
+    const localTime = local && local.kind === 'reminder' ? local.time : ''
+    const localWeekdays = local && local.kind === 'reminder' && Array.isArray(local.weekdays) ? local.weekdays : []
     const mapped = {
       kind: 'reminder',
-      title: str(ai.title).slice(0, 120) || '提醒',
-      time: clock(ai.time) || '09:00',
-      weekdays: Array.isArray(ai.weekdays) ? ai.weekdays.map(Number).filter((d) => d >= 0 && d <= 6) : [],
-      leadMin: Number.isFinite(Number(ai.leadMin)) ? Math.max(0, Math.min(10080, Number(ai.leadMin))) : 30,
+      title: title.slice(0, 120),
+      // AI 漏了时间就沿用本地解析;AI 给了时间以 AI 为准,但不替用户提前
+      time: clock(ai.time) || localTime || '09:00',
+      weekdays: Array.isArray(ai.weekdays) && ai.weekdays.length
+        ? ai.weekdays.map(Number).filter((d) => d >= 0 && d <= 6)
+        : localWeekdays,
+      // 默认准时;只有原话明确「提前 X」才提前,模型自己填的 leadMin 不采信
+      leadMin: parseLeadMin(raw),
       url: str(ai.url),
-      note: str(ai.note),
+      note,
     }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str(ai.date))) mapped.date = str(ai.date)
+    const aiDate = str(ai.date)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(aiDate)) mapped.date = aiDate
+    else if (local && local.kind === 'reminder' && local.date) mapped.date = local.date
     if (ai.lunar && Number.isFinite(Number(ai.lunar.month)) && Number.isFinite(Number(ai.lunar.day))) {
       mapped.lunar = { month: Number(ai.lunar.month), day: Number(ai.lunar.day) }
       mapped.yearly = true
     } else if (/^\d{2}-\d{2}$/.test(str(ai.annual))) {
       mapped.annual = str(ai.annual)
       mapped.yearly = true
+    } else if (local && local.kind === 'reminder') {
+      if (local.monthly) mapped.monthly = local.monthly
+      if (local.annual) { mapped.annual = local.annual; mapped.yearly = true }
     }
+    // 生日/纪念日仍默认提前 3 天;普通提醒才默认到点
+    if (mapped.yearly) mapped.leadMin = parseLeadMin(raw) || 4320
     return mapped
   }
   return { kind: 'note', text: str(ai.text) || raw }
@@ -180,6 +202,10 @@ async function aiClassify(ctx, text, sel) {
     '- note:其余(想法、清单、合集、长文、备忘)',
     '可用字段(没有就省略):kind, title, time("HH:MM" 24小时制), date("YYYY-MM-DD"), weekdays([0=周日..6=周六]), lunar({month,day}), annual("MM-DD"), leadMin(数字,分钟), url, group, text(note 的正文,尽量保留原话), username, password, note',
     '规则:生日/纪念日优先用 annual 或 lunar,不要用 date;一般提醒才用 time+date/weekdays。',
+    '规则:提醒的 title 只写要做的事/事件本身,必须去掉「帮我记一下/提醒我/记得/别忘了」这类口语;不能只写「提醒」「便签」「记录」。',
+    '规则:note 只放补充信息;没有就省略,不要把 title 或「提醒」再抄一遍。',
+    '规则:leadMin 默认 0(到点提醒);只有用户明确说「提前 X 分钟/小时」才填 X,不要自行提前。',
+    '规则:用户给了钟点就用该时间,不要自行加减。',
     '规则:只提到网址、没有账号密码值的,不要用 secret —— 那是 link(用途说明写进 note);',
     '规则:link 的 title 用站点名或用户起的名字,别把整句说明塞进标题。',
     '今天是 ' + today + '(星期' + weekday + ')。',

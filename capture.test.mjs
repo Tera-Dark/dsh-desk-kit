@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseCapture, parseClock, parseWhen, cleanTitle, describeCapture } from './capture.js'
+import { parseCapture, parseClock, parseWhen, cleanTitle, describeCapture, parseLeadMin } from './capture.js'
 
 const now = new Date(2026, 10, 14, 13, 0, 0) // 2026-11-14 周六 13:00
 
@@ -45,6 +45,22 @@ test('分类:提醒', () => {
   assert.equal(c.kind, 'reminder')
   assert.equal(c.time, '08:30')
   assert.deepEqual(c.weekdays, [1, 2, 3, 4, 5])
+})
+
+test('「帮我记一下 + 钟点」是提醒,标题只要事项,默认到点', () => {
+  const r = parseCapture('帮我记一下，明天下午四点喂猫粮。', now)
+  assert.equal(r.kind, 'reminder')
+  assert.equal(r.title, '喂猫粮', '标题不能是「提醒」或带口语前缀')
+  assert.equal(r.date, '2026-11-15')
+  assert.equal(r.time, '16:00')
+  assert.equal(r.leadMin, 0, '没说提前就是到点')
+  assert.equal(r.note, '', '没有补充信息就不要把标题再抄进备注')
+  const early = parseCapture('提前半小时提醒我明天下午四点喂猫粮', now)
+  assert.equal(early.title, '喂猫粮')
+  assert.equal(early.leadMin, 30, '只有明说「提前半小时」才提前')
+  assert.equal(parseLeadMin('提前 1 小时'), 60)
+  assert.equal(parseLeadMin('提前十五分钟'), 15)
+  assert.equal(parseLeadMin('明天下午四点'), 0)
 })
 
 test('分类:便签', () => {

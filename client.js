@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.17.0'
+   const VERSION = '1.18.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -1401,7 +1401,7 @@ window.__ModuleLoader__.load({
      const [mday, setMday] = useState(Number.isFinite(initial.monthly) ? initial.monthly : 1)
      const [date, setDate] = useState(initial.date || todayISO())
      const [url, setUrl] = useState(initial.url || '')
-     const [lead, setLead] = useState(initial.leadMin == null ? 30 : initial.leadMin)
+     const [lead, setLead] = useState(initial.leadMin == null ? 0 : initial.leadMin)
      const [mm, setMm] = useState(initial.lunar ? initial.lunar.month : Number((initial.annual || '01-01').split('-')[0]) || 1)
 
      const [dd, setDd] = useState(initial.lunar ? initial.lunar.day : Number((initial.annual || '01-01').split('-')[1]) || 1)
@@ -1505,7 +1505,7 @@ window.__ModuleLoader__.load({
            h('input', { key: 'ld', type: 'number', min: 0, max: 10080, className: '__dk_input __dk_num', value: lead, onChange: (e) => setLead(e.target.value) }),
            h('span', { key: 'm', className: '__dk_gtip' }, '分钟' + (leadNum >= 1440 ? '(≈ ' + (leadNum / 1440).toFixed(1).replace(/\.0$/, '') + ' 天前)' : '')),
          ]),
-         annual ? h('div', { key: 'tip', className: '__dk_gtip' }, '生日/纪念日:选好月日后每年自动提醒;默认提前 3 天(4320 分钟)') : null,
+         annual ? h('div', { key: 'tip', className: '__dk_gtip' }, '生日/纪念日:选好月日后每年自动提醒;常用提前 3 天(4320 分钟),可自己改') : null,
        ]),
 
        h('div', { key: 'g3', className: '__dk_group' }, [

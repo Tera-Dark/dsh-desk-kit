@@ -78,6 +78,19 @@ export function parseRelative(text, now = new Date()) {
   }
 }
 
+/**
+ * 用户明确说了「提前 X 分钟/小时」才提前;没说就 0(到点提醒)。
+ * 以前的默认 30 分钟是替用户做决定,生日/签到都被提前,和记录习惯冲突。
+ */
+export function parseLeadMin(text) {
+  const m = /提前\s*(\d{1,4}|半|[一两二三四五六七八九十]{1,3})\s*个?\s*(分钟|分|小时|钟头)/.exec(String(text || ''))
+  if (!m) return 0
+  const n = numOrHalf(m[1])
+  if (n === null) return 0
+  const unit = m[2] === '分钟' || m[2] === '分' ? 1 : 60
+  return Math.max(0, Math.min(10080, Math.round(n * unit)))
+}
+
 /** 抽日期/重复:{date?, weekdays, repeat, monthly?}。 */
 export function parseWhen(text, now = new Date()) {
   // 「下周三」按「下一个自然周的周三」算(周一为一周之始),不是「最近的周三」
@@ -141,6 +154,7 @@ export function cleanTitle(text) {
     .replace(/^\s*(?:请|帮我|麻烦你?|你)?\s*(?:提醒我|提醒一下|提醒|记得|别忘记|别忘了|叫我|记一下|记下|帮我记一下|帮我记|记|存一下|存起来|保存一下)\s*[:：,，]?\s*/g, '')
     .replace(/^\s*(?:请|帮我)\s*/g, '')
     .replace(/\s*(?:的时候|时)?\s*(?:提醒我|提醒一下|提醒|叫我|别忘了|记得)\s*我?\s*$/g, '')
+    .replace(/^[\s,，。；:：、\-—]+/g, '')
     .replace(/[。!！~～\s]+$/g, '')
     .trim()
 }
@@ -332,7 +346,7 @@ export function parseCapture(raw, now = new Date()) {
       lunar: birthday.lunar ? { month: birthday.month, day: birthday.day, isLeap: false } : undefined,
       annual: birthday.lunar ? undefined : String(birthday.month).padStart(2, '0') + '-' + String(birthday.day).padStart(2, '0'),
       weekdays: [],
-      leadMin: 4320,
+      leadMin: parseLeadMin(text) || 4320,
       yearly: true,
       calendar: birthday.lunar ? 'lunar' : 'solar',
       note: birthday.lunar ? '农历' + birthday.month + '月' + birthday.day + '日' : birthday.month + '月' + birthday.day + '日',
@@ -383,9 +397,12 @@ export function parseCapture(raw, now = new Date()) {
   const hasClock = !!clock
   const hasDate = !!rel || !!when.date || !!when.monthly || when.weekdays.length > 0
   const scheduled = hasClock || hasDate
-  if (scheduled && (wantsReminder || (hasClock && (when.repeat || when.weekdays.length)) || when.monthly || rel)) {
+  // 只要给了明确钟点(「明天下午四点喂猫粮」),就按提醒处理;
+  // 不再要求句子里必须有「提醒/记得」——用户说「帮我记一下 + 时间」就是在排提醒。
+  if (scheduled && (wantsReminder || hasClock || rel)) {
     const stripped = text
       .replace(/(凌晨|早上|早晨|上午|中午|下午|傍晚|晚上)?\s*(\d{1,2}|[一二两三四五六七八九十]{1,3})\s*[:：点时]\s*(半|一刻|三刻|\d{1,2})?/g, '')
+      .replace(/提前\s*(\d{1,4}|半|[一两二三四五六七八九十]{1,3})\s*个?\s*(分钟|分|小时|钟头)/g, '')
       .replace(/(每天|每日|天天|工作日|大后天|后天|明天|明日|今天|今日)/g, '')
       .replace(/下(?:个)?(?:周|星期)[日一二三四五六天]/g, '')
       .replace(/周[日一二三四五六天](?:\s*(?:到|至|-|~)\s*周?[日一二三四五六天])?/g, '')
@@ -406,7 +423,7 @@ export function parseCapture(raw, now = new Date()) {
       date: rel ? rel.date : when.date,
       weekdays: when.weekdays,
       monthly: when.monthly || undefined,
-      leadMin: rel ? 0 : 30,
+      leadMin: rel ? 0 : parseLeadMin(text),
       url: link,
       note: '',
       raw: text,

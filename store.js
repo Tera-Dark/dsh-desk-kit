@@ -223,7 +223,7 @@ function normalizeReminder(raw, now) {
     annual,
     monthly,
     yearly: !!raw.yearly,
-    leadMin: asClamp(raw.leadMin, 0, 10080, 30),
+    leadMin: asClamp(raw.leadMin, 0, 10080, 0),
     snoozeMin: asClamp(raw.snoozeMin, 1, 720, 20),
     url,
     active: raw.active !== false,
@@ -489,11 +489,15 @@ export class DeskStore {
         trashKeepDays: 30,
         // 上次自动清理的时间戳,给「什么时候清过」一个凭据
         lastSweepAt: 0,
+        // 旧版默认提前 30 分;这里标记迁移是否跑过(不暴露到设置页)
+        leadDefaultMigrated: true,
       },
     }
     const raw = readJson(this.dataFile, null)
     if (!raw || typeof raw !== 'object') return base
     const notes = Array.isArray(raw.notes) ? raw.notes : []
+    const reminders = Array.isArray(raw.reminders) ? raw.reminders : []
+    const rawSettings = raw.settings && typeof raw.settings === 'object' ? raw.settings : {}
     // 老数据迁移:没有 shelf 的按同一条规则补上(只跑一次,补完回写)
     let migrated = 0
     for (const n of notes) {
@@ -502,18 +506,28 @@ export class DeskStore {
         migrated++
       }
     }
-    if (migrated > 0) {
-      try { writeJson(this.dataFile, { ...raw, notes }) } catch { /* 写不进去下次再补 */ }
+    // 旧版把 30 分钟当成默认提前量。用户记录时间时通常已经算好,
+    // 升级后一次性把「仍是旧默认 30 分」的提醒改成准时;自定义的其它提前量不动。
+    const legacyLead = rawSettings.leadDefaultMigrated !== true
+    if (legacyLead) {
+      for (const r of reminders) {
+        if (r && typeof r === 'object' && r.leadMin === 30) r.leadMin = 0
+      }
+    }
+    const settings = { ...base.settings, ...rawSettings }
+    if (legacyLead) settings.leadDefaultMigrated = true
+    if (migrated > 0 || legacyLead) {
+      try { writeJson(this.dataFile, { ...raw, notes, reminders, settings }) } catch { /* 写不进去下次再补 */ }
     }
     return {
       ...base,
       ...raw,
       notes,
-      reminders: Array.isArray(raw.reminders) ? raw.reminders : [],
+      reminders,
       links: Array.isArray(raw.links) ? raw.links : [],
       files: Array.isArray(raw.files) ? raw.files : [],
       alerts: Array.isArray(raw.alerts) ? raw.alerts : [],
-      settings: { ...base.settings, ...(raw.settings && typeof raw.settings === 'object' ? raw.settings : {}) },
+      settings,
     }
   }
 
@@ -747,7 +761,7 @@ export class DeskStore {
       // 每年重复标记(生日类),只用于展示
       yearly: !!input.yearly,
       // 上限 7 天:生日这类要提前几天提醒,原来卡在 720 分钟(12h)会让提前量失效
-      leadMin: Number.isFinite(input.leadMin) ? Math.max(0, Math.min(10080, input.leadMin)) : 30,
+      leadMin: Number.isFinite(input.leadMin) ? Math.max(0, Math.min(10080, input.leadMin)) : 0,
       snoozeMin: Number.isFinite(input.snoozeMin) ? Math.max(1, Math.min(720, input.snoozeMin)) : 20,
       url: typeof input.url === 'string' && /^https?:\/\//i.test(input.url.trim()) ? input.url.trim().slice(0, 600) : '',
       active: true,

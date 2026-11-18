@@ -809,6 +809,7 @@ test('手动表单也能排「一次性 / 每月」,编辑时周期要回显正�
   assert.ok(once.includes('type="date"'), '一次性要有日期选择')
   assert.ok(once.includes('只提醒一次'), '周期说明要对')
   assert.ok(/__dk_chip on">一次性/.test(once), '应选中「一次性」而不是「每天」')
+  assert.ok(/__dk_chip on">准时/.test(once), '新提醒默认准时,不再提前 30 分')
 
   const monthly = renderToString(h(T.ReminderForm, {
     initial: { id: 'r2', title: '交房租', time: '09:00', monthly: 1, weekdays: [] },
