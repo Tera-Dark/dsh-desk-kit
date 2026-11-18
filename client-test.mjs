@@ -297,6 +297,32 @@ test('搜索跨进行中与长期一起搜,搜索框在最上面', () => {
   assert.ok(iq >= 0 && ib >= 0 && iq < ib, '搜索框应在操作条之前')
 })
 
+test('深链 ?dk=capture 只处理一次,清掉参数并带上预填文本', async () => {
+  const prev = globalThis.window
+  const events = []
+  const loc = new URL('http://127.0.0.1:3080/?dk=capture&text=' + encodeURIComponent('记一下脸书账号') + '&x=1')
+  let replaced = ''
+  const fake = {
+    location: loc,
+    history: { replaceState: (_s, _t, url) => { replaced = url; loc.href = 'http://127.0.0.1:3080' + url } },
+    dispatchEvent: (e) => { events.push(e); return true },
+    addEventListener() { }, removeEventListener() { },
+  }
+  globalThis.window = fake
+  try {
+    assert.equal(T.handleDeepLink(), true, '带参数时要接住')
+    await new Promise((r) => setTimeout(r, 140))
+    const cap = events.find((e) => e.type === T.CAPTURE_EVENT)
+    assert.ok(cap, '要发出 capture 事件')
+    assert.equal(cap.detail.text, '记一下脸书账号', '要保留预填文本')
+    assert.equal(replaced, '/?x=1', '只抹掉 dk/text,保留其它参数')
+    assert.equal(T.handleDeepLink(), false, '参数抹掉后不能重复弹')
+  } finally {
+    if (prev === undefined) delete globalThis.window
+    else globalThis.window = prev
+  }
+})
+
 test('快搜:中英别名互通,首页入口能一次给出五类定位', () => {
   assert.ok(T.searchVariants('脸书').includes('facebook'), '中文要能展开到英文')
   assert.ok(T.searchMatch('Facebook 账号', T.searchVariants('脸书')), '别名匹配要生效')

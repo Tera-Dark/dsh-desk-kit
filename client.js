@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.16.0'
+   const VERSION = '1.17.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -2881,8 +2881,36 @@ window.__ModuleLoader__.load({
    // 浮标可能被别的浮窗盖住,所以留了两条侧门:会话顶栏的小图标 + 快捷键。
    // 两条侧门都只发一条 window 事件,面板自己监听 —— 两棵 React 树不用共享状态。
    const OPEN_EVENT = 'desk-kit:open'
+   // 手机主屏快捷方式进来时,除了打开面板,还要把首页输入框准备好
+   const CAPTURE_EVENT = 'desk-kit:capture'
    function requestOpen() {
      try { window.dispatchEvent(new CustomEvent(OPEN_EVENT)) } catch { /* 没有 window 就算了 */ }
+   }
+
+   /**
+    * 深链:打开 ?dk=capture 后自动进首页、聚焦输入框;可带 ?text=... 预填。
+    * 只处理一次,并把参数从地址栏抹掉 —— 刷新/再次打开主屏图标不会反复弹。
+    * 事件重复发几轮是为了等 React 树挂载:面板和侧栏谁先接住都行,同 token 会去重。
+    */
+   function handleDeepLink() {
+     if (typeof window === 'undefined' || !window.location) return false
+     let url
+     try { url = new URL(window.location.href) } catch { return false }
+     if (url.searchParams.get('dk') !== 'capture') return false
+     const text = String(url.searchParams.get('text') || '').slice(0, 2000)
+     url.searchParams.delete('dk')
+     url.searchParams.delete('text')
+     const next = url.pathname + (url.search || '') + (url.hash || '')
+     try { window.history.replaceState(null, '', next) } catch { /* 只读地址栏/沙箱:不影响打开 */ }
+     const token = 'cap-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+     requestOpen()
+     let left = 10
+     const fire = () => {
+       try { window.dispatchEvent(new CustomEvent(CAPTURE_EVENT, { detail: { text, token } })) } catch { /* 没有 window */ }
+       if (--left > 0) setTimeout(fire, 120)
+     }
+     setTimeout(fire, 80)
+     return true
    }
 
    /** 待办数:到点未完成的提醒 + 未确认提示。0 表示没东西催。 */
@@ -3100,6 +3128,7 @@ window.__ModuleLoader__.load({
      const [seed, setSeed] = useState('')
      const touch = useRef({ x: 0, y: 0, t: 0 })
      const timer = useRef(null)
+     const capToken = useRef('')
 
      const load = useCallback(async () => {
        try {
@@ -3207,6 +3236,23 @@ window.__ModuleLoader__.load({
        if (i < 0 || i >= ORDER.length) return
        go(ORDER[i])
      }, [page, go])
+
+     // 深链 ?dk=capture:打开面板并落到首页输入框。
+     // 有侧栏时让侧栏接(它自己也有同一个监听),浮标不抢。
+     useEffect(() => {
+       const onCapture = (e) => {
+         const d = (e && e.detail) || {}
+         if (!d.token || capToken.current === d.token) return
+         capToken.current = d.token
+         if (sidebar.open) return
+         setOpen(true)
+         load()
+         setSeed(String(d.text || '').slice(0, 2000))
+         go('home')
+       }
+       window.addEventListener(CAPTURE_EVENT, onCapture)
+       return () => window.removeEventListener(CAPTURE_EVENT, onCapture)
+     }, [sidebar.open, load, go])
 
      // ------------- 浮标:拖哪停哪,松手吸边
      const toggle = useCallback(() => {
@@ -3508,6 +3554,7 @@ window.__ModuleLoader__.load({
      // 撤销后回填到输入框的原话
      const [seed, setSeed] = useState('')
      const timer = useRef(null)
+     const capToken = useRef('')
 
      const load = useCallback(async () => {
        try {
@@ -3545,6 +3592,21 @@ window.__ModuleLoader__.load({
      }, [])
 
      const go = useCallback((next, opts) => { setPage(next); setFocus(opts || null); setSeq((s) => s + 1) }, [])
+
+     // 深链 ?dk=capture:已挂载的侧栏页直接落到首页输入框(浮标那份监听会跳过侧栏)
+     useEffect(() => {
+       const onCapture = (e) => {
+         const d = (e && e.detail) || {}
+         if (!d.token || capToken.current === d.token) return
+         capToken.current = d.token
+         setFocus(null)
+         setSeed(String(d.text || '').slice(0, 2000))
+         setPage('home')
+         setSeq((s) => s + 1)
+       }
+       window.addEventListener(CAPTURE_EVENT, onCapture)
+       return () => window.removeEventListener(CAPTURE_EVENT, onCapture)
+     }, [])
 
      const onCaptureDone = useCallback((r) => {
        if (!r) return
@@ -3794,7 +3856,7 @@ window.__ModuleLoader__.load({
          window.addEventListener(OPEN_EVENT, onOpen)
        }
      } catch (error) { /* 没有 window(非浏览器环境)就算了 */ }
-     if (!ctx.slots) return
+     if (!ctx.slots) { try { handleDeepLink() } catch (error) { /* 深链失败不能拖垮插件 */ } return }
      ctx.slots.inject('shell.overlay', () => ctx.slots.register(
        { name: 'shell.overlay', id: 'desk-kit-panel', order: 90, registrant: 'dsh-desk-kit' },
        () => h(Root, { bridge }),
@@ -3849,6 +3911,8 @@ window.__ModuleLoader__.load({
          })
        }
      } catch { /* 键位被占用/不在白名单:不注册 */ }
+     // 手机主屏快捷方式:?dk=capture 直接进首页输入框
+     try { handleDeepLink() } catch (error) { /* 深链失败不能拖垮插件 */ }
    }
 
    exports.apply = apply
@@ -3864,7 +3928,7 @@ window.__ModuleLoader__.load({
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
      playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar,
-     searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES,
+     searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES, CAPTURE_EVENT, handleDeepLink,
    }
    return module.exports
  },

@@ -277,6 +277,17 @@ function pasteFiles(el, files) {
     const revealed = await waitFor(() => vHost.textContent.includes('账号 demo_user'), 4000)
     step('从快搜进保险库自动展开对应条目', !!revealed)
 
+    // 9) 手机主屏深链:打开面板 → 首页 → 预填输入框 → 清掉地址参数
+    history.replaceState(null, '', '/?dk=capture&text=' + encodeURIComponent('深链预填'))
+    T.handleDeepLink()
+    const deepInput = await waitFor(() => {
+      const panel = rootHost.querySelector('.__dk_panel')
+      const ta = panel && panel.querySelector('.__dk_capture textarea')
+      return ta && ta.value === '深链预填' ? ta : null
+    }, 6000)
+    step('深链 ?dk=capture 打开面板并预填', !!deepInput)
+    step('深链处理完清掉地址参数', location.search === '')
+
     window.__E2E = { results, ok: results.every((r) => r.ok) }
   } catch (e) {
     step('未捕获异常', false, String((e && e.message) || e))

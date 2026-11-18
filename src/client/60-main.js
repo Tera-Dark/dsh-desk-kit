@@ -20,8 +20,36 @@
    // 浮标可能被别的浮窗盖住,所以留了两条侧门:会话顶栏的小图标 + 快捷键。
    // 两条侧门都只发一条 window 事件,面板自己监听 —— 两棵 React 树不用共享状态。
    const OPEN_EVENT = 'desk-kit:open'
+   // 手机主屏快捷方式进来时,除了打开面板,还要把首页输入框准备好
+   const CAPTURE_EVENT = 'desk-kit:capture'
    function requestOpen() {
      try { window.dispatchEvent(new CustomEvent(OPEN_EVENT)) } catch { /* 没有 window 就算了 */ }
+   }
+
+   /**
+    * 深链:打开 ?dk=capture 后自动进首页、聚焦输入框;可带 ?text=... 预填。
+    * 只处理一次,并把参数从地址栏抹掉 —— 刷新/再次打开主屏图标不会反复弹。
+    * 事件重复发几轮是为了等 React 树挂载:面板和侧栏谁先接住都行,同 token 会去重。
+    */
+   function handleDeepLink() {
+     if (typeof window === 'undefined' || !window.location) return false
+     let url
+     try { url = new URL(window.location.href) } catch { return false }
+     if (url.searchParams.get('dk') !== 'capture') return false
+     const text = String(url.searchParams.get('text') || '').slice(0, 2000)
+     url.searchParams.delete('dk')
+     url.searchParams.delete('text')
+     const next = url.pathname + (url.search || '') + (url.hash || '')
+     try { window.history.replaceState(null, '', next) } catch { /* 只读地址栏/沙箱:不影响打开 */ }
+     const token = 'cap-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+     requestOpen()
+     let left = 10
+     const fire = () => {
+       try { window.dispatchEvent(new CustomEvent(CAPTURE_EVENT, { detail: { text, token } })) } catch { /* 没有 window */ }
+       if (--left > 0) setTimeout(fire, 120)
+     }
+     setTimeout(fire, 80)
+     return true
    }
 
    /** 待办数:到点未完成的提醒 + 未确认提示。0 表示没东西催。 */

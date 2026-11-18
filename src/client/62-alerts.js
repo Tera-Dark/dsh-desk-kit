@@ -199,6 +199,7 @@
      const [seed, setSeed] = useState('')
      const touch = useRef({ x: 0, y: 0, t: 0 })
      const timer = useRef(null)
+     const capToken = useRef('')
 
      const load = useCallback(async () => {
        try {
@@ -306,6 +307,23 @@
        if (i < 0 || i >= ORDER.length) return
        go(ORDER[i])
      }, [page, go])
+
+     // 深链 ?dk=capture:打开面板并落到首页输入框。
+     // 有侧栏时让侧栏接(它自己也有同一个监听),浮标不抢。
+     useEffect(() => {
+       const onCapture = (e) => {
+         const d = (e && e.detail) || {}
+         if (!d.token || capToken.current === d.token) return
+         capToken.current = d.token
+         if (sidebar.open) return
+         setOpen(true)
+         load()
+         setSeed(String(d.text || '').slice(0, 2000))
+         go('home')
+       }
+       window.addEventListener(CAPTURE_EVENT, onCapture)
+       return () => window.removeEventListener(CAPTURE_EVENT, onCapture)
+     }, [sidebar.open, load, go])
 
      // ------------- 浮标:拖哪停哪,松手吸边
      const toggle = useCallback(() => {

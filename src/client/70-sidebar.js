@@ -51,6 +51,7 @@
      // 撤销后回填到输入框的原话
      const [seed, setSeed] = useState('')
      const timer = useRef(null)
+     const capToken = useRef('')
 
      const load = useCallback(async () => {
        try {
@@ -88,6 +89,21 @@
      }, [])
 
      const go = useCallback((next, opts) => { setPage(next); setFocus(opts || null); setSeq((s) => s + 1) }, [])
+
+     // 深链 ?dk=capture:已挂载的侧栏页直接落到首页输入框(浮标那份监听会跳过侧栏)
+     useEffect(() => {
+       const onCapture = (e) => {
+         const d = (e && e.detail) || {}
+         if (!d.token || capToken.current === d.token) return
+         capToken.current = d.token
+         setFocus(null)
+         setSeed(String(d.text || '').slice(0, 2000))
+         setPage('home')
+         setSeq((s) => s + 1)
+       }
+       window.addEventListener(CAPTURE_EVENT, onCapture)
+       return () => window.removeEventListener(CAPTURE_EVENT, onCapture)
+     }, [])
 
      const onCaptureDone = useCallback((r) => {
        if (!r) return
@@ -337,7 +353,7 @@
          window.addEventListener(OPEN_EVENT, onOpen)
        }
      } catch (error) { /* 没有 window(非浏览器环境)就算了 */ }
-     if (!ctx.slots) return
+     if (!ctx.slots) { try { handleDeepLink() } catch (error) { /* 深链失败不能拖垮插件 */ } return }
      ctx.slots.inject('shell.overlay', () => ctx.slots.register(
        { name: 'shell.overlay', id: 'desk-kit-panel', order: 90, registrant: 'dsh-desk-kit' },
        () => h(Root, { bridge }),
@@ -392,6 +408,8 @@
          })
        }
      } catch { /* 键位被占用/不在白名单:不注册 */ }
+     // 手机主屏快捷方式:?dk=capture 直接进首页输入框
+     try { handleDeepLink() } catch (error) { /* 深链失败不能拖垮插件 */ }
    }
 
    exports.apply = apply
@@ -407,7 +425,7 @@
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
      playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar,
-     searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES,
+     searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES, CAPTURE_EVENT, handleDeepLink,
    }
    return module.exports
  },

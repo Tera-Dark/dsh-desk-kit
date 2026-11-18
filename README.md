@@ -39,6 +39,27 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 
 ---
 
+## 手机快捷录入(可选)
+
+手机通过 DSH Pocket / DSH Mobile 访问后,可以把下面这个地址加到主屏:
+
+```
+https://你的DSH地址/?dk=capture
+```
+
+打开后会直接进随手台首页、聚焦输入框;处理完自动把 `dk` 参数从地址栏抹掉,
+刷新或再次点主屏图标不会反复弹。也可以带一段预填文本:
+
+```
+https://你的DSH地址/?dk=capture&text=记一下周末修耳机
+```
+
+注意:桌面端随手台只接受本机 `Host/Origin`,直接用手机打开
+`http://电脑局域网IP:3080` 会被 403。请使用会重写 Host/Origin 的移动网关
+(例如 DSH Pocket),或自己的回环隧道。
+
+---
+
 ## 四个分类
 
 | 分类 | 能做什么 |
@@ -172,4 +193,4 @@ npm run build:check  # 只看「产物是否与源码一致」,npm test 会自�
 
 ## 变更历史
 
-逐版本的「为什么 + 验收」都在 [CHANGELOG.md](CHANGELOG.md)。当前版本 **1.16.0**。
+逐版本的「为什么 + 验收」都在 [CHANGELOG.md](CHANGELOG.md)。当前版本 **1.17.0**。
