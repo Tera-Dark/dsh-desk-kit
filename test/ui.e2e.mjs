@@ -257,6 +257,12 @@ function pasteFiles(el, files) {
     step('删图后卡片不再显示缩略图', noImages)
     const pageEl = document.querySelector('.__dk_page')
     step('便签页窄屏没有横向溢出', !!pageEl && pageEl.scrollWidth <= pageEl.clientWidth + 1, pageEl ? pageEl.scrollWidth + '/' + pageEl.clientWidth : '')
+    const oldWidth = document.body.style.width
+    document.body.style.width = '320px'
+    await sleep(120)
+    const narrowEl = document.querySelector('.__dk_page')
+    step('320px 宽仍然不横向溢出', !!narrowEl && narrowEl.scrollWidth <= narrowEl.clientWidth + 1, narrowEl ? narrowEl.scrollWidth + '/' + narrowEl.clientWidth : '')
+    document.body.style.width = oldWidth
 
     // 6) 提醒表单:标题按 Enter 直接保存
     const remHost = document.createElement('div')

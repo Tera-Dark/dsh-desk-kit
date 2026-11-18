@@ -1958,9 +1958,13 @@ window.__ModuleLoader__.load({
      const saveEdit = async (n) => {
        const ids = editFiles.map((f) => f.id)
        if (!editText.trim() && !ids.length) { say('便签不能为空:写一句,或至少留一张图'); return }
-       await run('note.update', { id: n.id, text: editText, files: ids, removeFiles: editRemoved })
-       setEditing(''); setEditText(''); setEditFiles([]); setEditRemoved([]); setEditNew([])
-       say(editRemoved.length ? '已保存,删掉的图片也清掉了' : '已保存')
+       try {
+         await run('note.update', { id: n.id, text: editText, files: ids, removeFiles: editRemoved })
+         setEditing(''); setEditText(''); setEditFiles([]); setEditRemoved([]); setEditNew([])
+         say(editRemoved.length ? '已保存,删掉的图片也清掉了' : '已保存')
+       } catch (e) {
+         say('保存失败:' + String((e && e.message) || e))
+       }
      }
      /** 只留图片的文件草稿:保存时如果被删掉,顺手把原件也从库里清掉。 */
      const dropDraftFile = async (file) => {
@@ -2045,6 +2049,13 @@ window.__ModuleLoader__.load({
                if (!src) return
                e.preventDefault(); e.stopPropagation()
                addPaste(src, 'edit')
+             },
+             onDragOver: (e) => { if (filesFromDataTransfer(e.dataTransfer).length) e.preventDefault() },
+             onDrop: (e) => {
+               const files = filesFromDataTransfer(e.dataTransfer)
+               if (!files.length) return
+               e.preventDefault(); e.stopPropagation()
+               addFiles(files, null, 'edit')
              },
            }, [
              h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '编辑便签'), h('span', { key: 'b' }, '图片和文字一起改')]),

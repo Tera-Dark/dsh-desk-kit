@@ -688,6 +688,10 @@ test('便签编辑:图片作为单位保留/删除,清空文字还能只留图',
   assert.equal(s.data.files.some((f) => f.id === f2.id), false, '删掉的图记录要清掉')
   assert.ok(!existsSync(join(s.blobDir, f2.id + '.bin')), '删掉的图原件要清掉')
   assert.equal(s.filesFor('note', n.id).length, 1)
+  // 空文本 + 删掉最后一张图:必须拒绝,而且不能先把内存里的图片改没
+  assert.throws(() => s.updateNote(n.id, { text: '', files: [], removeFiles: [f1.id] }), /不能为空/)
+  assert.deepEqual(s.data.notes.find((x) => x.id === n.id).files, [f1.id], '失败的编辑不能改内存')
+  assert.ok(existsSync(join(s.blobDir, f1.id + '.bin')), '失败的编辑不能删原件')
 })
 
 test('附件:保险库名下落盘是密文,删除条目连原件一起清', () => {

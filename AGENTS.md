@@ -23,6 +23,7 @@ npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址�
 - `index.js`：装配 store、HTTP 路由、27 个工具、定时器；不要在这里塞领域逻辑。
 - `store.js`：数据模型、持久化、保险库、清理、快照。
 - `capture.js` / `lunar.js` / `tool.js`：一句话分拣、农历、工具 schema。
+- `paste.js`：粘贴网页图片时的公网地址校验、下载与大小限制。
 - `src/client/`：按文件名顺序拼成 `client.js`；**改这里，再 `npm run build`**。
 - `client.js` 是生成物，不要直接改；`npm run build:check` 和 `npm test` 会验一致性。
 - `test/`、`*.test.mjs`、`harness.mjs`：行为测试与真 HTTP 集成测试。

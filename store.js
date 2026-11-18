@@ -623,30 +623,27 @@ export class DeskStore {
     if (!note) throw new Error('找不到便签 ' + id)
     const beforeFiles = new Set(Array.isArray(note.files) ? note.files : [])
     const removeWanted = new Set(Array.isArray(patch.removeFiles) ? patch.removeFiles.map(String) : [])
-    if (typeof patch.text === 'string') {
-      const text = patch.text.trim()
-      // 有附件时允许把配文清空(只留图)
-      const willHaveFiles = patch.files !== undefined ? this.pickFileIds(patch.files).length : (note.files || []).length
-      if (!text && !willHaveFiles) throw new Error('便签内容不能为空')
-      note.text = text.slice(0, 20000)
-    }
+    // 先算好「改完是什么样」,再动 note —— 否则空文本/空图片时会先改内存再抛错,
+    // 内存和磁盘短暂不一致,轮询可能把半截状态发出去。
+    const nextText = typeof patch.text === 'string' ? patch.text.trim() : String(note.text || '')
+    let nextFiles
+    if (patch.files !== undefined) nextFiles = this.pickFileIds(patch.files)
+    else if (removeWanted.size) nextFiles = (note.files || []).filter((fid) => !removeWanted.has(fid))
+    else nextFiles = Array.isArray(note.files) ? note.files.slice() : []
+    if (!nextText && !nextFiles.length) throw new Error('便签内容不能为空')
+
+    if (typeof patch.text === 'string') note.text = nextText.slice(0, 20000)
     if (Array.isArray(patch.tags)) note.tags = patch.tags.map(String).filter(Boolean).slice(0, 12)
     if (typeof patch.pinned === 'boolean') note.pinned = patch.pinned
     if (typeof patch.archived === 'boolean') note.archived = patch.archived
     if (patch.shelf === 'long' || patch.shelf === 'daily') note.shelf = patch.shelf
     if (typeof patch.color === 'string') note.color = patch.color.slice(0, 20)
-    if (patch.files !== undefined) {
-      note.files = this.pickFileIds(patch.files)
-      this.attachFiles('note', note.id, note.files)
-    } else if (removeWanted.size) {
-      note.files = (note.files || []).filter((fid) => !removeWanted.has(fid))
-    }
-    // 编辑成空文本时,只有还挂着附件才允许
-    if (!note.text && !(note.files || []).length) throw new Error('便签内容不能为空')
+    note.files = nextFiles
+    if (patch.files !== undefined && nextFiles.length) this.attachFiles('note', note.id, nextFiles)
     note.updatedAt = Date.now()
     this.save()
     // 从这条便签里移掉的图片,保存成功后再清原件;只清原本就属于它的,别误删别人的
-    const gone = [...removeWanted].filter((fid) => beforeFiles.has(fid) && !(note.files || []).includes(fid))
+    const gone = [...removeWanted].filter((fid) => beforeFiles.has(fid) && !nextFiles.includes(fid))
     if (gone.length) this.dropFiles(gone)
     return note
   }
