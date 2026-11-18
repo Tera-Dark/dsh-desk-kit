@@ -51,6 +51,7 @@
      // 撤销后回填到输入框的原话
      const [seed, setSeed] = useState('')
      const timer = useRef(null)
+     const timerOut = useRef(null)
      const capToken = useRef('')
 
      const load = useCallback(async () => {
@@ -81,11 +82,17 @@
 
      // notify(text) 									只报一句
      // notify(text, {action, payload}) 		顺手给一个「撤销」,6 秒内可点
-     const showReply = useCallback((text, undo, move) => {
-       setReply(text ? { text: text, undo: undo || null, move: move || null } : null)
+     const showReply = useCallback((text, undo, move, meta) => {
        if (timer.current) clearTimeout(timer.current)
-       if (!text) return
-       timer.current = setTimeout(() => setReply(null), undo ? 6000 : 3500)
+       if (timerOut.current) clearTimeout(timerOut.current)
+       if (!text) { setReply(null); return }
+       const life = undo ? 6500 : 4200
+       setReply({ text: text, undo: undo || null, move: move || null, ...(meta || {}), leaving: false, life })
+       // 先淡出,再从 DOM 拿掉;直接消失会像页面闪了一下
+       timer.current = setTimeout(() => {
+         setReply((cur) => (cur ? { ...cur, leaving: true } : cur))
+         timerOut.current = setTimeout(() => setReply(null), 260)
+       }, life)
      }, [])
 
      const go = useCallback((next, opts) => { setPage(next); setFocus(opts || null); setSeq((s) => s + 1) }, [])
@@ -117,12 +124,16 @@
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
-       showReply(r.reply || '已保存', undo, move)
+       showReply(r.reply || '已保存', undo, move, captureToast(r))
        setFocus(null)
        if (r.parsed && r.parsed.kind === 'link') { setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setPage('notes'); setSeq((s) => s + 1) }
        else setPage('home')
+     }, [showReply])
+
+     const onCaptureFail = useCallback(() => {
+       showReply('没存上,请检查连接后再试', null, null, { label: '保存失败', title: '这次没有存进去', tone: 'err' })
      }, [showReply])
 
      const onLink = useCallback(async (r) => {
@@ -134,7 +145,7 @@
 
      return h(SidebarView, {
        state, page, seq, reply, err, run, bridge, onRetry: load,
-       focus, onGo: go, onCaptureDone, onLink,
+       focus, onGo: go, onCaptureDone, onCaptureFail, onLink,
        notify: showReply,
        onClearReply: () => showReply(''),
        seed,
@@ -143,7 +154,7 @@
    }
 
    /** 侧栏页面的纯展示部分:状态由 SidebarPage 喂进来(这样能脱离浏览器直接测)。 */
-   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry, focus }) {
+   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onCaptureFail, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry, focus }) {
      const sidebar = useSidebarBridge(bridge)
      const goTo = onGo
      if (!state) {
@@ -157,7 +168,7 @@
      const alerts = (state.alerts || []).filter(() => !(state.settings && state.settings.muted))
      const body = (() => {
        // notify 由 SidebarPage 注入(这里没有自己的 showReply)
-       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
+       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, onFail: onCaptureFail, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
@@ -186,8 +197,7 @@
        h('div', { key: 'body', className: '__dk_spbody' }, [
          // 提醒主视觉在右下角提醒坞;这里只留一条紧凑状态条,不重复堆卡片
          h(AlertInline, { key: 'alerts', alerts, run }),
-         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply }),
-         h(ReplyMove, { key: 'rmove', reply, run, onSay: onClearReply ? (t) => showReply(t) : null }),
+         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: onClearReply ? (t) => showReply(t) : null }),
          err ? h(ErrorBar, { key: 'err', text: err, onRetry }) : null,
          h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page' }, h(SafePage, null, body)),
        ]),
@@ -415,7 +425,7 @@
    exports.apply = apply
    exports.inject = inject
    exports.__test = {
-     Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, HeaderButton,
+     Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, captureToast, HeaderButton,
      Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO, alertHead,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,

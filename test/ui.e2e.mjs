@@ -288,6 +288,15 @@ function pasteFiles(el, files) {
     step('深链 ?dk=capture 打开面板并预填', !!deepInput)
     step('深链处理完清掉地址参数', location.search === '')
 
+    // 10) 录入后的分类提示:显眼出现,几秒后自己淡出
+    setValue(deepInput, '帮我记一下，明天下午四点喂猫粮。')
+    click(deepInput.closest('.__dk_capture').querySelector('.__dk_send'))
+    const toast = await waitFor(() => document.querySelector('.__dk_toast'), 4000)
+    const toastText = toast ? (toast.textContent || '') : ''
+    step('录入后出现分类+摘要提示', !!toast && toastText.includes('提醒') && toastText.includes('喂猫粮') && toastText.includes('已保存'))
+    const toastGone = await waitFor(() => !document.querySelector('.__dk_toast'), 7000)
+    step('提示自动淡出', !!toastGone)
+
     window.__E2E = { results, ok: results.every((r) => r.ok) }
   } catch (e) {
     step('未捕获异常', false, String((e && e.message) || e))

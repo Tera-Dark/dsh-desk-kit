@@ -1,8 +1,32 @@
    // ---------------------------------------------------------------- 一句话
    const CAPTURE_MAX_H = 168   // 约 7 行,再多就自己滚
 
+   // 存完那条提示要让人一眼看清「进了哪个栏位」,而不只是「已保存」。
+   const CAPTURE_LABEL = { note: '便签', reminder: '提醒', link: '网页', secret: '保险库', multi: '提醒' }
+   function captureToast(r) {
+     const parsed = (r && r.parsed) || {}
+     const kind = parsed.kind || 'note'
+     const item = r && r.item
+     const label = CAPTURE_LABEL[kind] || '随手台'
+     let title = ''
+     if (Array.isArray(item)) title = item.length + ' 条提醒'
+     else if (item) {
+       title = kind === 'note'
+         ? String(item.text || '').split('\n')[0].trim().slice(0, 44)
+         : String(item.title || '').trim()
+     }
+     if (!title) title = kind === 'note' ? '图片便签' : label
+     let detail = String((r && r.reply) || '已保存')
+     // 标题已经在上面大字显示了,详情里别原样再抄一遍
+     if (title && detail.includes(title)) {
+       detail = detail.replace(title, '').replace(/^[^:：]*[:：]\s*/, '').replace(/^[·,，;；\s]+/, '').trim()
+     }
+     if (!detail) detail = kind === 'note' ? '已收进便签' : '已保存'
+     return { label, title, detail, tone: kind === 'multi' ? 'reminder' : kind }
+   }
+
    /** 一句话输入:多行自适应。内容多就长高,到上限后内部滚动。 */
-   function CaptureBar({ run, onDone, seed, onSeedUsed }) {
+   function CaptureBar({ run, onDone, onFail, seed, onSeedUsed }) {
      const [text, setText] = useState(seed || '')
      const [busy, setBusy] = useState(false)
      const ref = useRef(null)
@@ -35,6 +59,7 @@
        try {
          const body = await run('capture', { text: v })
          if (body && body.result) { setText(''); if (onDone) onDone(body.result) }
+         else if (onFail) onFail()
        } finally { setBusy(false); if (ref.current) ref.current.focus() }
      }
 

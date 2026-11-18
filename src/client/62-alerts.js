@@ -199,6 +199,7 @@
      const [seed, setSeed] = useState('')
      const touch = useRef({ x: 0, y: 0, t: 0 })
      const timer = useRef(null)
+     const timerOut = useRef(null)
      const capToken = useRef('')
 
      const load = useCallback(async () => {
@@ -273,11 +274,17 @@
 
      // notify(text) 									只报一句
      // notify(text, {action, payload}) 		顺手给一个「撤销」,6 秒内可点
-     const showReply = useCallback((text, undo, move) => {
-       setReply(text ? { text: text, undo: undo || null, move: move || null } : null)
+     const showReply = useCallback((text, undo, move, meta) => {
        if (timer.current) clearTimeout(timer.current)
-       if (!text) return
-       timer.current = setTimeout(() => setReply(null), undo ? 6000 : 3500)
+       if (timerOut.current) clearTimeout(timerOut.current)
+       if (!text) { setReply(null); return }
+       const life = undo ? 6500 : 4200
+       setReply({ text: text, undo: undo || null, move: move || null, ...(meta || {}), leaving: false, life })
+       // 先淡出,再从 DOM 拿掉;直接消失会像页面闪了一下
+       timer.current = setTimeout(() => {
+         setReply((cur) => (cur ? { ...cur, leaving: true } : cur))
+         timerOut.current = setTimeout(() => setReply(null), 260)
+       }, life)
      }, [])
 
     /** 面板里收到的文件:上传完直接存成一条便签(给 6 秒撤销)。 */
@@ -447,12 +454,16 @@
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
-       showReply(r.reply || '已保存', undo, move)
+       showReply(r.reply || '已保存', undo, move, captureToast(r))
        setFocus(null)
        if (r.parsed && r.parsed.kind === 'link') { setDir('left'); setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setDir('left'); setPage('notes'); setSeq((s) => s + 1) }
        else setPage('home')
+     }, [showReply])
+
+     const onCaptureFail = useCallback(() => {
+       showReply('没存上,请检查连接后再试', null, null, { label: '保存失败', title: '这次没有存进去', tone: 'err' })
      }, [showReply])
 
      const onLink = useCallback(async (r) => {
@@ -488,7 +499,7 @@
      const lv = LEVELS[page] || LEVELS.home
      const body = (() => {
        const notify = showReply
-       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
+       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, onFail: onCaptureFail, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
@@ -558,8 +569,7 @@
                intake(files)
              },
            }, [
-             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply('') }),
-             h(ReplyMove, { key: 'rmove', reply, run, onSay: (t) => showReply(t) }),
+             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: (t) => showReply(t) }),
              err ? h(ErrorBar, { key: 'err', text: err, onRetry: load }) : null,
              // key 带 seq:切页整块重建,滑屏动画才会重放
              h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page __dk_page--' + dir },

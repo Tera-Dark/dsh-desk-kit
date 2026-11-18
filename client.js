@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.18.0'
+   const VERSION = '1.19.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -570,6 +570,33 @@ window.__ModuleLoader__.load({
      '.__dk_qfdeep:disabled{color:var(--dk-faint);cursor:default}',
      '.__dk_qfempty:first-child{border-top:none}',
      '.__dk_rowbtn{width:100%;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}',
+     // 存完的提示:顶部浮层,先让人看清进了哪个栏位,再自己淡出
+     '@keyframes __dkToastIn{from{opacity:0;transform:translate(-50%,-12px) scale(.97)}to{opacity:1;transform:translate(-50%,0) scale(1)}}',
+     '@keyframes __dkToastLife{from{transform:scaleX(1)}to{transform:scaleX(0)}}',
+     '.__dk_toast{--dk-toast-accent:var(--dk-brand);position:fixed;z-index:2147483000;top:max(12px,env(safe-area-inset-top));left:50%;width:min(92vw,430px);box-sizing:border-box;display:flex;align-items:flex-start;gap:10px;padding:11px 34px 14px 12px;border-radius:16px;border:1px solid color-mix(in srgb,var(--dk-toast-accent) 38%,var(--dk-line-2));background:linear-gradient(180deg,color-mix(in srgb,var(--dk-toast-accent) 10%,var(--dk-bg)),var(--dk-bg));color:var(--dk-text);box-shadow:var(--dk-shadow-lg);animation:__dkToastIn .22s var(--dk-ease) both;overflow:hidden}',
+     '.__dk_toast--note{--dk-toast-accent:var(--dk-brand)}',
+     '.__dk_toast--reminder{--dk-toast-accent:#f26870}',
+     '.__dk_toast--link{--dk-toast-accent:#3ecf8e}',
+     '.__dk_toast--secret{--dk-toast-accent:#b58cff}',
+     '.__dk_toast--err{--dk-toast-accent:#f26870}',
+     '.__dk_toast--out{opacity:0!important;transform:translate(-50%,-8px) scale(.98)!important;transition:opacity .24s ease,transform .24s ease;pointer-events:none}',
+     '.__dk_toasticon{flex:none;width:28px;height:28px;border-radius:9px;display:grid;place-items:center;font-size:15px;font-weight:700;color:var(--dk-toast-accent);background:color-mix(in srgb,var(--dk-toast-accent) 15%,transparent);border:1px solid color-mix(in srgb,var(--dk-toast-accent) 26%,transparent)}',
+     '.__dk_toastmain{flex:1;min-width:0}',
+     '.__dk_toasthead{display:flex;align-items:center;gap:7px;min-height:18px}',
+     '.__dk_toastbadge{font-size:10px;font-weight:700;letter-spacing:.02em;padding:2px 7px;border-radius:999px;color:var(--dk-toast-accent);background:color-mix(in srgb,var(--dk-toast-accent) 14%,transparent);border:1px solid color-mix(in srgb,var(--dk-toast-accent) 24%,transparent)}',
+     '.__dk_toaststatus{font-size:11px;color:var(--dk-muted)}',
+     '.__dk_toasttitle{font-size:13.5px;font-weight:650;line-height:1.4;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+     '.__dk_toasttext{font-size:11.5px;line-height:1.55;color:var(--dk-muted);margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}',
+     '.__dk_toastacts{display:flex;justify-content:flex-end;margin-top:8px}',
+     '.__dk_toastmove{margin-top:7px}',
+     '.__dk_toast .__dk_movechips{gap:5px;margin:0}',
+     '.__dk_toast .__dk_chip{height:24px;font-size:10.5px;padding:0 8px}',
+     '.__dk_toast .__dk_hint{font-size:10.5px}',
+     '.__dk_toastx{position:absolute;top:7px;right:7px;width:24px;height:24px;border:none;border-radius:8px;background:transparent;color:var(--dk-faint);font:16px/1 system-ui,sans-serif;cursor:pointer}',
+     '.__dk_toastx:hover{background:color-mix(in srgb,var(--dk-toast-accent) 12%,transparent);color:var(--dk-text)}',
+     '.__dk_toastlife{position:absolute;left:12px;right:12px;bottom:6px;height:2px;border-radius:2px;background:var(--dk-toast-accent);opacity:.45;transform-origin:left;animation:__dkToastLife var(--dk-toast-life,4.2s) linear forwards}',
+     '.__dk_toast--out .__dk_toastlife{animation:none}',
+     '@media (prefers-reduced-motion: reduce){.__dk_toast{animation:none!important}.__dk_toastlife{animation:none!important}}',
      // 键盘可达性:只在键盘聚焦时出现描边,不干扰鼠标
      '.__dk_sp button:focus-visible,.__dk_panel button:focus-visible,.__dk_dock button:focus-visible,.__dk_sp input:focus-visible,.__dk_panel input:focus-visible,.__dk_sp textarea:focus-visible,.__dk_panel textarea:focus-visible,.__dk_sp a:focus-visible,.__dk_panel a:focus-visible{outline:2px solid color-mix(in srgb,var(--dk-brand) 70%,transparent);outline-offset:2px}',
    ].join('\n')
@@ -1057,8 +1084,32 @@ window.__ModuleLoader__.load({
    // ---------------------------------------------------------------- 一句话
    const CAPTURE_MAX_H = 168   // 约 7 行,再多就自己滚
 
+   // 存完那条提示要让人一眼看清「进了哪个栏位」,而不只是「已保存」。
+   const CAPTURE_LABEL = { note: '便签', reminder: '提醒', link: '网页', secret: '保险库', multi: '提醒' }
+   function captureToast(r) {
+     const parsed = (r && r.parsed) || {}
+     const kind = parsed.kind || 'note'
+     const item = r && r.item
+     const label = CAPTURE_LABEL[kind] || '随手台'
+     let title = ''
+     if (Array.isArray(item)) title = item.length + ' 条提醒'
+     else if (item) {
+       title = kind === 'note'
+         ? String(item.text || '').split('\n')[0].trim().slice(0, 44)
+         : String(item.title || '').trim()
+     }
+     if (!title) title = kind === 'note' ? '图片便签' : label
+     let detail = String((r && r.reply) || '已保存')
+     // 标题已经在上面大字显示了,详情里别原样再抄一遍
+     if (title && detail.includes(title)) {
+       detail = detail.replace(title, '').replace(/^[^:：]*[:：]\s*/, '').replace(/^[·,，;；\s]+/, '').trim()
+     }
+     if (!detail) detail = kind === 'note' ? '已收进便签' : '已保存'
+     return { label, title, detail, tone: kind === 'multi' ? 'reminder' : kind }
+   }
+
    /** 一句话输入:多行自适应。内容多就长高,到上限后内部滚动。 */
-   function CaptureBar({ run, onDone, seed, onSeedUsed }) {
+   function CaptureBar({ run, onDone, onFail, seed, onSeedUsed }) {
      const [text, setText] = useState(seed || '')
      const [busy, setBusy] = useState(false)
      const ref = useRef(null)
@@ -1091,6 +1142,7 @@ window.__ModuleLoader__.load({
        try {
          const body = await run('capture', { text: v })
          if (body && body.result) { setText(''); if (onDone) onDone(body.result) }
+         else if (onFail) onFail()
        } finally { setBusy(false); if (ref.current) ref.current.focus() }
      }
 
@@ -1154,18 +1206,39 @@ window.__ModuleLoader__.load({
      const text = typeof reply === 'string' ? reply : reply.text
      const undo = reply && typeof reply === 'object' ? reply.undo : null
      const move = reply && typeof reply === 'object' ? reply.move : null
-     return h('div', { className: '__dk_reply' }, [
-       h('span', { key: 't', className: '__dk_replytext' }, text),
-       undo
-         ? h('button', {
-           key: 'u', className: '__dk_replybtn', title: '撤销刚才那一步',
-           onClick: async () => {
-             await run(undo.action, undo.payload)
-             if (typeof undo.after === 'function') undo.after()
-             if (onClear) onClear()
-           },
-         }, '撤销')
-         : null,
+     const label = reply && typeof reply === 'object' ? reply.label : ''
+     const title = reply && typeof reply === 'object' ? reply.title : ''
+     const tone = (reply && typeof reply === 'object' && reply.tone) || 'ok'
+     const life = reply && reply.life ? (reply.life / 1000) + 's' : '4.2s'
+     return h('div', {
+       className: '__dk_toast __dk_toast--' + tone + (reply && reply.leaving ? ' __dk_toast--out' : ''),
+       role: 'status', 'aria-live': 'polite',
+     }, [
+       h('div', { key: 'ic', className: '__dk_toasticon' }, tone === 'err' ? '!' : '✓'),
+       h('div', { key: 'm', className: '__dk_toastmain' }, [
+         h('div', { key: 'h', className: '__dk_toasthead' }, [
+           label ? h('span', { key: 'b', className: '__dk_toastbadge' }, label) : null,
+           h('span', { key: 's', className: '__dk_toaststatus' }, tone === 'err' ? '保存失败' : '已保存'),
+         ]),
+         title ? h('div', { key: 't', className: '__dk_toasttitle' }, title) : null,
+         text ? h('div', { key: 'd', className: '__dk_toasttext __dk_replytext' }, text) : null,
+         move ? h('div', { key: 'mv', className: '__dk_toastmove' },
+           h(MoveChips, { kind: move.kind, id: move.id, run, notify: onSay, label: '分错了?转存到' })) : null,
+         undo ? h('div', { key: 'a', className: '__dk_toastacts' },
+           h('button', {
+             key: 'u', className: '__dk_replybtn', title: '撤销刚才那一步',
+             onClick: async () => {
+               await run(undo.action, undo.payload)
+               if (typeof undo.after === 'function') undo.after()
+               if (onClear) onClear()
+             },
+           }, '撤销')) : null,
+       ]),
+       h('button', {
+         key: 'x', className: '__dk_toastx', title: '关闭', 'aria-label': '关闭提示',
+         onClick: () => { if (onClear) onClear() },
+       }, '×'),
+       h('i', { key: 'life', className: '__dk_toastlife', style: { '--dk-toast-life': life } }),
      ])
    }
 
@@ -3128,6 +3201,7 @@ window.__ModuleLoader__.load({
      const [seed, setSeed] = useState('')
      const touch = useRef({ x: 0, y: 0, t: 0 })
      const timer = useRef(null)
+     const timerOut = useRef(null)
      const capToken = useRef('')
 
      const load = useCallback(async () => {
@@ -3202,11 +3276,17 @@ window.__ModuleLoader__.load({
 
      // notify(text) 									只报一句
      // notify(text, {action, payload}) 		顺手给一个「撤销」,6 秒内可点
-     const showReply = useCallback((text, undo, move) => {
-       setReply(text ? { text: text, undo: undo || null, move: move || null } : null)
+     const showReply = useCallback((text, undo, move, meta) => {
        if (timer.current) clearTimeout(timer.current)
-       if (!text) return
-       timer.current = setTimeout(() => setReply(null), undo ? 6000 : 3500)
+       if (timerOut.current) clearTimeout(timerOut.current)
+       if (!text) { setReply(null); return }
+       const life = undo ? 6500 : 4200
+       setReply({ text: text, undo: undo || null, move: move || null, ...(meta || {}), leaving: false, life })
+       // 先淡出,再从 DOM 拿掉;直接消失会像页面闪了一下
+       timer.current = setTimeout(() => {
+         setReply((cur) => (cur ? { ...cur, leaving: true } : cur))
+         timerOut.current = setTimeout(() => setReply(null), 260)
+       }, life)
      }, [])
 
     /** 面板里收到的文件:上传完直接存成一条便签(给 6 秒撤销)。 */
@@ -3376,12 +3456,16 @@ window.__ModuleLoader__.load({
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
-       showReply(r.reply || '已保存', undo, move)
+       showReply(r.reply || '已保存', undo, move, captureToast(r))
        setFocus(null)
        if (r.parsed && r.parsed.kind === 'link') { setDir('left'); setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setDir('left'); setPage('notes'); setSeq((s) => s + 1) }
        else setPage('home')
+     }, [showReply])
+
+     const onCaptureFail = useCallback(() => {
+       showReply('没存上,请检查连接后再试', null, null, { label: '保存失败', title: '这次没有存进去', tone: 'err' })
      }, [showReply])
 
      const onLink = useCallback(async (r) => {
@@ -3417,7 +3501,7 @@ window.__ModuleLoader__.load({
      const lv = LEVELS[page] || LEVELS.home
      const body = (() => {
        const notify = showReply
-       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
+       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, onFail: onCaptureFail, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
@@ -3487,8 +3571,7 @@ window.__ModuleLoader__.load({
                intake(files)
              },
            }, [
-             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply('') }),
-             h(ReplyMove, { key: 'rmove', reply, run, onSay: (t) => showReply(t) }),
+             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: (t) => showReply(t) }),
              err ? h(ErrorBar, { key: 'err', text: err, onRetry: load }) : null,
              // key 带 seq:切页整块重建,滑屏动画才会重放
              h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page __dk_page--' + dir },
@@ -3554,6 +3637,7 @@ window.__ModuleLoader__.load({
      // 撤销后回填到输入框的原话
      const [seed, setSeed] = useState('')
      const timer = useRef(null)
+     const timerOut = useRef(null)
      const capToken = useRef('')
 
      const load = useCallback(async () => {
@@ -3584,11 +3668,17 @@ window.__ModuleLoader__.load({
 
      // notify(text) 									只报一句
      // notify(text, {action, payload}) 		顺手给一个「撤销」,6 秒内可点
-     const showReply = useCallback((text, undo, move) => {
-       setReply(text ? { text: text, undo: undo || null, move: move || null } : null)
+     const showReply = useCallback((text, undo, move, meta) => {
        if (timer.current) clearTimeout(timer.current)
-       if (!text) return
-       timer.current = setTimeout(() => setReply(null), undo ? 6000 : 3500)
+       if (timerOut.current) clearTimeout(timerOut.current)
+       if (!text) { setReply(null); return }
+       const life = undo ? 6500 : 4200
+       setReply({ text: text, undo: undo || null, move: move || null, ...(meta || {}), leaving: false, life })
+       // 先淡出,再从 DOM 拿掉;直接消失会像页面闪了一下
+       timer.current = setTimeout(() => {
+         setReply((cur) => (cur ? { ...cur, leaving: true } : cur))
+         timerOut.current = setTimeout(() => setReply(null), 260)
+       }, life)
      }, [])
 
      const go = useCallback((next, opts) => { setPage(next); setFocus(opts || null); setSeq((s) => s + 1) }, [])
@@ -3620,12 +3710,16 @@ window.__ModuleLoader__.load({
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
        // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
-       showReply(r.reply || '已保存', undo, move)
+       showReply(r.reply || '已保存', undo, move, captureToast(r))
        setFocus(null)
        if (r.parsed && r.parsed.kind === 'link') { setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setPage('notes'); setSeq((s) => s + 1) }
        else setPage('home')
+     }, [showReply])
+
+     const onCaptureFail = useCallback(() => {
+       showReply('没存上,请检查连接后再试', null, null, { label: '保存失败', title: '这次没有存进去', tone: 'err' })
      }, [showReply])
 
      const onLink = useCallback(async (r) => {
@@ -3637,7 +3731,7 @@ window.__ModuleLoader__.load({
 
      return h(SidebarView, {
        state, page, seq, reply, err, run, bridge, onRetry: load,
-       focus, onGo: go, onCaptureDone, onLink,
+       focus, onGo: go, onCaptureDone, onCaptureFail, onLink,
        notify: showReply,
        onClearReply: () => showReply(''),
        seed,
@@ -3646,7 +3740,7 @@ window.__ModuleLoader__.load({
    }
 
    /** 侧栏页面的纯展示部分:状态由 SidebarPage 喂进来(这样能脱离浏览器直接测)。 */
-   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry, focus }) {
+   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onCaptureFail, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry, focus }) {
      const sidebar = useSidebarBridge(bridge)
      const goTo = onGo
      if (!state) {
@@ -3660,7 +3754,7 @@ window.__ModuleLoader__.load({
      const alerts = (state.alerts || []).filter(() => !(state.settings && state.settings.muted))
      const body = (() => {
        // notify 由 SidebarPage 注入(这里没有自己的 showReply)
-       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
+       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, onFail: onCaptureFail, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
@@ -3689,8 +3783,7 @@ window.__ModuleLoader__.load({
        h('div', { key: 'body', className: '__dk_spbody' }, [
          // 提醒主视觉在右下角提醒坞;这里只留一条紧凑状态条,不重复堆卡片
          h(AlertInline, { key: 'alerts', alerts, run }),
-         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply }),
-         h(ReplyMove, { key: 'rmove', reply, run, onSay: onClearReply ? (t) => showReply(t) : null }),
+         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: onClearReply ? (t) => showReply(t) : null }),
          err ? h(ErrorBar, { key: 'err', text: err, onRetry }) : null,
          h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page' }, h(SafePage, null, body)),
        ]),
@@ -3918,7 +4011,7 @@ window.__ModuleLoader__.load({
    exports.apply = apply
    exports.inject = inject
    exports.__test = {
-     Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, HeaderButton,
+     Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, captureToast, HeaderButton,
      Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO, alertHead,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,

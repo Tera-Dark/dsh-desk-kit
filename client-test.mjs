@@ -722,6 +722,30 @@ test('一句话输入:输入法选词时按 Enter 不能提交', () => {
   assert.ok(html.includes('<textarea'), '仍是 textarea')
 })
 
+test('存完提示:分类、标题、摘要一眼可见', () => {
+  const meta = T.captureToast({
+    parsed: { kind: 'reminder' },
+    item: { title: '喂猫粮', time: '16:00', leadMin: 0 },
+    reply: '已排成提醒:喂猫粮 · 2026-11-19 16:00',
+  })
+  assert.equal(meta.label, '提醒')
+  assert.equal(meta.title, '喂猫粮')
+  assert.equal(meta.tone, 'reminder')
+  assert.ok(meta.detail.includes('2026-11-19'), '摘要要保留时间')
+  assert.ok(!meta.detail.includes('喂猫粮'), '标题不要重复抄进摘要')
+  const html = renderToString(h(T.ReplyBar, {
+    reply: { ...meta, text: meta.detail, life: 4200 }, run, onClear: () => {},
+  }))
+  assert.ok(html.includes('__dk_toast--reminder'), '要有分类色')
+  assert.ok(html.includes('__dk_toastbadge') && html.includes('提醒'), '要显示栏位')
+  assert.ok(html.includes('已保存') && html.includes('喂猫粮'), '要显示成功和事项')
+  assert.ok(html.includes('__dk_toastlife'), '要有自动消失的进度条')
+
+  const note = T.captureToast({ parsed: { kind: 'note' }, item: { text: '第一行\n第二行' }, reply: '已记成便签' })
+  assert.equal(note.label, '便签')
+  assert.equal(note.title, '第一行')
+})
+
 test('反馈条:有撤销动作才出「撤销」按钮', () => {
   const withUndo = renderToString(h(T.ReplyBar, {
     reply: { text: '已移入垃圾箱', undo: { action: 'note.restore', payload: { id: 'n1' } } }, run, onClear: () => {},

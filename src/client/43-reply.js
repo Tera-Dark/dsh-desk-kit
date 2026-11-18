@@ -36,18 +36,39 @@
      const text = typeof reply === 'string' ? reply : reply.text
      const undo = reply && typeof reply === 'object' ? reply.undo : null
      const move = reply && typeof reply === 'object' ? reply.move : null
-     return h('div', { className: '__dk_reply' }, [
-       h('span', { key: 't', className: '__dk_replytext' }, text),
-       undo
-         ? h('button', {
-           key: 'u', className: '__dk_replybtn', title: '撤销刚才那一步',
-           onClick: async () => {
-             await run(undo.action, undo.payload)
-             if (typeof undo.after === 'function') undo.after()
-             if (onClear) onClear()
-           },
-         }, '撤销')
-         : null,
+     const label = reply && typeof reply === 'object' ? reply.label : ''
+     const title = reply && typeof reply === 'object' ? reply.title : ''
+     const tone = (reply && typeof reply === 'object' && reply.tone) || 'ok'
+     const life = reply && reply.life ? (reply.life / 1000) + 's' : '4.2s'
+     return h('div', {
+       className: '__dk_toast __dk_toast--' + tone + (reply && reply.leaving ? ' __dk_toast--out' : ''),
+       role: 'status', 'aria-live': 'polite',
+     }, [
+       h('div', { key: 'ic', className: '__dk_toasticon' }, tone === 'err' ? '!' : '✓'),
+       h('div', { key: 'm', className: '__dk_toastmain' }, [
+         h('div', { key: 'h', className: '__dk_toasthead' }, [
+           label ? h('span', { key: 'b', className: '__dk_toastbadge' }, label) : null,
+           h('span', { key: 's', className: '__dk_toaststatus' }, tone === 'err' ? '保存失败' : '已保存'),
+         ]),
+         title ? h('div', { key: 't', className: '__dk_toasttitle' }, title) : null,
+         text ? h('div', { key: 'd', className: '__dk_toasttext __dk_replytext' }, text) : null,
+         move ? h('div', { key: 'mv', className: '__dk_toastmove' },
+           h(MoveChips, { kind: move.kind, id: move.id, run, notify: onSay, label: '分错了?转存到' })) : null,
+         undo ? h('div', { key: 'a', className: '__dk_toastacts' },
+           h('button', {
+             key: 'u', className: '__dk_replybtn', title: '撤销刚才那一步',
+             onClick: async () => {
+               await run(undo.action, undo.payload)
+               if (typeof undo.after === 'function') undo.after()
+               if (onClear) onClear()
+             },
+           }, '撤销')) : null,
+       ]),
+       h('button', {
+         key: 'x', className: '__dk_toastx', title: '关闭', 'aria-label': '关闭提示',
+         onClick: () => { if (onClear) onClear() },
+       }, '×'),
+       h('i', { key: 'life', className: '__dk_toastlife', style: { '--dk-toast-life': life } }),
      ])
    }
 
