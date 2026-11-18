@@ -4,6 +4,58 @@
 
 每个版本的「为什么」和「验收」都写在下面,功能和用法看 [README](README.md)。
 
+## 1.14.0 · 拆开客户端,并给「粘贴截图」补上回归测试
+
+两件都是结构性的:一件让代码能被改,一件让最容易坏的那条链坏了会被发现。
+
+### client.js:3316 行 → 18 个源文件
+
+宿主只加载一个 `client.js`(`__ModuleLoader__` 单文件 bundle,不能 `import`),
+所以做法是**源码拆分 + 构建拼接**,零运行时依赖:
+
+```
+src/client/00-head.js      包装开头 + require
+        10-icons.js        图标与 Ico
+        20-style.js        全部 CSS(280 行)
+        30-core.js         API/上传/格式化/剪贴板
+        40-fab.js          浮标
+        41-panel-layout.js 面板定位
+        42-capture.js      一句话入口
+        43-reply.js        回执 / 附件格子 / 大图
+        50-home.js … 55-settings.js  六个页面
+        60-main.js 61-header-door.js 62-alerts.js 70-sidebar.js
+scripts/build-client.mjs   按文件名顺序拼接;--check 只校验不写
+```
+
+**验收是机械的**:拆完重新拼出来的 `client.js` 与拆分前 **`git diff` 为空**(纯搬运,
+一个字节的逻辑都没动);`npm test` 的 `pretest` 会先跑 `build:check`,
+产物与源码不一致就直接失败(CI 里也有同一步)。
+
+### 客户端交互 E2E:真浏览器 + 真 React + 真接口
+
+以前 55 个客户端测试都只断言「渲染出什么 HTML」——点一下、粘一张图、按 Esc 全测不到,
+而粘贴截图正是这个插件最要紧的链。
+
+`npm run test:ui` 起一个本地服务(临时数据目录,不碰你真实的随手台),页面自己驱动 11 个断言:
+
+| 断言 | 说明 |
+|---|---|
+| 挂载真实 NotesPage | 真组件 + 真接口,不是 mock |
+| 新建便签 | 真实输入 → 点保存 → 列表出现 |
+| 粘贴截图 → 草稿出现缩略图 | 真 `ClipboardEvent` + 真 `File`(画布导出的 PNG) |
+| 保存后便签里出现缩略图 | 上传 → 挂到便签 → 渲染 |
+| 自动起名 | 落库名是 `截图 20261118-164428.png`,不是 `image.png` |
+| 点缩略图打开大图 | 真 `<img>` 从取件地址加载,`naturalWidth = 140` |
+| 大图上有尺寸和下载 | `140×90` |
+| Esc 关闭 | 键盘事件真的能关 |
+| 搜索附件名命中 | 输入 → 防抖 → 「附件里命中」分组出现 |
+
+结果由页面 POST 回本地服务,`10/10 → 11/11` 全绿才退出 0。
+
+### 数字
+
+`test 60 / client 56 / capture 10 / lunar 4 / entry / ai-classify / harness(27 工具 + 附件 + 查找清理 + 导入 + Host)/ ownership / verify-installed / verify-v6 / ui-e2e 11`。
+
 ## 1.13.0 · 把浪费和省心的都补上
 
 这一版不对着「功能」,对着评分表里最低的四项:**性能、工程流程、功能闭环、安全**。

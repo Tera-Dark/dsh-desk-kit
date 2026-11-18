@@ -1,6 +1,6 @@
 {
   "name": "dsh-desk-kit",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "description": "定时提醒、随手便签(可带截图/文件)、网页收藏格子、加密保险库,四块都在侧栏标签页里;全局搜索 + 定时清理,另有 27 个 Agent 工具",
   "type": "module",
   "main": "index.js",
@@ -20,7 +20,9 @@
     "README.md",
     "LICENSE",
     "docs",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "src",
+    "test"
   ],
   "keywords": [
     "agent-tools",
@@ -78,6 +80,10 @@
     "test": "node --check index.js && node --check client.js && node test.mjs && node capture.test.mjs && node lunar.test.mjs && node client-test.mjs && node ownership.test.mjs && node ai-classify.test.mjs && node entry.test.mjs",
     "test:host": "node harness.mjs",
     "test:installed": "node verify-installed.mjs",
-    "test:all": "npm test && npm run test:host && npm run test:installed"
+    "test:all": "npm test && npm run test:host && npm run test:installed",
+    "build": "node scripts/build-client.mjs",
+    "build:check": "node scripts/build-client.mjs --check",
+    "pretest": "node scripts/build-client.mjs --check",
+    "test:ui": "node test/ui.e2e.mjs --auto"
   }
 }

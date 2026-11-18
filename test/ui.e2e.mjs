@@ -1,0 +1,253 @@
+/**
+ * 客户端交互 E2E:真浏览器 + 真 React + 真接口。
+ *
+ * 为什么要有:client-test.mjs 只能断言「渲染出什么 HTML」,
+ * 点一下、粘一张图、按 Esc 这些真实交互它测不到 —— 而「粘贴截图」正是本插件最要紧的一条链。
+ *
+ * 做法:起一个本地服务,同时提供
+ *   /            测试页(自己驱动所有交互,不依赖 Playwright)
+ *   /client.js   真的插件客户端(产物)
+ *   /react.js    宿主那份 React(UMD)
+ *   /desk-kit-api 真的插件接口
+ * 页面跑完把结果 POST 回来,这个脚本打印并退出(0/1)。
+ *
+ * 用法:
+ *   npm run test:ui          # 起服务,打开打印出来的地址
+ *   npm run test:ui -- --auto  # 只起服务,不尝试打开浏览器
+ */
+import { createServer } from 'node:http'
+import { readFileSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, dirname } from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import { spawn } from 'node:child_process'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const ROOT = join(HERE, '..')
+
+// 数据目录用临时目录:这个测试不许碰你真实的随手台数据
+process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dk-ui-e2e-'))
+const { apply } = await import('file://' + join(ROOT, 'index.js').replace(/\\/g, '/'))
+
+// ---- 找宿主那份 react(UMD 构建) ----
+function umd(name) {
+  const tries = [join(ROOT, 'package.json'), join(process.env.DSH_HOME || '', 'profiles', 'desktop', 'package.json')]
+  for (const from of tries) {
+    try {
+      const r = createRequire(from)
+      const main = r.resolve(name)
+      const base = main.replace(/[\\/](index|cjs|dist[\\/][a-z-]+)\.js$/, '')
+      const dir = dirname(main)
+      const cand = [
+        join(dir, 'umd', name + '.development.js'),
+        join(dir, 'umd', name + '.production.min.js'),
+      ]
+      for (const c of cand) { try { return readFileSync(c, 'utf8') } catch { } }
+    } catch { /* 换下一个 */ }
+  }
+  // 最后试 DSH profile 根
+  const profile = join(process.env.HOME || process.env.USERPROFILE || '', '.dsh', 'profiles', 'desktop', 'package.json')
+  try {
+    const r = createRequire(profile)
+    const main = r.resolve(name)
+    const dir = dirname(main)
+    for (const c of [join(dir, 'umd', name + '.development.js'), join(dir, 'umd', name + '.production.min.js')]) {
+      try { return readFileSync(c, 'utf8') } catch { }
+    }
+  } catch { }
+  throw new Error('找不到 ' + name + ' 的 UMD 构建:请在 DSH profile 或本仓库装好 react / react-dom')
+}
+
+const REACT = umd('react')
+const REACT_DOM = umd('react-dom')
+
+// ---- 插件接口(桩掉宿主服务) ----
+const routes = []
+const tools = new Map()
+apply({
+  inject: (_d, cb) => cb(), effect: (fn) => fn(),
+  get: (n) => (n === 'webServer' ? { register: (r) => { routes.push(r); return () => {} } } : undefined),
+  tools: { register: (d) => tools.set(d.name, d) },
+  logger: { error: (m) => console.error('[plugin]', m), warn() {}, info() {} },
+})
+
+const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>desk-kit ui e2e</title>
+<style>body{margin:0;background:#0f1115;color:#e6edf3;font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;padding:16px;width:390px}
+#root{border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:10px;min-height:200px}
+pre{white-space:pre-wrap;font-size:11.5px;color:#9aa4b2;margin-top:12px}</style></head><body>
+<div id="root"></div><pre id="log"></pre>
+<script>window.__ModuleLoader__={ load:(spec)=>{ window.__spec=spec } }</script>
+<script src="/react.js"></script>
+<script src="/react-dom.js"></script>
+<script src="/client.js"></script>
+<script src="/ui-run.js"></script>
+</body></html>`
+
+const RUN = String.raw`
+const log = (s) => { document.getElementById('log').textContent += s + '\n' }
+const results = []
+const step = (name, ok, extra) => { results.push({ name, ok, extra: extra || '' }); log((ok ? '✓ ' : '✖ ') + name + (extra ? '  ' + extra : '')) }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+async function waitFor(cond, ms = 5000) {
+  const t0 = Date.now()
+  while (Date.now() - t0 < ms) { try { const v = cond(); if (v) return v } catch (e) { } await sleep(60) }
+  return null
+}
+const byText = (tag, text) => Array.from(document.querySelectorAll(tag)).find((el) => (el.textContent || '').trim().includes(text))
+function setValue(el, value) {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value').set
+  setter.call(el, value)
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+}
+const click = (el) => {
+  if (!el) throw new Error('要点的元素不存在')
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+}
+/** 编辑器可能已经开着(按钮变成「收起」),也可能没开 —— 两种都能进去 */
+async function openComposer() {
+  const open = document.querySelector('.__dk_form textarea')
+  if (open) return document.querySelector('.__dk_form')
+  click(await waitFor(() => byText('button', '新便签')))
+  return waitFor(() => document.querySelector('.__dk_form'))
+}
+/** 保存之后等下它收起,否则下一步找不到「新便签」按钮 */
+const waitClosed = () => waitFor(() => !document.querySelector('.__dk_form'), 3000)
+
+const T = window.__spec.factory((n) => (n === 'react' ? React : ReactDOM)).__test
+const h = React.createElement
+const container = document.getElementById('root')
+const reactRoot = ReactDOM.createRoot(container)
+let state = null
+let painted = 0
+function paint() { painted++; reactRoot.render(h(T.NotesPage, { state, run })) }
+async function run(action, payload) {
+  const res = await fetch('/desk-kit-api', { method: 'POST', headers: { 'content-type': 'application/json', 'x-desk-kit': '1' }, body: JSON.stringify({ action, payload: payload || {} }) })
+  const body = await res.json()
+  if (!res.ok || !body.ok) throw new Error(body.error || ('HTTP ' + res.status))
+  state = body.state
+  paint()
+  return body
+}
+async function boot() {
+  const res = await fetch('/desk-kit-api', { headers: { 'x-desk-kit': '1' } })
+  state = (await res.json()).state
+  paint()
+  await waitFor(() => document.querySelector('textarea'))
+}
+
+async function makePng() {
+  const c = document.createElement('canvas'); c.width = 140; c.height = 90
+  const ctx = c.getContext('2d')
+  ctx.fillStyle = '#2b6cf6'; ctx.fillRect(0, 0, 140, 90)
+  ctx.fillStyle = '#fff'; ctx.font = '18px sans-serif'; ctx.fillText('截图', 44, 54)
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'))
+  return new File([blob], 'E2E 截图.png', { type: 'image/png' })
+}
+function pasteFiles(el, files) {
+  const dt = new DataTransfer()
+  for (const f of files) dt.items.add(f)
+  const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
+  el.dispatchEvent(ev)
+}
+
+;(async () => {
+  try {
+    await boot()
+    step('挂载 NotesPage(真组件 + 真接口)', !!document.querySelector('input[type=search]'))
+
+    // 1) 新建便签:真实输入 → 点保存
+    const form1 = await openComposer()
+    setValue(form1.querySelector('textarea'), 'E2E 第一条便签')
+    await sleep(50)
+    click(byText('button', '保存'))
+    const created = await waitFor(() => (document.body.textContent || '').includes('E2E 第一条便签'))
+    step('新建便签', !!created)
+    await waitClosed()
+
+    // 2) 粘贴一张真 PNG → 挂在草稿 → 保存 → 出现缩略图
+    const form = await openComposer()
+    const png = await makePng()
+    pasteFiles(form, [png])
+    const thumb = await waitFor(() => document.querySelector('.__dk_draftfiles img, .__dk_fchip img'))
+    step('粘贴截图 → 草稿里出现缩略图', !!thumb)
+    click(byText('button', '保存'))
+    const saved = await waitFor(() => Array.from(document.querySelectorAll('.__dk_fgrid img')).length > 0)
+    await waitClosed()
+    step('保存后便签里出现附件缩略图', !!saved)
+    const withFile = (state.notes || []).find((n) => (n.files || []).length > 0)
+    step('快照里那条便签记住了附件', !!withFile, withFile ? withFile.files.length + ' 个' : '')
+    const meta = (state.files || []).find((f) => (withFile.files || []).includes(f.id))
+    step('粘贴进来的截图自动起名(带时间),不是 image.png', !!(meta && /^截图 \d{8}-\d{6}\.png$/.test(meta.name)), meta ? meta.name : '')
+
+    // 3) 点缩略图 → 大图真的加载出来
+    const tile = document.querySelector('.__dk_fgrid img')
+    click(tile)
+    const light = await waitFor(() => document.querySelector('.__dk_light'))
+    step('点缩略图打开大图', !!light)
+    const img = light && light.querySelector('img')
+    await waitFor(() => img && img.complete && img.naturalWidth > 0, 4000)
+    step('大图从取件地址真的加载出来', !!(img && img.naturalWidth > 0), img ? img.naturalWidth + '×' + img.naturalHeight : '没加载')
+    step('大图上有尺寸和下载', !!(light && light.textContent.includes('140×90') && light.textContent.includes('下载')))
+
+    // 4) Esc 关闭
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    const closed = await waitFor(() => !document.querySelector('.__dk_light'), 3000)
+    step('Esc 关闭大图', !!closed)
+
+    // 5) 搜索附件名 → 「附件里命中」
+    const search = document.querySelector('input[type=search]')
+    setValue(search, '截图')
+    const hit = await waitFor(() => (document.body.textContent || '').includes('附件里命中'), 4000)
+    step('搜索附件名命中', !!hit)
+    setValue(search, '')
+
+    window.__E2E = { results, ok: results.every((r) => r.ok) }
+  } catch (e) {
+    step('未捕获异常', false, String((e && e.message) || e))
+    window.__E2E = { results, ok: false }
+  }
+  try {
+    await fetch('/done', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(window.__E2E) })
+  } catch (e) { }
+})()
+`
+
+const server = createServer((req, res) => {
+  const url = String(req.url || '/')
+  const send = (code, type, body) => { res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' }); res.end(body) }
+  for (const r of routes) if (url.startsWith(r.path)) return r.handler(req, res)
+  if (url === '/done' && req.method === 'POST') {
+    let raw = ''
+    req.on('data', (c) => { raw += c })
+    req.on('end', () => {
+      let out = { results: [], ok: false }
+      try { out = JSON.parse(raw) } catch { }
+      console.log('\n—— 浏览器里报回来的结果 ——')
+      for (const r of out.results) console.log((r.ok ? '  ✓ ' : '  ✖ ') + r.name + (r.extra ? '  ' + r.extra : ''))
+      const passed = out.results.filter((r) => r.ok).length
+      console.log('\n' + passed + '/' + out.results.length + (out.ok ? ' · UI E2E PASSED' : ' · UI E2E FAILED'))
+      res.writeHead(204); res.end()
+      setTimeout(() => { server.close(); process.exit(out.ok ? 0 : 1) }, 100)
+    })
+    return
+  }
+  if (url === '/' || url.startsWith('/?')) return send(200, 'text/html; charset=utf-8', PAGE)
+  if (url === '/client.js') return send(200, 'application/javascript; charset=utf-8', readFileSync(join(ROOT, 'client.js'), 'utf8'))
+  if (url === '/react.js') return send(200, 'application/javascript; charset=utf-8', REACT)
+  if (url === '/react-dom.js') return send(200, 'application/javascript; charset=utf-8', REACT_DOM)
+  if (url === '/ui-run.js') return send(200, 'application/javascript; charset=utf-8', RUN)
+  send(404, 'text/plain; charset=utf-8', 'not found')
+})
+
+const port = Number(process.env.PORT || 8795)
+server.listen(port, '127.0.0.1', () => {
+  const url = 'http://127.0.0.1:' + port + '/'
+  console.log('UI E2E 就绪:' + url)
+  console.log('(用浏览器打开它;页面会自己跑完所有交互,然后把结果报回来)')
+  if (!process.argv.includes('--auto') && process.platform === 'win32') {
+    try { spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref() } catch { }
+  }
+})
+setTimeout(() => { console.error('超时:60 秒内没有收到浏览器结果'); server.close(); process.exit(1) }, 60000)

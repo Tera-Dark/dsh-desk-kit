@@ -143,3 +143,14 @@ data.json files[] { id, name, mime, size, w, h, secret, kind, ownerId, createdAt
 
 `sweepTrash` 是**先算后删**:先把要清的条目、要释放的字节算出来返回,再落盘,
 所以回执能说「清了 3 条便签,释放 1.2MB」而不是「完成」。
+
+## 客户端为什么要拼接(1.14.0)
+
+宿主通过 `__ModuleLoader__.load({ factory })` 加载 **一个** `client.js`,
+浏览器侧没有打包器,也不能改成 ESM import。所以源码按页拆在 `src/client/*.js`,
+`scripts/build-client.mjs` 按**文件名顺序**拼接成 `client.js`(产物入库)。
+
+规矩只有一条:**改 `src/client/`,然后 `npm run build`**。
+`npm test` 会先跑 `build:check`,产物与源码不一致就直接失败;
+CI 里也有同一步。拆分当时的验收标准是「拼回去与拆分前逐字节相同」——
+纯搬运,一个字节的逻辑都没动。

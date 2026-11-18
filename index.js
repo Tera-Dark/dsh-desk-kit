@@ -265,7 +265,7 @@ const ROUTE = '/desk-kit-api'
 const MAX_FILE_BYTES = 24 * 1024 * 1024
 /** 附件总量上限(单文件 24MB,总量 512MB)。超了就提示清理,不静默写满盘。 */
 const MAX_BLOB_BYTES = 512 * 1024 * 1024
-const PLUGIN_VERSION = '1.13.0'
+const PLUGIN_VERSION = '1.14.0'
 const TICK_MS = 15000
 
 function dshHome() {

@@ -144,14 +144,25 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 
 ```bash
 npm test            # 存储 / 分拣 / 农历 / 客户端渲染 / 归属 / AI 分类 / 入口
-npm run test:host   # 桩掉 webServer,真起 HTTP:API、27 个工具、附件、转存、清理
+npm run test:host   # 桩掉 webServer,真起 HTTP:API、27 个工具、附件、转存、清理、导入
 npm run test:installed  # 按装好的样子加载一遍
+npm run test:ui     # 真浏览器里点一遍:粘贴截图 → 缩略图 → 大图 → Esc → 搜索
 ```
 
 需要 `react` / `react-dom`:从 DSH profile 里取,没有就装在本仓库。
+
+**改客户端改 `src/client/*.js`,不要直接改 `client.js`** —— 后者是拼接产物:
+
+```bash
+npm run build        # src/client/*.js → client.js(按文件名顺序拼)
+npm run build:check  # 只看「产物是否与源码一致」,npm test 会自动先跑它
+```
+
+宿主只加载 `client.js` 一个文件(单文件 bundle,不能 `import`),所以用拼接换可维护性,
+不引入打包器、不引入运行时依赖。
 
 ---
 
 ## 变更历史
 
-逐版本的「为什么 + 验收」都在 [CHANGELOG.md](CHANGELOG.md)。当前版本 **1.13.0**。
+逐版本的「为什么 + 验收」都在 [CHANGELOG.md](CHANGELOG.md)。当前版本 **1.14.0**。
