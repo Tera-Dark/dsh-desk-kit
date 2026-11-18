@@ -45,8 +45,24 @@ apply(ctx)
 const base = 'http://127.0.0.1:' + port + '/desk-kit-api'
 const get = async () => (await (await fetch(base)).json())
 const post = async (action, payload) => {
-  const r = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, payload }) })
+  const r = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json', 'x-desk-kit': '1' }, body: JSON.stringify({ action, payload }) })
   return r.json()
+}
+
+// 2.5) 只认本机页面:别的网站不该能替用户改数据
+const rawPost = (headers, body) => fetch(base, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) })
+{
+  const noMark = await rawPost({}, { action: 'note.add', payload: { text: '没有标记' } })
+  assert.equal(noMark.status, 403, 'POST 必须带 x-desk-kit 标记')
+  const foreign = await rawPost({ 'x-desk-kit': '1', origin: 'https://evil.example' }, { action: 'note.add', payload: { text: '外站' } })
+  assert.equal(foreign.status, 403, '外站来源要拒')
+  const crossSite = await rawPost({ 'x-desk-kit': '1', 'sec-fetch-site': 'cross-site' }, { action: 'note.add', payload: { text: '跨站' } })
+  assert.equal(crossSite.status, 403, 'sec-fetch-site=cross-site 要拒')
+  const sameOrigin = await rawPost({ 'x-desk-kit': '1', origin: base.replace('/desk-kit-api', ''), 'sec-fetch-site': 'same-origin' }, { action: 'note.add', payload: { text: '本机页面' } })
+  assert.equal(sameOrigin.status, 200, '本机同源请求要放行')
+  const junk = await post('note.purge', { id: (await get()).state.notes[0].id })
+  assert.ok(junk.ok, '清掉这条探针便签')
+  console.log('✓ 请求围栏:无标记 / 外站来源 / 跨站 一律 403,本机同源放行')
 }
 
 // 3) 空库:不该替用户造数据

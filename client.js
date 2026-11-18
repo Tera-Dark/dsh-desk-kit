@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
    const FAB_PAD = 18
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-   const VERSION = '1.9.0'
+   const VERSION = '1.10.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -271,6 +271,16 @@ window.__ModuleLoader__.load({
      '.__dk_appact .__dk_mini{width:20px;height:20px;border-radius:6px;background:var(--dsw-alias-bg-layer-2,#24282e);box-shadow:0 1px 4px rgba(0,0,0,.3)}',
      '.__dk_groupchips{display:flex;gap:6px;flex-wrap:wrap;padding:2px 0 6px}',
      '.__dk_movechips{align-items:center;padding:4px 2px 6px}',
+     '.__dk_card{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l1,rgba(255,255,255,.10));border-radius:12px;background:var(--dsw-alias-bg-layer-1,rgba(255,255,255,.02));font-size:13px;line-height:1.6}',
+     '.__dk_cardtop{display:flex;align-items:baseline;gap:8px}',
+     '.__dk_cardtitle{font-weight:600;font-size:13.5px}',
+     '.__dk_cardcounts{display:flex;gap:16px;flex-wrap:wrap}',
+     '.__dk_cardcount{display:flex;align-items:baseline;gap:4px;color:var(--dsw-alias-label-secondary,#9aa4b2)}',
+     '.__dk_cardcount b{font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary,#e6edf3)}',
+     '.__dk_cardcount span{font-size:11.5px}',
+     '.__dk_cardrows{display:flex;flex-direction:column;gap:6px}',
+     '.__dk_cardrow{display:flex;align-items:center;justify-content:space-between;gap:10px}',
+     '.__dk_cardkbd{font-size:11px;line-height:1.6;color:var(--dsw-alias-label-tertiary,#8b949e)}',
      '.__dk_appnote{max-width:78px;font-size:10.5px;line-height:1.3;color:var(--dsw-alias-label-tertiary,#8b949e);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
      '.__dk_grid--home{grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:10px 4px;padding:2px 0 10px}',
      '.__dk_grid--home .__dk_app{width:48px;height:48px;border-radius:14px}',
@@ -414,17 +424,35 @@ window.__ModuleLoader__.load({
      document.head.appendChild(tag)
    }
 
+   // 服务端要求这个头:跨源页面想带就得先发预检,而我们从不应答 CORS,于是拿不到。
+   const HEAD = { 'x-desk-kit': '1' }
+
    async function apiGet() {
-     const res = await fetch(API, { cache: 'no-store' })
+     const res = await fetch(API, { cache: 'no-store', headers: HEAD })
      const body = await res.json().catch(() => ({ ok: false, error: '宿主返回不是 JSON' }))
      if (!res.ok || body.ok === false) throw new Error(body.error || ('HTTP ' + res.status))
      return body.state
    }
    async function apiPost(action, payload) {
-     const res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, payload: payload || {} }) })
+     const res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json', ...HEAD }, body: JSON.stringify({ action, payload: payload || {} }) })
      const body = await res.json().catch(() => ({ ok: false, error: '宿主返回不是 JSON' }))
      if (!res.ok || body.ok === false) throw new Error(body.error || ('HTTP ' + res.status))
      return body
+   }
+
+   /**
+    * 复制敏感内容:30 秒后如果剪贴板里还是它,就清掉。
+    * Windows 的剪贴板历史会一直留着复制的密码,这一步至少不让它躺在最上面。
+    */
+   function copySecret(text, ms = 30000) {
+     try { navigator.clipboard.writeText(String(text)) } catch { return false }
+     setTimeout(async () => {
+       try {
+         const now = await navigator.clipboard.readText()
+         if (now === String(text)) await navigator.clipboard.writeText('')
+       } catch { /* 没给读剪贴板权限:读不到就只留提示,不硬清 */ }
+     }, ms)
+     return true
    }
 
    const fmtClock = (ts) => { if (!ts) return ''; const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') }
@@ -1704,7 +1732,7 @@ window.__ModuleLoader__.load({
              h('div', { key: k, className: '__dk_field' }, [
                h('span', { key: 'k', className: 'k' }, k),
                h('span', { key: 'v', className: 'v' }, String(v)),
-               h('button', { key: 'c', className: '__dk_mini', title: '复制', onClick: () => { if (copy(v)) say('已复制') } }, h(Ico, { name: 'copy', size: 13 })),
+               h('button', { key: 'c', className: '__dk_mini', title: '复制(30 秒后自动清空剪贴板)', onClick: () => { if (copySecret(v)) say('已复制,30 秒后自动清空剪贴板') } }, h(Ico, { name: 'copy', size: 13 })),
              ]))) : null,
            revealed[s.id] && revealed[s.id].note
              ? h('div', { key: 'n', className: '__dk_note', style: { whiteSpace: 'pre-wrap', padding: '2px 4px 0' } }, revealed[s.id].note)
@@ -1739,7 +1767,7 @@ window.__ModuleLoader__.load({
 
      useEffect(function () {
        if (initialProviders !== undefined) return; // 测试注入时不再请求
-       fetch('/desk-kit-api/models')
+       fetch('/desk-kit-api/models', { headers: HEAD })
          .then(function (r) { return r.json() })
          .then(function (data) {
            setProviders(data && Array.isArray(data.providers) ? data.providers : []);
@@ -1897,7 +1925,7 @@ window.__ModuleLoader__.load({
              key: 'b', className: '__dk_btn',
              onClick: async () => {
                try {
-                 const r = await fetch(API + '/export')
+                 const r = await fetch(API + '/export', { headers: HEAD })
                  const body = await r.json()
                  if (!body || !body.ok) throw new Error((body && body.error) || '导出失败')
                  const text = JSON.stringify(body.backup, null, 2)
@@ -2628,6 +2656,81 @@ window.__ModuleLoader__.load({
      ])
    }
 
+   /**
+    * 设置 → 插件 里的入口卡片(plugins.bundle.config / plugins.row.config)。
+    * 为什么要有:随手台的主入口是侧栏标签页,不装侧栏插件时是右下角浮标 ——
+    * 两种都藏在「界面」里,而人找设置第一反应是「设置 → 插件」。这里放一张真正的
+    * 控制面板:版本、当前存量、三个开关、备份,和「打开随手台」。
+    */
+   function PluginCard({ view }) {
+     const [state, setState] = useState(null)
+     const [err, setErr] = useState('')
+     const [busy, setBusy] = useState(false)
+     useEffect(() => {
+       let alive = true
+       apiGet().then((st) => { if (alive) setState(st) }).catch((e) => { if (alive) setErr(String((e && e.message) || e)) })
+       return () => { alive = false }
+     }, [])
+     const set = async (patch) => {
+       setBusy(true)
+       try {
+         const body = await apiPost('settings.update', patch)
+         if (body && body.state) setState(body.state)
+       } catch (e) { setErr(String((e && e.message) || e)) } finally { setBusy(false) }
+     }
+     const open = () => { try { requestOpen() } catch (e) { setErr('叫不醒面板:' + String((e && e.message) || e)) } }
+     const backup = async () => {
+       try {
+         const r = await fetch(API + '/export', { headers: HEAD })
+         const data = await r.json()
+         const blob = new Blob([JSON.stringify(data.backup, null, 2)], { type: 'application/json' })
+         const a = document.createElement('a')
+         a.href = URL.createObjectURL(blob)
+         a.download = 'desk-kit-backup-' + new Date().toISOString().slice(0, 10) + '.json'
+         a.click()
+         setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+       } catch (e) { setErr('导出失败:' + String((e && e.message) || e)) }
+     }
+     if (view === 'summary') {
+       const c = state
+       return h('span', { className: '__dk_hint' }, c
+         ? [c.reminderCounts.active + ' 条提醒 · ' + c.noteCounts.active + ' 张便签 · ' + c.linkCounts.active + ' 个网页 · ' + (c.secrets || []).length + ' 条凭据'].join('')
+         : '提醒 · 便签 · 网页 · 保险库')
+     }
+     const s2 = state || {}
+     const settings = s2.settings || {}
+     const counts = [
+       ['提醒', (s2.reminderCounts || {}).active || 0],
+       ['便签', (s2.noteCounts || {}).active || 0],
+       ['网页', (s2.linkCounts || {}).active || 0],
+       ['凭据', (s2.secrets || []).length],
+     ]
+     return h('div', { className: '__dk_card' }, [
+       h('div', { key: 'h', className: '__dk_cardtop' }, [
+         h('span', { key: 'v', className: '__dk_cardtitle' }, '随手台'),
+         h('span', { key: 'ver', className: '__dk_hint' }, 'v' + VERSION),
+       ]),
+       h('div', { key: 'c', className: '__dk_cardcounts' }, counts.map(([label, n]) =>
+         h('span', { key: label, className: '__dk_cardcount' }, [h('b', { key: 'n' }, String(n)), h('span', { key: 'l' }, label)]))),
+       h('div', { key: 'sw', className: '__dk_cardrows' }, [
+         h('div', { key: 's1', className: '__dk_cardrow' }, [
+           h('span', { key: 'l' }, '到点提示音'),
+           h('button', { key: 'b', className: '__dk_switch' + (settings.sound !== false ? ' on' : ''), disabled: busy, title: '到点了响一声', onClick: () => set({ sound: settings.sound === false }) }),
+         ]),
+         h('div', { key: 's2', className: '__dk_cardrow' }, [
+           h('span', { key: 'l' }, '网页用网站图标'),
+           h('button', { key: 'b', className: '__dk_switch' + (settings.linkFavicons ? ' on' : ''), disabled: busy, title: '会联网去 icons.duckduckgo.com 取', onClick: () => set({ linkFavicons: !settings.linkFavicons }) }),
+         ]),
+       ]),
+       h('div', { key: 'a', className: '__dk_frow' }, [
+         h('button', { key: 'o', className: '__dk_btn p', onClick: open }, '打开随手台'),
+         h('button', { key: 'b', className: '__dk_btn', onClick: backup }, [h(Ico, { key: 'i', name: 'download', size: 14 }), ' 备份']),
+       ]),
+       h('div', { key: 'k', className: '__dk_hint __dk_cardkbd' }, '也能用:侧栏「随手台」标签 · 会话顶栏的剪贴板图标 · Ctrl/Cmd+Shift+K · 在输入框敲 /desk-kit'),
+       err ? h('div', { key: 'e', className: '__dk_err' }, err) : null,
+     ])
+   }
+
    const inject = ['slots']
 
    /**
@@ -2721,6 +2824,35 @@ window.__ModuleLoader__.load({
          () => h(HeaderButton),
        ))
      } catch { /* 宿主没这个槽位:只保留浮标 */ }
+     // 侧门 3:设置 → 插件 里的卡片。包页(bundle)和组件行(row)两个座位都占:
+     // 宿主版本不同,能渲染出的那个不一样。
+     for (const [slot, key] of [['plugins.bundle.config', 'dsh-desk-kit'], ['plugins.row.config', 'dsh-desk-kit#dsh-desk-kit']]) {
+       try {
+         ctx.slots.inject(slot, () => ctx.slots.register(
+           { name: slot, key },   // 不声明 locale:卡片里没有需要翻译的文案
+           (props) => h(PluginCard, { view: props && props.view }),
+         ))
+       } catch (error) { /* 宿主没有这个槽位:少一个入口,不影响主流程 */ }
+     }
+     // 侧门 4:斜杠命令 /desk-kit。手不用离开输入框。
+     try {
+       const commandUi = ctx.get && ctx.get('commandUi')
+       const register = (command, name) => command.register({
+         name,
+         description: () => '打开随手台 / Open Desk Kit',
+         available: () => true,
+         ui: { kind: 'action', run: () => { try { requestOpen() } catch (e) { /* 面板不在也就算了 */ } } },
+       })
+       if (commandUi && typeof commandUi.register === 'function') {
+         const off = register(commandUi, 'desk-kit')
+         if (typeof ctx.effect === 'function' && typeof off === 'function') ctx.effect(() => off, 'desk-kit: slash command')
+         // 中文命令名不是所有宿主都收,单独试,失败不影响上面的
+         try {
+           const offZh = register(commandUi, '随手台')
+           if (typeof ctx.effect === 'function' && typeof offZh === 'function') ctx.effect(() => offZh, 'desk-kit: 中文命令')
+         } catch (error) { /* 只认英文命令名 */ }
+       }
+     } catch (error) { /* 老宿主没有 commandUi */ }
      // 侧门 2:快捷键 Ctrl/Cmd+Shift+K。没有 shortcuts 服务时静默跳过。
      try {
        const shortcuts = ctx.get && ctx.get('shortcuts')
@@ -2742,7 +2874,7 @@ window.__ModuleLoader__.load({
      Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, HeaderButton,
      Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO, alertHead,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
-     LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS,
+     LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,

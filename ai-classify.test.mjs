@@ -48,7 +48,7 @@ apply({
   logger: { error: (m) => console.error('[ERR]', m), warn: () => {}, info: () => {} },
 })
 
-const post = async (a, p) => (await (await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: a, payload: p }) })).json())
+const post = async (a, p) => (await (await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json', 'x-desk-kit': '1' }, body: JSON.stringify({ action: a, payload: p }) })).json())
 const get = async () => (await (await fetch(base)).json())
 
 // --- 1) 未配模型:llm 不该被调用 ---

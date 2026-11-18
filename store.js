@@ -7,7 +7,7 @@
  *   vault.json  加密条目(每条独立 AES-256-GCM 密文)
  *   vault.key   本机主密钥材料(0600;丢失则保险库不可解)
  */
-import { readFileSync, writeFileSync, mkdirSync, renameSync, chmodSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync, chmodSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
 import { solar2lunar } from './lunar.js'
@@ -151,6 +151,14 @@ export function nextOccurrence(reminder, now = new Date()) {
 
 const backedUp = new Set()
 
+/** 文件指纹(修改时间 + 大小);读不到返回空串。 */
+function stampOf(file) {
+  try {
+    const st = statSync(file)
+    return st.mtimeMs + ':' + st.size
+  } catch { return '' }
+}
+
 /** 文本里能认出的网址:带协议的直接用,裸域名补 https。 */
 function urlInText(text) {
   const s = String(text || '')
@@ -208,6 +216,7 @@ export class DeskStore {
     this.vaultFile = join(root, 'vault.json')
     this.keyFile = join(root, 'vault.key')
     this.data = this.loadData()
+    this._stamp = stampOf(this.dataFile)
   }
 
   loadData() {
@@ -246,6 +255,24 @@ export class DeskStore {
 
   save() {
     writeJson(this.dataFile, this.data)
+    this._stamp = stampOf(this.dataFile)
+  }
+
+  /**
+   * 磁盘变了就把内存里的换掉。
+   * 桌面端和 web profile 各开一个 DSH 时,两边各有一份 DeskStore:谁后保存谁赢,
+   * 先保存的那次改动会凭空消失。每次处理请求 / 每轮 tick 前对一下文件时间戳,
+   * 至少让「另一边刚写过」这件事不会被我这边整份覆盖。
+   */
+  refresh() {
+    const stamp = stampOf(this.dataFile)
+    if (!stamp) return this
+    // 空串 = 上次读的时候文件还不存在 / 读不到,现在出现了也算「变了」
+    if (stamp !== this._stamp) {
+      this.data = this.loadData()
+      this._stamp = stamp
+    }
+    return this
   }
 
   // ---------------- 便签 ----------------

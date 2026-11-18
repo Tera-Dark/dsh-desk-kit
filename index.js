@@ -260,7 +260,7 @@ export const name = 'dsh-desk-kit'
 export const inject = ['webServer']
 
 const ROUTE = '/desk-kit-api'
-const PLUGIN_VERSION = '1.9.0'
+const PLUGIN_VERSION = '1.10.0'
 const TICK_MS = 15000
 
 function dshHome() {
@@ -280,6 +280,36 @@ function openStore() {
 function isLoopback(req) {
   const addr = String((req.socket && req.socket.remoteAddress) || '')
   return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1'
+}
+
+/** 回环地址的各种写法(localhost / 127.0.0.1 / [::1] / *.localhost)。 */
+function isLoopbackName(host) {
+  const h = String(host || '').replace(/^\[|\]$/g, '').toLowerCase()
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.localhost')
+}
+
+/**
+ * 只接受「本机页面自己发出来」的请求。
+ *
+ * 光看 socket 来源不够:任何网页都能往 127.0.0.1 发请求,虽然读不到响应(CORS),
+ * 但写操作照样会执行 —— 把提醒改成静音、往便签里塞东西都做得到。
+ *   · sec-fetch-site 是 cross-site/same-site → 别的站点发起的,拒
+ *   · 带 Origin 且不是本机来源 → 拒
+ *   · 写操作要求自定义头 x-desk-kit:跨源要带它就得先过预检,而我们不放行 CORS
+ */
+function guardRequest(req, method) {
+  const site = String(req.headers['sec-fetch-site'] || '').toLowerCase()
+  if (site === 'cross-site' || site === 'same-site') return '只允许本机页面调用'
+  const origin = String(req.headers.origin || '').trim()
+  if (origin) {
+    let host = ''
+    try { host = new URL(origin).hostname } catch { return '来源不合法' }
+    if (!isLoopbackName(host)) return '只允许本机页面调用'
+  }
+  if (String(method || '').toUpperCase() === 'POST' && String(req.headers['x-desk-kit'] || '') !== '1') {
+    return '缺少请求标记 x-desk-kit(跨站页面伪造不了这个头)'
+  }
+  return ''
 }
 
 function json(res, code, body) {
@@ -896,6 +926,13 @@ export function apply(ctx) {
       }
       const url = new URL(String(req.url || '/'), 'http://localhost')
       const method = String(req.method || 'GET').toUpperCase()
+      const guarded = guardRequest(req, method)
+      // 另一个 DSH 实例刚写过盘:先把内存换成磁盘上的,别拿旧数据整份覆盖
+      try { s.refresh() } catch (error) { /* 读不到就按内存里的继续 */ }
+      if (guarded) {
+        json(res, 403, { ok: false, error: guarded })
+        return
+      }
       try {
         // 模型目录:给设置页的「识图模型」下拉用
         if (url.pathname === ROUTE + '/models') {

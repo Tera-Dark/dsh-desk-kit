@@ -588,3 +588,17 @@ test('转存:提醒 → 便签;同分类 / 找不到 / 没网址都要报错', (
   assert.throws(() => s.convertItem('note', plainNote.id, 'link'), /没有网址/)
   assert.equal(s.listNotes().length, 2, '转失败不能把原条目弄丢(1 条是上面提醒转来的,1 条是它自己)')
 })
+
+test('两个实例同时改:refresh 能看见对方写的,不会整份覆盖', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'desk-kit-sync-'))
+  const a = new DeskStore(dir)
+  const b = new DeskStore(dir)          // 第二个实例(桌面端 + web 各开一个)
+  a.addNote({ text: 'A 写的' })
+  // b 还没 refresh:内存里还是空的
+  assert.equal(b.listNotes().length, 0)
+  b.refresh()
+  assert.equal(b.listNotes().length, 1, 'refresh 之后要能看到 A 写的')
+  b.addNote({ text: 'B 写的' })
+  a.refresh()
+  assert.equal(a.listNotes().length, 2, 'A 也要能看到 B 写的')
+})

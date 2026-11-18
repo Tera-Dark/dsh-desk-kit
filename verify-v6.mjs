@@ -11,7 +11,7 @@ await new Promise((r) => srv.listen(0, '127.0.0.1', r))
 const port = srv.address().port
 const tools = new Map()
 apply({ inject: (_d, cb) => cb(), effect: (fn) => fn(), get: (n) => (n === 'webServer' ? { register: (r) => { routes.push(r); return () => {} } } : undefined), tools: { register: (d) => tools.set(d.name, d) }, logger: { error: (m) => console.error('[ERR]', m), warn: () => {}, info: () => {} } })
-const post = async (a, p) => (await (await fetch('http://127.0.0.1:' + port + '/desk-kit-api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: a, payload: p }) })).json())
+const post = async (a, p) => (await (await fetch('http://127.0.0.1:' + port + '/desk-kit-api', { method: 'POST', headers: { 'content-type': 'application/json', 'x-desk-kit': '1' }, body: JSON.stringify({ action: a, payload: p }) })).json())
 const get = async () => (await (await fetch('http://127.0.0.1:' + port + '/desk-kit-api')).json())
 
 const born = await post('capture', { text: '小美的生日是农历八月十五' })
