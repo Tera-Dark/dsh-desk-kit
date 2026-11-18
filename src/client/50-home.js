@@ -1,3 +1,83 @@
+   // ---------------------------------------------------------------- 快搜
+   /**
+    * 首页的一句话查找入口。
+    *
+    * 真实场景:只记得「脸书」,忘了账号存在保险库还是便签。
+    * 这里一次搜五类(便签正文/提醒/网页/附件名/保险库标题),
+    * 中英别名互通;点结果直接跳到对应页面,保险库那条会自动展开。
+    */
+   function QuickFind({ state, run, onGo }) {
+     const [q, setQ] = useState('')
+     const [deep, setDeep] = useState({ q: '', hits: [], done: false })
+     const [busy, setBusy] = useState(false)
+     const found = q.trim() ? searchSnapshot(state, q) : null
+     const hits = found ? found.hits.slice(0, 5) : []
+     const deepHits = found && deep.q === q.trim() ? deep.hits : []
+     const deepDone = found && deep.q === q.trim() && deep.done
+     const known = new Set((found ? found.hits : []).map((h) => h.kind + ':' + h.id))
+     const extra = deepHits.filter((h) => !known.has(h.kind + ':' + h.id)).slice(0, 3)
+     const rows = hits.concat(extra)
+     const hasSecretHit = found ? found.hits.some((h) => h.kind === 'secret') : false
+     const KIND = { note: '便签', secret: '保险库', reminder: '提醒', link: '网页', file: '附件' }
+     const deepFind = async () => {
+       const query = q.trim()
+       if (!query || busy) return
+       setBusy(true)
+       try {
+         const body = await run('search.all', { query, deepVault: true })
+         if (!body) return
+         const list = body && body.result && Array.isArray(body.result.hits) ? body.result.hits : []
+         setDeep({ q: query, hits: list.filter((h) => h.kind === 'secret'), done: true })
+       } finally { setBusy(false) }
+     }
+     const openHit = (hit) => {
+       if (!onGo) return
+       if (hit.kind === 'secret') onGo('vault', { secretId: hit.id })
+       else if (hit.kind === 'note' || hit.kind === 'file') onGo('notes', { query: q.trim() })
+       else if (hit.kind === 'reminder') onGo('reminders', { query: q.trim() })
+       else onGo('links', { query: q.trim() })
+     }
+     return h('div', { className: '__dk_qf' }, [
+       h('div', { key: 'bar', className: '__dk_qfbar' }, [
+         h(Ico, { key: 'i', name: 'search', size: 15, className: '__dk_qfico' }),
+         h('input', {
+           key: 'q', className: '__dk_qfinput', type: 'search', value: q,
+           placeholder: '找账号、便签、网页…(试试「脸书」)',
+           'aria-label': '全库快速查找',
+           onChange: (e) => setQ(e.target.value),
+           onKeyDown: (e) => {
+             if (e.key === 'Escape') { e.stopPropagation(); setQ('') }
+             if (e.key === 'Enter' && rows.length) { e.preventDefault(); openHit(rows[0]) }
+           },
+         }),
+         q ? h('button', { key: 'x', type: 'button', className: '__dk_qfclear', title: '清空', 'aria-label': '清空查找', onClick: () => setQ('') }, h(Ico, { name: 'x', size: 13 })) : null,
+       ]),
+       found ? h('div', { key: 'res', className: '__dk_qfres' }, [
+         rows.length ? rows.map((hit) => h('button', {
+           key: hit.kind + ':' + hit.id, type: 'button', className: '__dk_qfrow',
+           title: hit.title, onClick: () => openHit(hit),
+         }, [
+           h('span', { key: 'k', className: '__dk_qfkind' }, KIND[hit.kind] || hit.kind),
+           h('span', { key: 'm', className: '__dk_qfmain' }, [
+             h('span', { key: 't', className: '__dk_qft' }, hit.kind === 'note' && hit.snippet ? hit.snippet : hit.title),
+             h('span', { key: 'w', className: '__dk_qfm' }, KIND[hit.kind] + ' · ' + hit.where),
+           ]),
+           h('span', { key: 'go', className: '__dk_qfgo' }, hit.kind === 'secret' ? '确认' : '打开'),
+         ])) : h('div', { key: 'e', className: '__dk_qfempty' }, '没找到「' + q.trim() + '」。换个叫法试试,比如「脸书 / Facebook」。'),
+         !hasSecretHit && !deepHits.length && !deepDone
+           ? h('button', { key: 'deep', type: 'button', className: '__dk_qfdeep', disabled: busy, onClick: deepFind },
+             busy ? '正在解密比对…' : '保险库标题没命中?在内容里再找一次')
+           : null,
+         deepDone && !extra.length
+           ? h('div', { key: 'dh', className: '__dk_qfempty' }, '保险库内容里也没有匹配的条目')
+           : null,
+         found.total > rows.length
+           ? h('div', { key: 'more', className: '__dk_qfempty' }, '还有 ' + (found.total - rows.length) + ' 条,再输入一个字缩小范围')
+           : null,
+       ]) : null,
+     ])
+   }
+
    // ---------------------------------------------------------------- 首页
    function Home({ state, run, onLink, onGo, notify }) {
      const list = (state.reminders || []).filter((r) => r.active !== false && r.status !== 'paused')
@@ -35,6 +115,7 @@
      ])
 
      return h(React.Fragment, null, [
+       h(QuickFind, { key: 'qf', state, run, onGo }),
        // L1:今天要动手的。标题后面直接给完成度,不用点进去数
        h('div', { key: 's1', className: '__dk_sec __dk_sec--act' }, [
          h('span', { key: 'a' }, '今天'),

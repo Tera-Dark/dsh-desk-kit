@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.15.0'
+   const VERSION = '1.16.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -87,6 +87,7 @@ window.__ModuleLoader__.load({
      grid: ['M4 4h7v7H4z', 'M13 4h7v7h-7z', 'M4 13h7v7H4z', 'M13 13h7v7h-7z'],
      globe: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18', 'M3.6 9h16.8', 'M3.6 15h16.8', 'M12 3c2.5 2.4 3.8 5.4 3.8 9S14.5 18.6 12 21c-2.5-2.4-3.8-5.4-3.8-9S9.5 5.4 12 3'],
      image: ['M4 5h16v14H4z', 'M4 15l4.5-4.5 4 4 3-3L20 15', 'M8.5 9.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2'],
+     search: ['M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16', 'M21 21l-4.3-4.3'],
    }
    function Ico({ name, size, className }) {
      const paths = PATHS[name] || []
@@ -544,6 +545,31 @@ window.__ModuleLoader__.load({
      '.__dk_tbtn{height:32px;border-radius:10px}',
      '.__dk_light{background:rgba(8,10,14,.9)}',
      '.__dk_lightimg{border-radius:12px}',
+     // 快搜:首页最上面的一条,结果贴着输入框出现
+     '.__dk_qf{margin:0 0 14px}',
+     '.__dk_qfbar{display:flex;align-items:center;gap:8px;height:42px;padding:0 10px 0 12px;border:1px solid var(--dk-line);border-radius:12px;background:var(--dk-surface);transition:border-color .16s,background .16s,box-shadow .16s}',
+     '.__dk_qfbar:focus-within{border-color:color-mix(in srgb,var(--dk-brand) 55%,transparent);background:var(--dk-surface-strong);box-shadow:0 0 0 3px color-mix(in srgb,var(--dk-brand) 16%,transparent)}',
+     '.__dk_qfico{flex:none;color:var(--dk-faint)}',
+     '.__dk_qfinput{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--dk-text);font:13.5px/1.4 inherit;padding:0}',
+     '.__dk_qfinput::placeholder{color:var(--dk-faint)}',
+     '.__dk_qfinput::-webkit-search-cancel-button{display:none}',
+     '.__dk_qfclear{flex:none;width:22px;height:22px;border:none;border-radius:7px;background:transparent;color:var(--dk-faint);display:grid;place-items:center;cursor:pointer}',
+     '.__dk_qfclear:hover{background:var(--dk-line);color:var(--dk-text)}',
+     '.__dk_qfres{margin-top:6px;border:1px solid var(--dk-line);border-radius:14px;background:var(--dk-surface);overflow:hidden}',
+     '.__dk_qfrow{display:flex;align-items:center;gap:9px;width:100%;padding:10px 11px;border:none;border-top:1px solid var(--dk-line);background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}',
+     '.__dk_qfrow:first-child{border-top:none}',
+     '.__dk_qfrow:hover{background:var(--dk-surface-strong)}',
+     '.__dk_qfkind{flex:none;font-size:10px;font-weight:600;padding:2px 6px;border-radius:999px;background:color-mix(in srgb,var(--dk-brand) 12%,transparent);color:var(--dk-brand)}',
+     '.__dk_qfmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}',
+     '.__dk_qft{font-size:12.5px;line-height:1.45;color:var(--dk-text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}',
+     '.__dk_qfm{font-size:10.5px;color:var(--dk-faint)}',
+     '.__dk_qfgo{flex:none;font-size:10.5px;font-weight:600;color:var(--dk-brand)}',
+     '.__dk_qfempty{padding:11px 12px;font-size:11.5px;color:var(--dk-muted);border-top:1px solid var(--dk-line)}',
+     '.__dk_qfdeep{display:block;width:100%;padding:11px 12px;border:none;border-top:1px solid var(--dk-line);background:transparent;color:var(--dk-brand);font:11.5px/1.4 inherit;text-align:left;cursor:pointer}',
+     '.__dk_qfdeep:hover{background:var(--dk-surface-strong)}',
+     '.__dk_qfdeep:disabled{color:var(--dk-faint);cursor:default}',
+     '.__dk_qfempty:first-child{border-top:none}',
+     '.__dk_rowbtn{width:100%;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}',
      // 键盘可达性:只在键盘聚焦时出现描边,不干扰鼠标
      '.__dk_sp button:focus-visible,.__dk_panel button:focus-visible,.__dk_dock button:focus-visible,.__dk_sp input:focus-visible,.__dk_panel input:focus-visible,.__dk_sp textarea:focus-visible,.__dk_panel textarea:focus-visible,.__dk_sp a:focus-visible,.__dk_panel a:focus-visible{outline:2px solid color-mix(in srgb,var(--dk-brand) 70%,transparent);outline-offset:2px}',
    ].join('\n')
@@ -750,6 +776,112 @@ window.__ModuleLoader__.load({
          h('button', { key: 'c', className: '__dk_btn', onClick: onClose }, '关闭'),
        ]),
      ])
+   }
+
+   // 同一个服务常有两个名字:中文习惯叫「脸书」,条目里却写着 Facebook。
+   // 只做字面匹配会出现「明明存过却搜不到」,所以给常见服务补一组别名。
+   // 只用于搜索,不改任何落库内容;别名太短(如 x)不参与包含匹配,避免满屏误中。
+   const SEARCH_ALIASES = [
+     ['facebook', '脸书', 'fb', 'meta'],
+     ['instagram', 'ins', 'ig', '图享'],
+     ['wechat', '微信', 'weixin'],
+     ['qq', '腾讯qq'],
+     ['taobao', '淘宝'],
+     ['alipay', '支付宝'],
+     ['google', '谷歌', 'gmail', '谷歌邮箱'],
+     ['apple', '苹果', 'icloud'],
+     ['github'],
+     ['twitter', '推特'],
+     ['youtube', '油管', '谷歌视频'],
+     ['netflix', '奈飞'],
+     ['telegram', '电报', 'tg'],
+     ['whatsapp', '瓦次艾普'],
+     ['steam', '蒸汽平台'],
+     ['microsoft', '微软', 'outlook'],
+     ['amazon', '亚马逊'],
+   ]
+
+   /** 关键词 → 匹配词集合(原词 + 去掉空格/符号 + 同组别名)。 */
+   function searchVariants(query) {
+     const raw = String(query || '').trim().toLowerCase()
+     if (!raw) return []
+     const flat = raw.replace(/[\s\-_./]+/g, '')
+     const out = new Set([raw, flat].filter(Boolean))
+     for (const group of SEARCH_ALIASES) {
+       const hit = group.some((a) => (a.length >= 2 ? raw.includes(a) || flat.includes(a) : raw === a))
+       if (!hit) continue
+       for (const a of group) if (a.length >= 2) out.add(a)
+     }
+     return [...out]
+   }
+
+   /** 一段文字是否命中任一匹配词;连空格/符号一起忽略。 */
+   function searchMatch(text, variants) {
+     const hay = String(text || '').toLowerCase()
+     if (!hay) return false
+     const flat = hay.replace(/[\s\-_./]+/g, '')
+     return variants.some((v) => hay.includes(v) || flat.includes(v))
+   }
+
+   /** 命中词附近的一小段,给快搜结果做确认用。 */
+   function searchSnippet(text, variants) {
+     const src = String(text || '')
+     const low = src.toLowerCase()
+     let at = -1
+     for (const v of variants) {
+       const i = low.indexOf(v)
+       if (i >= 0 && (at < 0 || i < at)) at = i
+     }
+     if (at < 0) return src.slice(0, 80)
+     return (at > 24 ? '…' : '') + src.slice(Math.max(0, at - 24), at + 56) + '…'
+   }
+
+   /**
+    * 在内存快照里一次搜五类。只回定位与短摘要,不拼第二份正文;
+    * 保险库仍只搜标题(内容加密,快搜不碰)。
+    */
+   function searchSnapshot(state, query) {
+     const variants = searchVariants(query)
+     const empty = { query: String(query || '').trim(), variants, hits: [], total: 0 }
+     if (!variants.length || !state) return empty
+     const hits = []
+     const add = (kind, id, title, where, extra) => hits.push({
+       kind, id, title: String(title || '').slice(0, 200), where,
+       updatedAt: (extra && extra.updatedAt) || 0, ...(extra || {}),
+     })
+     for (const n of state.notes || []) {
+       if ((n.deletedAt || 0) > 0) continue
+       const where = []
+       if (searchMatch(n.text, variants)) where.push('正文')
+       if ((n.tags || []).some((t) => searchMatch(t, variants))) where.push('标签')
+       if (where.length) add('note', n.id, n.text || '（图片）', where.join('/'), { updatedAt: n.updatedAt, snippet: searchSnippet(n.text, variants) })
+     }
+     for (const r of state.reminders || []) {
+       if ((r.deletedAt || 0) > 0) continue
+       const where = []
+       if (searchMatch(r.title, variants)) where.push('标题')
+       if (searchMatch(r.note, variants)) where.push('备注')
+       if (where.length) add('reminder', r.id, r.title || '提醒', where.join('/'), { updatedAt: r.updatedAt })
+     }
+     for (const l of state.links || []) {
+       if ((l.deletedAt || 0) > 0) continue
+       const where = []
+       if (searchMatch(l.title, variants)) where.push('标题')
+       if (searchMatch(l.url, variants)) where.push('网址')
+       if (searchMatch(l.note, variants)) where.push('备注')
+       if (searchMatch(l.group, variants)) where.push('分类')
+       if (where.length) add('link', l.id, l.title || l.url, where.join('/'), { updatedAt: l.updatedAt })
+     }
+     for (const f of state.files || []) {
+       if (f.secret || !searchMatch(f.name, variants)) continue
+       add('file', f.id, f.name, '文件名', { updatedAt: f.createdAt, ownerKind: f.kind, ownerId: f.ownerId })
+     }
+     for (const s of state.secrets || []) {
+       if (searchMatch(s.title, variants)) add('secret', s.id, s.title, '标题', { updatedAt: s.updatedAt || s.createdAt })
+     }
+     const order = { note: 0, secret: 1, reminder: 2, link: 3, file: 4 }
+     hits.sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9) || (b.updatedAt || 0) - (a.updatedAt || 0))
+     return { query: String(query || '').trim(), variants, hits, total: hits.length }
    }
 
    const weekText = (days) => (Array.isArray(days) && days.length ? '周' + days.map((d) => WEEK[d]).join('、周') : '每天')
@@ -1044,6 +1176,86 @@ window.__ModuleLoader__.load({
      return h(MoveChips, { kind: move.kind, id: move.id, run, notify: onSay, label: '分错了?转存到' })
    }
 
+   // ---------------------------------------------------------------- 快搜
+   /**
+    * 首页的一句话查找入口。
+    *
+    * 真实场景:只记得「脸书」,忘了账号存在保险库还是便签。
+    * 这里一次搜五类(便签正文/提醒/网页/附件名/保险库标题),
+    * 中英别名互通;点结果直接跳到对应页面,保险库那条会自动展开。
+    */
+   function QuickFind({ state, run, onGo }) {
+     const [q, setQ] = useState('')
+     const [deep, setDeep] = useState({ q: '', hits: [], done: false })
+     const [busy, setBusy] = useState(false)
+     const found = q.trim() ? searchSnapshot(state, q) : null
+     const hits = found ? found.hits.slice(0, 5) : []
+     const deepHits = found && deep.q === q.trim() ? deep.hits : []
+     const deepDone = found && deep.q === q.trim() && deep.done
+     const known = new Set((found ? found.hits : []).map((h) => h.kind + ':' + h.id))
+     const extra = deepHits.filter((h) => !known.has(h.kind + ':' + h.id)).slice(0, 3)
+     const rows = hits.concat(extra)
+     const hasSecretHit = found ? found.hits.some((h) => h.kind === 'secret') : false
+     const KIND = { note: '便签', secret: '保险库', reminder: '提醒', link: '网页', file: '附件' }
+     const deepFind = async () => {
+       const query = q.trim()
+       if (!query || busy) return
+       setBusy(true)
+       try {
+         const body = await run('search.all', { query, deepVault: true })
+         if (!body) return
+         const list = body && body.result && Array.isArray(body.result.hits) ? body.result.hits : []
+         setDeep({ q: query, hits: list.filter((h) => h.kind === 'secret'), done: true })
+       } finally { setBusy(false) }
+     }
+     const openHit = (hit) => {
+       if (!onGo) return
+       if (hit.kind === 'secret') onGo('vault', { secretId: hit.id })
+       else if (hit.kind === 'note' || hit.kind === 'file') onGo('notes', { query: q.trim() })
+       else if (hit.kind === 'reminder') onGo('reminders', { query: q.trim() })
+       else onGo('links', { query: q.trim() })
+     }
+     return h('div', { className: '__dk_qf' }, [
+       h('div', { key: 'bar', className: '__dk_qfbar' }, [
+         h(Ico, { key: 'i', name: 'search', size: 15, className: '__dk_qfico' }),
+         h('input', {
+           key: 'q', className: '__dk_qfinput', type: 'search', value: q,
+           placeholder: '找账号、便签、网页…(试试「脸书」)',
+           'aria-label': '全库快速查找',
+           onChange: (e) => setQ(e.target.value),
+           onKeyDown: (e) => {
+             if (e.key === 'Escape') { e.stopPropagation(); setQ('') }
+             if (e.key === 'Enter' && rows.length) { e.preventDefault(); openHit(rows[0]) }
+           },
+         }),
+         q ? h('button', { key: 'x', type: 'button', className: '__dk_qfclear', title: '清空', 'aria-label': '清空查找', onClick: () => setQ('') }, h(Ico, { name: 'x', size: 13 })) : null,
+       ]),
+       found ? h('div', { key: 'res', className: '__dk_qfres' }, [
+         rows.length ? rows.map((hit) => h('button', {
+           key: hit.kind + ':' + hit.id, type: 'button', className: '__dk_qfrow',
+           title: hit.title, onClick: () => openHit(hit),
+         }, [
+           h('span', { key: 'k', className: '__dk_qfkind' }, KIND[hit.kind] || hit.kind),
+           h('span', { key: 'm', className: '__dk_qfmain' }, [
+             h('span', { key: 't', className: '__dk_qft' }, hit.kind === 'note' && hit.snippet ? hit.snippet : hit.title),
+             h('span', { key: 'w', className: '__dk_qfm' }, KIND[hit.kind] + ' · ' + hit.where),
+           ]),
+           h('span', { key: 'go', className: '__dk_qfgo' }, hit.kind === 'secret' ? '确认' : '打开'),
+         ])) : h('div', { key: 'e', className: '__dk_qfempty' }, '没找到「' + q.trim() + '」。换个叫法试试,比如「脸书 / Facebook」。'),
+         !hasSecretHit && !deepHits.length && !deepDone
+           ? h('button', { key: 'deep', type: 'button', className: '__dk_qfdeep', disabled: busy, onClick: deepFind },
+             busy ? '正在解密比对…' : '保险库标题没命中?在内容里再找一次')
+           : null,
+         deepDone && !extra.length
+           ? h('div', { key: 'dh', className: '__dk_qfempty' }, '保险库内容里也没有匹配的条目')
+           : null,
+         found.total > rows.length
+           ? h('div', { key: 'more', className: '__dk_qfempty' }, '还有 ' + (found.total - rows.length) + ' 条,再输入一个字缩小范围')
+           : null,
+       ]) : null,
+     ])
+   }
+
    // ---------------------------------------------------------------- 首页
    function Home({ state, run, onLink, onGo, notify }) {
      const list = (state.reminders || []).filter((r) => r.active !== false && r.status !== 'paused')
@@ -1081,6 +1293,7 @@ window.__ModuleLoader__.load({
      ])
 
      return h(React.Fragment, null, [
+       h(QuickFind, { key: 'qf', state, run, onGo }),
        // L1:今天要动手的。标题后面直接给完成度,不用点进去数
        h('div', { key: 's1', className: '__dk_sec __dk_sec--act' }, [
          h('span', { key: 'a' }, '今天'),
@@ -1414,8 +1627,8 @@ window.__ModuleLoader__.load({
    }
 
    // ---------------------------------------------------------------- 便签页
-   function NotesPage({ state, run, notify }) {
-     const [q, setQ] = useState('')
+   function NotesPage({ state, run, notify, onGo, focus }) {
+     const [q, setQ] = useState(focus && focus.query ? focus.query : '')
      const [kw, setKw] = useState('')                 // 防抖后的关键词(真正用来过滤的)
      const [draft, setDraft] = useState('')
      const [tags, setTags] = useState('')
@@ -1431,6 +1644,8 @@ window.__ModuleLoader__.load({
      const [draftFiles, setDraftFiles] = useState([])   // 还没保存的附件(已上传,拿到 id)
      const [busyFile, setBusyFile] = useState(false)
      const [viewing, setViewing] = useState(null)  // 正在看的大图
+     const [deep, setDeep] = useState({ kw: '', hits: [], done: false })
+     const [deepBusy, setDeepBusy] = useState(false)
      const filePicker = useRef(null)
      const PAGE = 8
      const say = (text, undo) => { if (notify) notify(text, undo) }
@@ -1453,15 +1668,36 @@ window.__ModuleLoader__.load({
      }
      const fileMap = new Map((state.files || []).map((f) => [f.id, f]))
      const filesOf = (n) => (n.files || []).map((id) => fileMap.get(id)).filter(Boolean)
-     const hit = (n) => !kw || (n.text + ' ' + (n.tags || []).join(' ')).toLowerCase().includes(kw)
+     const variants = kw ? searchVariants(kw) : []
+     const hit = (n) => !kw || searchMatch(n.text, variants) || (n.tags || []).some((t) => searchMatch(t, variants))
+     // 一次搜五类:便签、提醒、网页、附件名、保险库标题。
+     // 「脸书 / Facebook」这种中英别名由 searchVariants 统一处理。
+     const found = kw ? searchSnapshot(state, kw) : null
+     const idsOf = (kind) => new Set((found ? found.hits : []).filter((h) => h.kind === kind).map((h) => h.id))
+     const noteIds = idsOf('note')
+     const remIds = idsOf('reminder')
+     const secIds = idsOf('secret')
+     const linkIds = idsOf('link')
+     const fileIds = idsOf('file')
      // 搜索时跨「进行中 + 长期」一起搜,平铺显示;不搜索时分成两段
-     const searched = kw ? buckets.active.concat(buckets.long, buckets.archived).filter(hit) : []
-     // 便签页的搜索框也顺手当全局搜:提醒和保险库的标题一起找
-     const remHits = kw ? (state.reminders || []).filter((r) => !((r.deletedAt || 0) > 0) && String(r.title || '').toLowerCase().includes(kw)) : []
-     const secHits = kw ? (state.secrets || []).filter((x) => String(x.title || '').toLowerCase().includes(kw)) : []
-     const linkHits = kw ? (state.links || []).filter((l) => (String(l.title || '') + ' ' + String(l.url || '')).toLowerCase().includes(kw)) : []
+     const searched = kw ? buckets.active.concat(buckets.long, buckets.archived).filter((n) => noteIds.has(n.id)) : []
+     const remHits = kw ? (state.reminders || []).filter((r) => remIds.has(r.id)) : []
+     const secHits = kw ? (state.secrets || []).filter((x) => secIds.has(x.id)) : []
+     const linkHits = kw ? (state.links || []).filter((l) => linkIds.has(l.id)) : []
      // 附件也能按文件名搜到(「那张截图叫什么来着」)
-     const fileHits = kw ? (state.files || []).filter((f) => String(f.name || '').toLowerCase().includes(kw)) : []
+     const fileHits = kw ? (state.files || []).filter((f) => fileIds.has(f.id)) : []
+     const deepHits = kw && deep.kw === kw ? deep.hits : []
+     const deepDone = kw && deep.kw === kw && deep.done
+     const deepFind = async () => {
+       if (!kw || deepBusy) return
+       setDeepBusy(true)
+       try {
+         const body = await run('search.all', { query: kw, deepVault: true })
+         if (!body) return
+         const list = body && body.result && Array.isArray(body.result.hits) ? body.result.hits : []
+         setDeep({ kw, hits: list.filter((h) => h.kind === 'secret'), done: true })
+       } finally { setDeepBusy(false) }
+     }
 
      /** 收文件:上传后先挂在草稿上,保存时随便签一起落库。 */
      const addFiles = async (list, nameOf) => {
@@ -1637,13 +1873,13 @@ window.__ModuleLoader__.load({
        h('div', { key: 'sq', className: '__dk_search' }, h('div', { className: '__dk_qwrap' }, [
          h('input', {
            key: 'i', className: '__dk_input', type: 'search',
-           placeholder: '搜所有便签…(标题、正文、标签)', value: q,
+           placeholder: '搜便签、提醒、网页、保险库标题…(试试「脸书」或「Facebook」)', value: q,
            onChange: (e) => setQ(e.target.value),
            onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setQ('') } },
          }),
          q ? h('button', { key: 'x', className: '__dk_qclear', title: '清空搜索', 'aria-label': '清空搜索', onClick: () => setQ('') }, h(Ico, { name: 'x', size: 14 })) : null,
        ])),
-       kw ? h('div', { key: 'qh', className: '__dk_qhint' }, '「' + q.trim() + '」· 命中 ' + searched.length + ' 条') : null,
+       kw ? h('div', { key: 'qh', className: '__dk_qhint' }, '「' + q.trim() + '」· 命中 ' + (found ? found.total : 0) + ' 条') : null,
        h(Lightbox, { key: 'light', file: viewing, onClose: () => setViewing(null) }),
        h('div', { key: 'bar', className: '__dk_toolbar' }, [
          h('button', { key: 'a', className: '__dk_btn p', onClick: () => setOpenAdd((v) => !v) }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), openAdd ? ' 收起' : ' 新便签']),
@@ -1714,7 +1950,7 @@ window.__ModuleLoader__.load({
        kw
          ? (searched.length
            ? searched.map((n) => row(n, n.shelf === 'long' && !n.archived ? 'long' : 'daily'))
-           : (remHits.length || secHits.length || linkHits.length || fileHits.length
+           : (found && found.total
              ? null
              : h('div', { key: 'e', className: '__dk_empty' }, [
                h('div', { key: 't', className: '__dk_emptytitle' }, '没搜到「' + q.trim() + '」'),
@@ -1752,13 +1988,41 @@ window.__ModuleLoader__.load({
        kw && secHits.length
          ? h('div', { key: 'ss' }, [
            h('div', { key: 'h', className: '__dk_sec __dk_sec--ref' }, [h('span', { key: 'a' }, '保险库里命中'), h('span', { key: 'b' }, String(secHits.length))]),
-           ...secHits.slice(0, 5).map((x) => h('div', { key: x.id, className: '__dk_row' }, [
+           ...secHits.slice(0, 5).map((x) => h('button', {
+             key: x.id, type: 'button', className: '__dk_row __dk_rowbtn',
+             title: '去保险库确认这条(会自动展开,30 秒后收起)',
+             onClick: () => onGo && onGo('vault', { secretId: x.id }),
+           }, [
              h('div', { key: 'm', className: '__dk_rowmain' }, [
                h('div', { key: 't', className: '__dk_rt' }, x.title),
-               h('div', { key: 's', className: '__dk_rm' }, '点「保险库」查看明文'),
+               h('div', { key: 's', className: '__dk_rm' }, '保险库 · 点一下查看明文'),
              ]),
+             h('span', { key: 'go', className: '__dk_qfgo' }, '确认'),
            ])),
          ])
+         : null,
+       kw && !secHits.length && !deepHits.length && !deepDone
+         ? h('button', { key: 'deep', type: 'button', className: '__dk_qfdeep', disabled: deepBusy, onClick: deepFind },
+           deepBusy ? '正在解密比对…' : '保险库标题没命中?在内容里再找一次')
+         : null,
+       kw && deepHits.length
+         ? h('div', { key: 'sd' }, [
+           h('div', { key: 'h', className: '__dk_sec __dk_sec--ref' }, [h('span', { key: 'a' }, '保险库内容里命中'), h('span', { key: 'b' }, String(deepHits.length))]),
+           ...deepHits.slice(0, 5).map((x) => h('button', {
+             key: x.id, type: 'button', className: '__dk_row __dk_rowbtn',
+             title: '去保险库确认这条(会自动展开,30 秒后收起)',
+             onClick: () => onGo && onGo('vault', { secretId: x.id }),
+           }, [
+             h('div', { key: 'm', className: '__dk_rowmain' }, [
+               h('div', { key: 't', className: '__dk_rt' }, x.title),
+               h('div', { key: 's', className: '__dk_rm' }, '保险库 · 内容命中'),
+             ]),
+             h('span', { key: 'go', className: '__dk_qfgo' }, '确认'),
+           ])),
+         ])
+         : null,
+       kw && deepDone && !deepHits.length
+         ? h('div', { key: 'de', className: '__dk_qfempty' }, '保险库内容里也没有匹配的条目')
          : null,
        // 不搜索:两段
        kw ? null : seg('active', '进行中', buckets.active),
@@ -2018,7 +2282,7 @@ window.__ModuleLoader__.load({
      return lines.join('\n')
    }
 
-   function VaultPage({ state, run, notify }) {
+   function VaultPage({ state, run, notify, focus }) {
      const [moving, setMoving] = useState('')
      const [openAdd, setOpenAdd] = useState(false)
      const [title, setTitle] = useState('')
@@ -2069,6 +2333,18 @@ window.__ModuleLoader__.load({
        if (timers.current[id]) clearTimeout(timers.current[id])
        timers.current[id] = setTimeout(() => { delete timers.current[id]; setRevealed((cur) => ({ ...cur, [id]: null })) }, VAULT_HIDE_MS)
      }
+
+     // 从快搜点「确认」进来:滚到那条并展开,看完 30 秒自动收起。
+     useEffect(() => {
+       const id = focus && focus.secretId
+       if (!id) return undefined
+       const t = setTimeout(() => {
+         const el = Array.from(document.querySelectorAll('[data-dk-secret]')).find((x) => x.getAttribute('data-dk-secret') === id)
+         if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+         reveal(id)
+       }, 80)
+       return () => clearTimeout(t)
+     }, [focus && focus.secretId])
 
      return h(React.Fragment, null, [
        h(Lightbox, { key: 'light', file: viewing, onClose: () => setViewing(null) }),
@@ -2160,7 +2436,7 @@ window.__ModuleLoader__.load({
          ]),
        ]) : null,
        secrets.length
-         ? secrets.map((s) => h('div', { key: s.id, className: '__dk_item' }, [
+         ? secrets.map((s) => h('div', { key: s.id, className: '__dk_item', 'data-dk-secret': s.id }, [
            h('div', { key: 't', className: '__dk_itop' }, [
              h('div', { key: 'x', className: '__dk_itext __dk_lockrow' }, [h(Ico, { key: 'i', name: 'lock', size: 14 }), s.title]),
              h('button', {
@@ -2818,6 +3094,8 @@ window.__ModuleLoader__.load({
      const [state, setState] = useState(null)
      const [err, setErr] = useState('')
      const [reply, setReply] = useState(null)
+     // 从快搜点进来时要定位的条目(保险库会自动展开)
+     const [focus, setFocus] = useState(null)
      // 撤销后回填到输入框的原话
      const [seed, setSeed] = useState('')
      const touch = useRef({ x: 0, y: 0, t: 0 })
@@ -2855,7 +3133,7 @@ window.__ModuleLoader__.load({
          // 有侧栏标签页:apply() 那条监听已经负责打开它,这里别再开一次
          if (sidebar.open) return
          if (state && !floatRef.current) return
-         setOpen(true); load(); setPage('home'); setSeq((s) => s + 1)
+         setOpen(true); load(); setPage('home'); setFocus(null); setSeq((s) => s + 1)
        }
        window.addEventListener(OPEN_EVENT, onOpen)
        return () => window.removeEventListener(OPEN_EVENT, onOpen)
@@ -2917,9 +3195,10 @@ window.__ModuleLoader__.load({
       }
     }, [run, showReply])
 
-     const go = useCallback((next) => {
+     const go = useCallback((next, opts) => {
        setDir(ORDER.indexOf(next) >= ORDER.indexOf(page) ? 'left' : 'right')
        setPage(next)
+       setFocus(opts || null)
        setSeq((s) => s + 1)
      }, [page])
 
@@ -3052,6 +3331,7 @@ window.__ModuleLoader__.load({
        // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
        showReply(r.reply || '已保存', undo, move)
+       setFocus(null)
        if (r.parsed && r.parsed.kind === 'link') { setDir('left'); setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setDir('left'); setPage('notes'); setSeq((s) => s + 1) }
@@ -3093,9 +3373,9 @@ window.__ModuleLoader__.load({
        const notify = showReply
        if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
-       if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify })]
+       if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
-       if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify })]
+       if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify, focus })]
        return [h(Settings, { key: 's', state, run, sidebarReady: sidebar.ready })]
      })()
 
@@ -3223,6 +3503,7 @@ window.__ModuleLoader__.load({
      const [err, setErr] = useState('')
      const [page, setPage] = useState('home')
      const [seq, setSeq] = useState(0)
+     const [focus, setFocus] = useState(null)
      const [reply, setReply] = useState(null)
      // 撤销后回填到输入框的原话
      const [seed, setSeed] = useState('')
@@ -3263,7 +3544,7 @@ window.__ModuleLoader__.load({
        timer.current = setTimeout(() => setReply(null), undo ? 6000 : 3500)
      }, [])
 
-     const go = useCallback((next) => { setPage(next); setSeq((s) => s + 1) }, [])
+     const go = useCallback((next, opts) => { setPage(next); setFocus(opts || null); setSeq((s) => s + 1) }, [])
 
      const onCaptureDone = useCallback((r) => {
        if (!r) return
@@ -3278,6 +3559,7 @@ window.__ModuleLoader__.load({
        // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
        showReply(r.reply || '已保存', undo, move)
+       setFocus(null)
        if (r.parsed && r.parsed.kind === 'link') { setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setPage('notes'); setSeq((s) => s + 1) }
@@ -3293,7 +3575,7 @@ window.__ModuleLoader__.load({
 
      return h(SidebarView, {
        state, page, seq, reply, err, run, bridge, onRetry: load,
-       onGo: go, onCaptureDone, onLink,
+       focus, onGo: go, onCaptureDone, onLink,
        notify: showReply,
        onClearReply: () => showReply(''),
        seed,
@@ -3302,7 +3584,7 @@ window.__ModuleLoader__.load({
    }
 
    /** 侧栏页面的纯展示部分:状态由 SidebarPage 喂进来(这样能脱离浏览器直接测)。 */
-   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry }) {
+   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry, focus }) {
      const sidebar = useSidebarBridge(bridge)
      const goTo = onGo
      if (!state) {
@@ -3318,9 +3600,9 @@ window.__ModuleLoader__.load({
        // notify 由 SidebarPage 注入(这里没有自己的 showReply)
        if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
-       if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify })]
+       if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
-       if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify })]
+       if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify, focus })]
        return [h(Settings, { key: 's', state, run, sidebarReady: sidebar.ready })]
      })()
      // 顶部横排:首页放第一格(浮标里的底部导航是另一套顺序,各用各的)
@@ -3582,6 +3864,7 @@ window.__ModuleLoader__.load({
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
      playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar,
+     searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES,
    }
    return module.exports
  },

@@ -193,6 +193,8 @@
      const [state, setState] = useState(null)
      const [err, setErr] = useState('')
      const [reply, setReply] = useState(null)
+     // 从快搜点进来时要定位的条目(保险库会自动展开)
+     const [focus, setFocus] = useState(null)
      // 撤销后回填到输入框的原话
      const [seed, setSeed] = useState('')
      const touch = useRef({ x: 0, y: 0, t: 0 })
@@ -230,7 +232,7 @@
          // 有侧栏标签页:apply() 那条监听已经负责打开它,这里别再开一次
          if (sidebar.open) return
          if (state && !floatRef.current) return
-         setOpen(true); load(); setPage('home'); setSeq((s) => s + 1)
+         setOpen(true); load(); setPage('home'); setFocus(null); setSeq((s) => s + 1)
        }
        window.addEventListener(OPEN_EVENT, onOpen)
        return () => window.removeEventListener(OPEN_EVENT, onOpen)
@@ -292,9 +294,10 @@
       }
     }, [run, showReply])
 
-     const go = useCallback((next) => {
+     const go = useCallback((next, opts) => {
        setDir(ORDER.indexOf(next) >= ORDER.indexOf(page) ? 'left' : 'right')
        setPage(next)
+       setFocus(opts || null)
        setSeq((s) => s + 1)
      }, [page])
 
@@ -427,6 +430,7 @@
        // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
        showReply(r.reply || '已保存', undo, move)
+       setFocus(null)
        if (r.parsed && r.parsed.kind === 'link') { setDir('left'); setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setDir('left'); setPage('notes'); setSeq((s) => s + 1) }
@@ -468,9 +472,9 @@
        const notify = showReply
        if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
-       if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify })]
+       if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
-       if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify })]
+       if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify, focus })]
        return [h(Settings, { key: 's', state, run, sidebarReady: sidebar.ready })]
      })()
 

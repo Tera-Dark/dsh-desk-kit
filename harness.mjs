@@ -340,6 +340,12 @@ console.log('✓ 网页收藏:', snap.state.links.length, '个 ·', snap.state.l
   assert.ok(s1.result.hits.some((h) => h.kind === 'note'), 'search.all 要能搜到便签')
   const s2 = await post('search.all', { query: '不存在的关键词zzz' })
   assert.equal(s2.result.total, 0)
+  const plain = await post('search.all', { query: 'demo_user' })
+  assert.equal(plain.result.hits.some((h) => h.kind === 'secret'), false, '默认不搜保险库内容')
+  const deep = await post('search.all', { query: 'demo_user', deepVault: true })
+  const secHit = deep.result.hits.find((h) => h.kind === 'secret')
+  assert.ok(secHit && secHit.where.includes('内容'), 'deepVault 要命中保险库字段')
+  assert.equal(JSON.stringify(deep.result).includes('p@ss word'), false, '深搜不能回传密码')
   const st = await post('storage.get', {})
   assert.ok(st.result.bytes.total > 0, 'storage.get 要有用量')
   assert.ok(Array.isArray(st.result.trash), '要带回垃圾箱到期表')
@@ -366,7 +372,7 @@ console.log('✓ 网页收藏:', snap.state.links.length, '个 ·', snap.state.l
   const once = await post('cleanup.run', { keepDays: 0 })
   assert.equal(once.result.keepDays, 0)
   assert.equal((await get()).state.settings.trashKeepDays, 7, 'cleanup.run 的 keepDays 不应改写设置')
-  console.log('✓ 查找/用量/清理:search.all · storage.get · 设置白名单/夹取 · 一次性清理不污染设置')
+  console.log('✓ 查找/用量/清理:search.all(含别名/深搜) · storage.get · 设置白名单/夹取 · 一次性清理不污染设置')
 
   // 只读路由只认 GET
   const badExport = await fetch(base + '/export', { method: 'POST', headers: { 'x-desk-kit': '1' } })

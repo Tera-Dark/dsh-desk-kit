@@ -1,6 +1,6 @@
    // ---------------------------------------------------------------- 便签页
-   function NotesPage({ state, run, notify }) {
-     const [q, setQ] = useState('')
+   function NotesPage({ state, run, notify, onGo, focus }) {
+     const [q, setQ] = useState(focus && focus.query ? focus.query : '')
      const [kw, setKw] = useState('')                 // 防抖后的关键词(真正用来过滤的)
      const [draft, setDraft] = useState('')
      const [tags, setTags] = useState('')
@@ -16,6 +16,8 @@
      const [draftFiles, setDraftFiles] = useState([])   // 还没保存的附件(已上传,拿到 id)
      const [busyFile, setBusyFile] = useState(false)
      const [viewing, setViewing] = useState(null)  // 正在看的大图
+     const [deep, setDeep] = useState({ kw: '', hits: [], done: false })
+     const [deepBusy, setDeepBusy] = useState(false)
      const filePicker = useRef(null)
      const PAGE = 8
      const say = (text, undo) => { if (notify) notify(text, undo) }
@@ -38,15 +40,36 @@
      }
      const fileMap = new Map((state.files || []).map((f) => [f.id, f]))
      const filesOf = (n) => (n.files || []).map((id) => fileMap.get(id)).filter(Boolean)
-     const hit = (n) => !kw || (n.text + ' ' + (n.tags || []).join(' ')).toLowerCase().includes(kw)
+     const variants = kw ? searchVariants(kw) : []
+     const hit = (n) => !kw || searchMatch(n.text, variants) || (n.tags || []).some((t) => searchMatch(t, variants))
+     // 一次搜五类:便签、提醒、网页、附件名、保险库标题。
+     // 「脸书 / Facebook」这种中英别名由 searchVariants 统一处理。
+     const found = kw ? searchSnapshot(state, kw) : null
+     const idsOf = (kind) => new Set((found ? found.hits : []).filter((h) => h.kind === kind).map((h) => h.id))
+     const noteIds = idsOf('note')
+     const remIds = idsOf('reminder')
+     const secIds = idsOf('secret')
+     const linkIds = idsOf('link')
+     const fileIds = idsOf('file')
      // 搜索时跨「进行中 + 长期」一起搜,平铺显示;不搜索时分成两段
-     const searched = kw ? buckets.active.concat(buckets.long, buckets.archived).filter(hit) : []
-     // 便签页的搜索框也顺手当全局搜:提醒和保险库的标题一起找
-     const remHits = kw ? (state.reminders || []).filter((r) => !((r.deletedAt || 0) > 0) && String(r.title || '').toLowerCase().includes(kw)) : []
-     const secHits = kw ? (state.secrets || []).filter((x) => String(x.title || '').toLowerCase().includes(kw)) : []
-     const linkHits = kw ? (state.links || []).filter((l) => (String(l.title || '') + ' ' + String(l.url || '')).toLowerCase().includes(kw)) : []
+     const searched = kw ? buckets.active.concat(buckets.long, buckets.archived).filter((n) => noteIds.has(n.id)) : []
+     const remHits = kw ? (state.reminders || []).filter((r) => remIds.has(r.id)) : []
+     const secHits = kw ? (state.secrets || []).filter((x) => secIds.has(x.id)) : []
+     const linkHits = kw ? (state.links || []).filter((l) => linkIds.has(l.id)) : []
      // 附件也能按文件名搜到(「那张截图叫什么来着」)
-     const fileHits = kw ? (state.files || []).filter((f) => String(f.name || '').toLowerCase().includes(kw)) : []
+     const fileHits = kw ? (state.files || []).filter((f) => fileIds.has(f.id)) : []
+     const deepHits = kw && deep.kw === kw ? deep.hits : []
+     const deepDone = kw && deep.kw === kw && deep.done
+     const deepFind = async () => {
+       if (!kw || deepBusy) return
+       setDeepBusy(true)
+       try {
+         const body = await run('search.all', { query: kw, deepVault: true })
+         if (!body) return
+         const list = body && body.result && Array.isArray(body.result.hits) ? body.result.hits : []
+         setDeep({ kw, hits: list.filter((h) => h.kind === 'secret'), done: true })
+       } finally { setDeepBusy(false) }
+     }
 
      /** 收文件:上传后先挂在草稿上,保存时随便签一起落库。 */
      const addFiles = async (list, nameOf) => {
@@ -222,13 +245,13 @@
        h('div', { key: 'sq', className: '__dk_search' }, h('div', { className: '__dk_qwrap' }, [
          h('input', {
            key: 'i', className: '__dk_input', type: 'search',
-           placeholder: '搜所有便签…(标题、正文、标签)', value: q,
+           placeholder: '搜便签、提醒、网页、保险库标题…(试试「脸书」或「Facebook」)', value: q,
            onChange: (e) => setQ(e.target.value),
            onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setQ('') } },
          }),
          q ? h('button', { key: 'x', className: '__dk_qclear', title: '清空搜索', 'aria-label': '清空搜索', onClick: () => setQ('') }, h(Ico, { name: 'x', size: 14 })) : null,
        ])),
-       kw ? h('div', { key: 'qh', className: '__dk_qhint' }, '「' + q.trim() + '」· 命中 ' + searched.length + ' 条') : null,
+       kw ? h('div', { key: 'qh', className: '__dk_qhint' }, '「' + q.trim() + '」· 命中 ' + (found ? found.total : 0) + ' 条') : null,
        h(Lightbox, { key: 'light', file: viewing, onClose: () => setViewing(null) }),
        h('div', { key: 'bar', className: '__dk_toolbar' }, [
          h('button', { key: 'a', className: '__dk_btn p', onClick: () => setOpenAdd((v) => !v) }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), openAdd ? ' 收起' : ' 新便签']),
@@ -299,7 +322,7 @@
        kw
          ? (searched.length
            ? searched.map((n) => row(n, n.shelf === 'long' && !n.archived ? 'long' : 'daily'))
-           : (remHits.length || secHits.length || linkHits.length || fileHits.length
+           : (found && found.total
              ? null
              : h('div', { key: 'e', className: '__dk_empty' }, [
                h('div', { key: 't', className: '__dk_emptytitle' }, '没搜到「' + q.trim() + '」'),
@@ -337,13 +360,41 @@
        kw && secHits.length
          ? h('div', { key: 'ss' }, [
            h('div', { key: 'h', className: '__dk_sec __dk_sec--ref' }, [h('span', { key: 'a' }, '保险库里命中'), h('span', { key: 'b' }, String(secHits.length))]),
-           ...secHits.slice(0, 5).map((x) => h('div', { key: x.id, className: '__dk_row' }, [
+           ...secHits.slice(0, 5).map((x) => h('button', {
+             key: x.id, type: 'button', className: '__dk_row __dk_rowbtn',
+             title: '去保险库确认这条(会自动展开,30 秒后收起)',
+             onClick: () => onGo && onGo('vault', { secretId: x.id }),
+           }, [
              h('div', { key: 'm', className: '__dk_rowmain' }, [
                h('div', { key: 't', className: '__dk_rt' }, x.title),
-               h('div', { key: 's', className: '__dk_rm' }, '点「保险库」查看明文'),
+               h('div', { key: 's', className: '__dk_rm' }, '保险库 · 点一下查看明文'),
              ]),
+             h('span', { key: 'go', className: '__dk_qfgo' }, '确认'),
            ])),
          ])
+         : null,
+       kw && !secHits.length && !deepHits.length && !deepDone
+         ? h('button', { key: 'deep', type: 'button', className: '__dk_qfdeep', disabled: deepBusy, onClick: deepFind },
+           deepBusy ? '正在解密比对…' : '保险库标题没命中?在内容里再找一次')
+         : null,
+       kw && deepHits.length
+         ? h('div', { key: 'sd' }, [
+           h('div', { key: 'h', className: '__dk_sec __dk_sec--ref' }, [h('span', { key: 'a' }, '保险库内容里命中'), h('span', { key: 'b' }, String(deepHits.length))]),
+           ...deepHits.slice(0, 5).map((x) => h('button', {
+             key: x.id, type: 'button', className: '__dk_row __dk_rowbtn',
+             title: '去保险库确认这条(会自动展开,30 秒后收起)',
+             onClick: () => onGo && onGo('vault', { secretId: x.id }),
+           }, [
+             h('div', { key: 'm', className: '__dk_rowmain' }, [
+               h('div', { key: 't', className: '__dk_rt' }, x.title),
+               h('div', { key: 's', className: '__dk_rm' }, '保险库 · 内容命中'),
+             ]),
+             h('span', { key: 'go', className: '__dk_qfgo' }, '确认'),
+           ])),
+         ])
+         : null,
+       kw && deepDone && !deepHits.length
+         ? h('div', { key: 'de', className: '__dk_qfempty' }, '保险库内容里也没有匹配的条目')
          : null,
        // 不搜索:两段
        kw ? null : seg('active', '进行中', buckets.active),

@@ -46,6 +46,7 @@
      const [err, setErr] = useState('')
      const [page, setPage] = useState('home')
      const [seq, setSeq] = useState(0)
+     const [focus, setFocus] = useState(null)
      const [reply, setReply] = useState(null)
      // 撤销后回填到输入框的原话
      const [seed, setSeed] = useState('')
@@ -86,7 +87,7 @@
        timer.current = setTimeout(() => setReply(null), undo ? 6000 : 3500)
      }, [])
 
-     const go = useCallback((next) => { setPage(next); setSeq((s) => s + 1) }, [])
+     const go = useCallback((next, opts) => { setPage(next); setFocus(opts || null); setSeq((s) => s + 1) }, [])
 
      const onCaptureDone = useCallback((r) => {
        if (!r) return
@@ -101,6 +102,7 @@
        // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
        showReply(r.reply || '已保存', undo, move)
+       setFocus(null)
        if (r.parsed && r.parsed.kind === 'link') { setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setPage('notes'); setSeq((s) => s + 1) }
@@ -116,7 +118,7 @@
 
      return h(SidebarView, {
        state, page, seq, reply, err, run, bridge, onRetry: load,
-       onGo: go, onCaptureDone, onLink,
+       focus, onGo: go, onCaptureDone, onLink,
        notify: showReply,
        onClearReply: () => showReply(''),
        seed,
@@ -125,7 +127,7 @@
    }
 
    /** 侧栏页面的纯展示部分:状态由 SidebarPage 喂进来(这样能脱离浏览器直接测)。 */
-   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry }) {
+   function SidebarView({ state, page, seq, reply, err, run, onGo, onCaptureDone, onLink, onClearReply, notify, seed, onSeedUsed, bridge, onRetry, focus }) {
      const sidebar = useSidebarBridge(bridge)
      const goTo = onGo
      if (!state) {
@@ -141,9 +143,9 @@
        // notify 由 SidebarPage 注入(这里没有自己的 showReply)
        if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
-       if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify })]
+       if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
-       if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify })]
+       if (page === 'vault') return [h(VaultPage, { key: 'v', state, run, notify, focus })]
        return [h(Settings, { key: 's', state, run, sidebarReady: sidebar.ready })]
      })()
      // 顶部横排:首页放第一格(浮标里的底部导航是另一套顺序,各用各的)
@@ -405,6 +407,7 @@
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
      playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar,
+     searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES,
    }
    return module.exports
  },

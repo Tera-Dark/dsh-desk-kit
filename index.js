@@ -596,7 +596,7 @@ async function act(ctx, s, action, payload) {
     // 立刻清理一次:keepDays 只影响这一次;要改默认值请走 settings.update
     case 'cleanup.run': return cleanupNow(s, payload.keepDays)
     // 统一查找(面板里搜的是本地快照,这个给工具和「搜索兜底」用)
-    case 'search.all': return s.searchAll(payload.query, { includeTrash: !!payload.includeTrash })
+    case 'search.all': return s.searchAll(payload.query, { includeTrash: !!payload.includeTrash, deepVault: !!payload.deepVault })
     case 'file.attach': return s.attachFiles(String(payload.kind || 'note'), String(payload.ownerId || ''), payload.ids || [])
     case 'note.update': return s.updateNote(payload.id, payload)
     case 'note.delete': return s.deleteNote(payload.id)      // 软删:进垃圾箱
@@ -729,14 +729,15 @@ export function apply(ctx) {
 
   reg('desk_search', () => ctx.tools.register(defineTool({
     name: 'desk_search',
-    description: '在随手台里一次搜完:便签、提醒、网页、附件文件名、保险库标题。用户说「我记过/存过那个…叫什么来着」时用。',
+    description: '在随手台里一次搜完:便签、提醒、网页、附件文件名、保险库标题,支持「脸书/Facebook」这类中英别名。用户说「我记过/存过那个…叫什么来着」时用。',
     parameters: {
       query: { type: 'string', description: '关键词' },
       includeTrash: { type: 'boolean', description: '是否连垃圾箱一起搜' },
+      deepVault: { type: 'boolean', description: '保险库标题没命中时,是否再解密内容找一次(只在内存里比对,不回传字段值)' },
     },
     output: outputSpec,
     async execute(args) {
-      const res = s.searchAll(args.query, { includeTrash: !!args.includeTrash })
+      const res = s.searchAll(args.query, { includeTrash: !!args.includeTrash, deepVault: !!args.deepVault })
       const NAMES = { note: '便签', reminder: '提醒', link: '网页', file: '附件', secret: '保险库' }
       const text = res.hits.length
         ? res.hits.map((x, i) => (i + 1) + '. [' + (NAMES[x.kind] || x.kind) + '] ' + x.title + '  (' + x.where + ', id=' + x.id + ')' + (x.trashed ? ' [在垃圾箱]' : '')).join('\n')

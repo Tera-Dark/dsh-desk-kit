@@ -292,9 +292,27 @@ test('搜索跨进行中与长期一起搜,搜索框在最上面', () => {
   assert.ok(src.includes('buckets.active.concat(buckets.long)'), '搜索要跨两段')
   // 渲染顺序:搜索框必须排在新便签按钮之前
   const html = renderToString(h(T.NotesPage, { state, run }))
-  const iq = html.indexOf('搜所有便签')
+  const iq = html.indexOf('搜便签、提醒')
   const ib = html.indexOf('新便签')
   assert.ok(iq >= 0 && ib >= 0 && iq < ib, '搜索框应在操作条之前')
+})
+
+test('快搜:中英别名互通,首页入口能一次给出五类定位', () => {
+  assert.ok(T.searchVariants('脸书').includes('facebook'), '中文要能展开到英文')
+  assert.ok(T.searchMatch('Facebook 账号', T.searchVariants('脸书')), '别名匹配要生效')
+  const st = {
+    notes: [{ id: 'n1', text: '用于脸书的账号', tags: [], updatedAt: 1 }],
+    reminders: [{ id: 'r1', title: '脸书登录提醒', note: '', updatedAt: 2 }],
+    links: [{ id: 'w1', title: 'Facebook', url: 'https://facebook.com', note: '', group: '', updatedAt: 3 }],
+    files: [{ id: 'f1', name: 'facebook截图.png', createdAt: 4 }],
+    secrets: [{ id: 's1', title: 'Facebook', updatedAt: 5 }],
+  }
+  const res = T.searchSnapshot(st, '脸书')
+  assert.equal(res.total, 5, '五类都要命中')
+  assert.equal(res.hits.find((h) => h.kind === 'secret').where, '标题')
+  assert.equal(res.hits.some((h) => h.kind === 'note' && h.snippet), true, '便签要带命中摘要')
+  const html = renderToString(h(T.Home, { state: st, run: async () => { }, onGo: () => { }, notify: () => { } }))
+  assert.ok(html.includes('找账号、便签、网页'), '首页要有快搜入口')
 })
 
 test('图标表里有 undo 与 trash', () => {

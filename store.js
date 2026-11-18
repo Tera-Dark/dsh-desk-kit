@@ -27,6 +27,48 @@ const MAX_FILES = 3000
 const BLOB_ID_RE = /^[A-Za-z0-9_-]{1,120}$/
 const isBlobId = (id) => BLOB_ID_RE.test(String(id || ''))
 
+// 中英别名:条目里写 Facebook、人嘴里说「脸书」,搜索要能对上。
+// 与客户端 src/client/30-core.js 的 SEARCH_ALIASES 保持同一组;只影响搜索,不落库。
+const SEARCH_ALIASES = [
+  ['facebook', '脸书', 'fb', 'meta'],
+  ['instagram', 'ins', 'ig', '图享'],
+  ['wechat', '微信', 'weixin'],
+  ['qq', '腾讯qq'],
+  ['taobao', '淘宝'],
+  ['alipay', '支付宝'],
+  ['google', '谷歌', 'gmail', '谷歌邮箱'],
+  ['apple', '苹果', 'icloud'],
+  ['github'],
+  ['twitter', '推特'],
+  ['youtube', '油管', '谷歌视频'],
+  ['netflix', '奈飞'],
+  ['telegram', '电报', 'tg'],
+  ['whatsapp', '瓦次艾普'],
+  ['steam', '蒸汽平台'],
+  ['microsoft', '微软', 'outlook'],
+  ['amazon', '亚马逊'],
+]
+
+function searchVariants(query) {
+  const raw = String(query || '').trim().toLowerCase()
+  if (!raw) return []
+  const flat = raw.replace(/[\s\-_./]+/g, '')
+  const out = new Set([raw, flat].filter(Boolean))
+  for (const group of SEARCH_ALIASES) {
+    const hit = group.some((a) => (a.length >= 2 ? raw.includes(a) || flat.includes(a) : raw === a))
+    if (!hit) continue
+    for (const a of group) if (a.length >= 2) out.add(a)
+  }
+  return [...out]
+}
+
+function searchMatch(text, variants) {
+  const hay = String(text || '').toLowerCase()
+  if (!hay) return false
+  const flat = hay.replace(/[\s\-_./]+/g, '')
+  return variants.some((v) => hay.includes(v) || flat.includes(v))
+}
+
 /**
  * 从二进制头部读图片尺寸(PNG / GIF / JPEG / WebP / BMP)。
  * 只为了排版时不跳一下 —— 读不出来就返回 0,不影响保存。
@@ -1463,11 +1505,12 @@ export class DeskStore {
     const q = String(query || '').trim().toLowerCase()
     if (!q) return { query: '', hits: [], total: 0 }
     const limit = Math.max(1, Math.min(200, Number(opts.limit) || 50))
+    const variants = searchVariants(q)
     const hits = []
     const add = (kind, id, title, where, extra) => {
       hits.push({ kind, id, title: String(title || '').slice(0, 200), where, ...(extra || {}) })
     }
-    const inText = (text) => String(text || '').toLowerCase().includes(q)
+    const inText = (text) => searchMatch(text, variants)
 
     for (const n of this.data.notes || []) {
       if ((n.deletedAt || 0) > 0 && !opts.includeTrash) continue
@@ -1498,10 +1541,27 @@ export class DeskStore {
       if (!inText(f.name)) continue
       add('file', f.id, f.name, '文件名', { ownerKind: f.kind, ownerId: f.ownerId, mime: f.mime, size: f.size })
     }
-    // 保险库:只搜标题(内容加密,搜不了也不该搜)
-    for (const e of this.vaultRaw().entries) {
-      if (!inText(e.title)) continue
-      add('secret', e.id, e.title, '标题', {})
+    // 保险库:默认只搜标题。
+    // deepVault 是用户显式点「在内容里找」才走:解密只发生在内存里,
+    // 结果仍只回 id/标题/命中位置,不把字段值带出去。
+    const vaultEntries = this.vaultRaw().entries
+    // 深搜时先取一次钥匙,避免每条都重复 scrypt/读盘(100 条就是 100 次)
+    const vaultKey = opts.deepVault ? this.masterKey() : null
+    for (const e of vaultEntries) {
+      const where = []
+      if (inText(e.title)) where.push('标题')
+      if (opts.deepVault && !where.length) {
+        try {
+          const payload = this.decryptPayload(e, vaultKey)
+          if (inText(payload.note)) where.push('内容')
+          if (!where.length) {
+            for (const [k, v] of Object.entries(payload.fields || {})) {
+              if (inText(k) || inText(v)) { where.push('内容'); break }
+            }
+          }
+        } catch { /* 解不开的条目跳过,不能拖垮整次搜索 */ }
+      }
+      if (where.length) add('secret', e.id, e.title, where.join('/'), {})
     }
     hits.sort((a, b) => (a.kind === b.kind ? 0 : a.kind.localeCompare(b.kind)))
     return { query: q, hits: hits.slice(0, limit), total: hits.length }
@@ -1924,9 +1984,9 @@ export class DeskStore {
     return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: data.toString('base64') }
   }
 
-  decryptPayload(entry) {
-    const key = this.masterKey()
-    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(entry.iv, 'base64'))
+  decryptPayload(entry, key) {
+    const k = key || this.masterKey()
+    const decipher = createDecipheriv('aes-256-gcm', k, Buffer.from(entry.iv, 'base64'))
     decipher.setAuthTag(Buffer.from(entry.tag, 'base64'))
     const out = Buffer.concat([decipher.update(Buffer.from(entry.data, 'base64')), decipher.final()])
     return JSON.parse(out.toString('utf8'))

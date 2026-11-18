@@ -725,6 +725,25 @@ test('统一查找:五类都能按 id 定位,保险库只露标题', () => {
   assert.ok(s.searchAll('电费').hits.some((h) => h.kind === 'reminder' && h.id === rem.id))
 })
 
+test('查找:中英别名互通,保险库内容深搜只回定位', () => {
+  const s = fresh()
+  s.addNote({ text: '用于脸书的账号,密码在保险库' })
+  s.addSecret({ title: '工作账号', fields: { 账号: 'demo@example.com', 密码: 'topsecret' }, note: '这个用于脸书' })
+  const byEn = s.searchAll('Facebook')
+  assert.ok(byEn.hits.some((h) => h.kind === 'note'), 'Facebook 要能搜到写着「脸书」的便签')
+  assert.equal(byEn.hits.some((h) => h.kind === 'secret'), false, '默认不碰保险库内容')
+  const byCn = s.searchAll('脸书')
+  assert.ok(byCn.hits.some((h) => h.kind === 'note'), '脸书要能搜到中文便签')
+  const deep = s.searchAll('脸书', { deepVault: true })
+  const sec = deep.hits.find((h) => h.kind === 'secret')
+  assert.ok(sec, '深搜要能找到内容里写着「脸书」的保险库条目')
+  assert.ok(sec.where.includes('内容'))
+  assert.equal(JSON.stringify(deep).includes('topsecret'), false, '结果不能带出密码')
+  assert.equal(JSON.stringify(deep).includes('demo@example.com'), false, '结果不能带出账号')
+  s.addSecret({ title: 'Facebook', fields: { 密码: 'x' } })
+  assert.ok(s.searchAll('脸书').hits.some((h) => h.kind === 'secret' && h.title === 'Facebook'), '标题别名也要命中')
+})
+
 test('用量:分开算数据/保险库/附件,柔性数据不糊在一起', () => {
   const s = fresh()
   const f = s.addFile({ buffer: PNG1, name: 'a.png', mime: 'image/png' })

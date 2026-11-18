@@ -11,7 +11,7 @@
      return lines.join('\n')
    }
 
-   function VaultPage({ state, run, notify }) {
+   function VaultPage({ state, run, notify, focus }) {
      const [moving, setMoving] = useState('')
      const [openAdd, setOpenAdd] = useState(false)
      const [title, setTitle] = useState('')
@@ -62,6 +62,18 @@
        if (timers.current[id]) clearTimeout(timers.current[id])
        timers.current[id] = setTimeout(() => { delete timers.current[id]; setRevealed((cur) => ({ ...cur, [id]: null })) }, VAULT_HIDE_MS)
      }
+
+     // 从快搜点「确认」进来:滚到那条并展开,看完 30 秒自动收起。
+     useEffect(() => {
+       const id = focus && focus.secretId
+       if (!id) return undefined
+       const t = setTimeout(() => {
+         const el = Array.from(document.querySelectorAll('[data-dk-secret]')).find((x) => x.getAttribute('data-dk-secret') === id)
+         if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+         reveal(id)
+       }, 80)
+       return () => clearTimeout(t)
+     }, [focus && focus.secretId])
 
      return h(React.Fragment, null, [
        h(Lightbox, { key: 'light', file: viewing, onClose: () => setViewing(null) }),
@@ -153,7 +165,7 @@
          ]),
        ]) : null,
        secrets.length
-         ? secrets.map((s) => h('div', { key: s.id, className: '__dk_item' }, [
+         ? secrets.map((s) => h('div', { key: s.id, className: '__dk_item', 'data-dk-secret': s.id }, [
            h('div', { key: 't', className: '__dk_itop' }, [
              h('div', { key: 'x', className: '__dk_itext __dk_lockrow' }, [h(Ico, { key: 'i', name: 'lock', size: 14 }), s.title]),
              h('button', {

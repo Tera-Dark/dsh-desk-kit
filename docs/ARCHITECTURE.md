@@ -3,7 +3,7 @@
 > 2026-11-17 · 目标：把「能跑但难维护」的插件收拢成有明确所有权边界的结构。
 >
 > 注：本文是当时的记录，行数与工具数会随版本变化；当前口径以 README 和 `package.json` 为准（现为 27 个 Agent 工具）。
-> 最新一轮的后端规范化与视觉刷新见 [CHANGELOG 1.15.0](../CHANGELOG.md)。
+> 最新一轮的快搜与视觉刷新见 [CHANGELOG 1.16.0](../CHANGELOG.md)。
 
 ## 一、判断依据（设计理念来源）
 
@@ -135,8 +135,10 @@ data.json files[] { id, name, mime, size, w, h, secret, kind, ownerId, createdAt
 |---|---|
 | 便签/提醒/网页 | 记录自身的字段(正文/标题/网址/备注/标签) |
 | 附件 | `data.json.files[].name`;归属靠 `kind + ownerId`,一条归一个宿主 |
-| 保险库 | 只搜 `title`(entry 的明文字段);内容要 `secret.get` 解密才见 |
+| 保险库 | 默认只搜 `title`;显式 `deepVault` 才在内存里解密比对内容,结果仍只回定位 |
 | 垃圾箱 | 默认不搜,`includeTrash` 才带上 |
+
+1.16.0 起,搜索会展开常见服务的中英别名(脸书/Facebook、微信/WeChat 等),并支持从结果直接定位到保险库条目。
 
 **清理分三层,互不越权**:
 

@@ -203,6 +203,112 @@
      ])
    }
 
+   // 同一个服务常有两个名字:中文习惯叫「脸书」,条目里却写着 Facebook。
+   // 只做字面匹配会出现「明明存过却搜不到」,所以给常见服务补一组别名。
+   // 只用于搜索,不改任何落库内容;别名太短(如 x)不参与包含匹配,避免满屏误中。
+   const SEARCH_ALIASES = [
+     ['facebook', '脸书', 'fb', 'meta'],
+     ['instagram', 'ins', 'ig', '图享'],
+     ['wechat', '微信', 'weixin'],
+     ['qq', '腾讯qq'],
+     ['taobao', '淘宝'],
+     ['alipay', '支付宝'],
+     ['google', '谷歌', 'gmail', '谷歌邮箱'],
+     ['apple', '苹果', 'icloud'],
+     ['github'],
+     ['twitter', '推特'],
+     ['youtube', '油管', '谷歌视频'],
+     ['netflix', '奈飞'],
+     ['telegram', '电报', 'tg'],
+     ['whatsapp', '瓦次艾普'],
+     ['steam', '蒸汽平台'],
+     ['microsoft', '微软', 'outlook'],
+     ['amazon', '亚马逊'],
+   ]
+
+   /** 关键词 → 匹配词集合(原词 + 去掉空格/符号 + 同组别名)。 */
+   function searchVariants(query) {
+     const raw = String(query || '').trim().toLowerCase()
+     if (!raw) return []
+     const flat = raw.replace(/[\s\-_./]+/g, '')
+     const out = new Set([raw, flat].filter(Boolean))
+     for (const group of SEARCH_ALIASES) {
+       const hit = group.some((a) => (a.length >= 2 ? raw.includes(a) || flat.includes(a) : raw === a))
+       if (!hit) continue
+       for (const a of group) if (a.length >= 2) out.add(a)
+     }
+     return [...out]
+   }
+
+   /** 一段文字是否命中任一匹配词;连空格/符号一起忽略。 */
+   function searchMatch(text, variants) {
+     const hay = String(text || '').toLowerCase()
+     if (!hay) return false
+     const flat = hay.replace(/[\s\-_./]+/g, '')
+     return variants.some((v) => hay.includes(v) || flat.includes(v))
+   }
+
+   /** 命中词附近的一小段,给快搜结果做确认用。 */
+   function searchSnippet(text, variants) {
+     const src = String(text || '')
+     const low = src.toLowerCase()
+     let at = -1
+     for (const v of variants) {
+       const i = low.indexOf(v)
+       if (i >= 0 && (at < 0 || i < at)) at = i
+     }
+     if (at < 0) return src.slice(0, 80)
+     return (at > 24 ? '…' : '') + src.slice(Math.max(0, at - 24), at + 56) + '…'
+   }
+
+   /**
+    * 在内存快照里一次搜五类。只回定位与短摘要,不拼第二份正文;
+    * 保险库仍只搜标题(内容加密,快搜不碰)。
+    */
+   function searchSnapshot(state, query) {
+     const variants = searchVariants(query)
+     const empty = { query: String(query || '').trim(), variants, hits: [], total: 0 }
+     if (!variants.length || !state) return empty
+     const hits = []
+     const add = (kind, id, title, where, extra) => hits.push({
+       kind, id, title: String(title || '').slice(0, 200), where,
+       updatedAt: (extra && extra.updatedAt) || 0, ...(extra || {}),
+     })
+     for (const n of state.notes || []) {
+       if ((n.deletedAt || 0) > 0) continue
+       const where = []
+       if (searchMatch(n.text, variants)) where.push('正文')
+       if ((n.tags || []).some((t) => searchMatch(t, variants))) where.push('标签')
+       if (where.length) add('note', n.id, n.text || '（图片）', where.join('/'), { updatedAt: n.updatedAt, snippet: searchSnippet(n.text, variants) })
+     }
+     for (const r of state.reminders || []) {
+       if ((r.deletedAt || 0) > 0) continue
+       const where = []
+       if (searchMatch(r.title, variants)) where.push('标题')
+       if (searchMatch(r.note, variants)) where.push('备注')
+       if (where.length) add('reminder', r.id, r.title || '提醒', where.join('/'), { updatedAt: r.updatedAt })
+     }
+     for (const l of state.links || []) {
+       if ((l.deletedAt || 0) > 0) continue
+       const where = []
+       if (searchMatch(l.title, variants)) where.push('标题')
+       if (searchMatch(l.url, variants)) where.push('网址')
+       if (searchMatch(l.note, variants)) where.push('备注')
+       if (searchMatch(l.group, variants)) where.push('分类')
+       if (where.length) add('link', l.id, l.title || l.url, where.join('/'), { updatedAt: l.updatedAt })
+     }
+     for (const f of state.files || []) {
+       if (f.secret || !searchMatch(f.name, variants)) continue
+       add('file', f.id, f.name, '文件名', { updatedAt: f.createdAt, ownerKind: f.kind, ownerId: f.ownerId })
+     }
+     for (const s of state.secrets || []) {
+       if (searchMatch(s.title, variants)) add('secret', s.id, s.title, '标题', { updatedAt: s.updatedAt || s.createdAt })
+     }
+     const order = { note: 0, secret: 1, reminder: 2, link: 3, file: 4 }
+     hits.sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9) || (b.updatedAt || 0) - (a.updatedAt || 0))
+     return { query: String(query || '').trim(), variants, hits, total: hits.length }
+   }
+
    const weekText = (days) => (Array.isArray(days) && days.length ? '周' + days.map((d) => WEEK[d]).join('、周') : '每天')
    /** 2026-11-16 → 11月16日 周日(侧栏头部用)。拿不到就返回空串。 */
    const fmtDay = (ymd) => {

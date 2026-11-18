@@ -237,6 +237,46 @@ function pasteFiles(el, files) {
     const panelClosed = await waitFor(() => !rootHost.querySelector('.__dk_panel'), 3000)
     step('点面板外关闭浮层面板', !!panelClosed)
 
+    // 8) 首页快搜:只记得「脸书」,也要能跨到保险库并一键确认
+    const made = await run('secret.add', { title: 'Facebook', body: '账号 demo_user,这个用于脸书' })
+    const secretId = made.result && made.result.id
+    const qfHost = document.createElement('div')
+    document.body.appendChild(qfHost)
+    const qfRoot = ReactDOM.createRoot(qfHost)
+    let goto = null
+    qfRoot.render(h(T.Home, { state, run, notify: () => { }, onLink: () => { }, onGo: (p, o) => { goto = { p, o } } }))
+    const qfInput = await waitFor(() => qfHost.querySelector('.__dk_qfinput'))
+    setValue(qfInput, '脸书')
+    const secRow = await waitFor(() => Array.from(qfHost.querySelectorAll('.__dk_qfrow')).find((b) => (b.textContent || '').includes('保险库')))
+    step('快搜:中英别名命中保险库', !!secRow)
+    click(secRow)
+    step('快搜:点结果带条目定位跳转', !!(goto && goto.p === 'vault' && goto.o && goto.o.secretId === secretId))
+
+    // 标题里没有关键词时,快搜要给出「在保险库内容里再找一次」
+    const made2 = await run('secret.add', { title: '工作账号', body: '这个用于电报' })
+    const secret2 = made2.result && made2.result.id
+    setValue(qfInput, 'telegram')
+    const deepBtn = await waitFor(() => qfHost.querySelector('.__dk_qfdeep'))
+    step('快搜:标题没命中时提供内容深搜', !!deepBtn)
+    click(deepBtn)
+    const deepRow = await waitFor(() => Array.from(qfHost.querySelectorAll('.__dk_qfrow')).find((b) => (b.textContent || '').includes('内容')), 4000)
+    step('快搜:深搜命中保险库内容', !!deepRow)
+    if (deepRow) {
+      click(deepRow)
+      step('快搜:深搜结果也能定位', !!(goto && goto.p === 'vault' && goto.o && goto.o.secretId === secret2))
+    }
+
+    const vHost = document.createElement('div')
+    document.body.appendChild(vHost)
+    const vRoot = ReactDOM.createRoot(vHost)
+    const vRun = async (action, payload) => {
+      const body = await run(action, payload)
+      return body
+    }
+    vRoot.render(h(T.VaultPage, { state, run: vRun, notify: () => { }, focus: { secretId } }))
+    const revealed = await waitFor(() => vHost.textContent.includes('账号 demo_user'), 4000)
+    step('从快搜进保险库自动展开对应条目', !!revealed)
+
     window.__E2E = { results, ok: results.every((r) => r.ok) }
   } catch (e) {
     step('未捕获异常', false, String((e && e.message) || e))
