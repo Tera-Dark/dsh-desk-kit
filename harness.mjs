@@ -234,6 +234,21 @@ assert.ok(lst.state.secrets.every((s) => s.fieldCount === 0), '列表不带字�
 assert.ok(lst.state.secrets.some((s) => s.title.includes('某示例站点')))
 console.log('✓ 保险库:密文落盘 + API 读回')
 
+// 7b) 保险库合集:添加时归属,拖动后顺序持久化
+{
+  const c1 = await post('secret.add', { title: '合集A', fields: { 链接: 'https://a.example' }, collection: '测试合集' })
+  const c2 = await post('secret.add', { title: '合集B', fields: { 链接: 'https://b.example' }, collection: '测试合集' })
+  const before = await get()
+  assert.ok(before.state.secrets.some((x) => x.title === '合集A' && x.collection === '测试合集'), '合集字段要进快照')
+  const moved = await post('secret.reorder', { collection: '测试合集', ids: [c2.result.id, c1.result.id] })
+  assert.equal(moved.ok, true)
+  const after = (await get()).state.secrets.filter((x) => x.collection === '测试合集').sort((a, b) => a.order - b.order)
+  assert.deepEqual(after.map((x) => x.title), ['合集B', '合集A'], '拖动顺序要写回')
+  await post('secret.delete', { query: c1.result.id })
+  await post('secret.delete', { query: c2.result.id })
+  console.log('✓ 保险库合集:归属 + 拖动重排')
+}
+
 // 8) 告警链路:加一条「截止时间=此刻」的提醒,GET 会顺带 tick,必须冒出告警
 const now = new Date()
 const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')

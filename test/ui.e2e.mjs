@@ -277,6 +277,36 @@ function pasteFiles(el, files) {
     const revealed = await waitFor(() => vHost.textContent.includes('账号 demo_user'), 4000)
     step('从快搜进保险库自动展开对应条目', !!revealed)
 
+    // 8b) 保险库合集:筛选 + 上下移动保存顺序
+    const c1 = await run('secret.add', { title: 'E2E合集一', body: 'x', collection: 'E2E合集' })
+    const c2 = await run('secret.add', { title: 'E2E合集二', body: 'x', collection: 'E2E合集' })
+    const cHost = document.createElement('div')
+    document.body.appendChild(cHost)
+    const cRoot = ReactDOM.createRoot(cHost)
+    const paintColl = () => cRoot.render(h(T.VaultPage, { state, run: vRun, notify: () => { } }))
+    const vRun2 = async (action, payload) => {
+      const body = await run(action, payload)
+      paintColl()
+      return body
+    }
+    // 用带重绘的 run 重新挂一次,点击后 UI 才会跟着新 state 走
+    cRoot.render(h(T.VaultPage, { state, run: vRun2, notify: () => { } }))
+    const chip = await waitFor(() => Array.from(cHost.querySelectorAll('button')).find((b) => (b.textContent || '').includes('E2E合集 2')))
+    step('保险库合集入口与条数', !!chip)
+    click(chip)
+    const two = await waitFor(() => cHost.querySelectorAll('[data-dk-secret]').length === 2)
+    step('保险库按合集筛选', !!two)
+    const firstRow = cHost.querySelector('[data-dk-secret]')
+    const down = firstRow && firstRow.querySelector('button[aria-label="下移"]')
+    click(down)
+    const swapped = await waitFor(() => {
+      const list = (state.secrets || []).filter((x) => x.collection === 'E2E合集').sort((a, b) => a.order - b.order)
+      return list.length === 2 && list[0].title === 'E2E合集二' && list[1].title === 'E2E合集一'
+    }, 4000)
+    step('保险库合集上下移动并保存顺序', !!swapped)
+    await run('secret.delete', { query: c1.result.id })
+    await run('secret.delete', { query: c2.result.id })
+
     // 9) 手机主屏深链:打开面板 → 首页 → 预填输入框 → 清掉地址参数
     history.replaceState(null, '', '/?dk=capture&text=' + encodeURIComponent('深链预填'))
     T.handleDeepLink()

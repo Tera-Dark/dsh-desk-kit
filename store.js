@@ -1128,6 +1128,11 @@ export class DeskStore {
     return String(input || '').trim().replace(/^[#\s]+/, '').replace(/\s+/g, ' ').slice(0, 24)
   }
 
+  /** 保险库合集名:只做轻量清洗,不强迫用户拆字段。 */
+  static normalizeCollection(input) {
+    return String(input || '').trim().replace(/^[#\s]+/, '').replace(/\s+/g, ' ').slice(0, 32)
+  }
+
   /** 网页:一条一条存的常用入口(手机桌面那种格子)。 */
   addLink(input = {}) {
     const url = DeskStore.normalizeUrl(input.url)
@@ -1494,6 +1499,8 @@ export class DeskStore {
           report.locked++
           continue
         }
+        entry.collection = DeskStore.normalizeCollection(entry.collection)
+        entry.order = Number.isFinite(Number(entry.order)) ? Number(entry.order) : 0
         vault.entries.push(entry)
         seen.add(entry.id)
         report.added.secrets++
@@ -1564,6 +1571,7 @@ export class DeskStore {
     for (const e of vaultEntries) {
       const where = []
       if (inText(e.title)) where.push('标题')
+      if (inText(DeskStore.normalizeCollection(e.collection))) where.push('合集')
       if (opts.deepVault && !where.length) {
         try {
           const payload = this.decryptPayload(e, vaultKey)
@@ -2006,6 +2014,19 @@ export class DeskStore {
     return JSON.parse(out.toString('utf8'))
   }
 
+  /** 同一合集里下一个排序号;老数据没有 order 时从 1 开始。 */
+  nextSecretOrder(collection, exceptId = '') {
+    const target = DeskStore.normalizeCollection(collection)
+    let max = 0
+    for (const e of this.vaultRaw().entries) {
+      if (exceptId && e.id === exceptId) continue
+      if (DeskStore.normalizeCollection(e.collection) !== target) continue
+      const n = Number(e.order)
+      if (Number.isFinite(n) && n > max) max = n
+    }
+    return max + 1
+  }
+
   addSecret(input = {}) {
     const title = String(input.title || '').trim()
     if (!title) throw new Error('条目标题不能为空')
@@ -2032,10 +2053,14 @@ export class DeskStore {
     const vault = this.vaultRaw()
     const now = Date.now()
     const blob = this.encryptPayload({ fields, note: String(input.note || '').slice(0, 4000), files: fileIds })
+    const collection = DeskStore.normalizeCollection(input.collection)
     const entry = {
       id: uid('s-'),
       title: title.slice(0, 120),
       tags: Array.isArray(input.tags) ? input.tags.map(String).filter(Boolean).slice(0, 12) : [],
+      collection,
+      // 同一合集内按 order 升序;新条目先放末尾,用户可拖动重排
+      order: this.nextSecretOrder(collection),
       createdAt: now,
       updatedAt: now,
       ...blob,
@@ -2046,12 +2071,15 @@ export class DeskStore {
     for (const id of fileIds) {
       try { this.setFileSecret(id, true); this.attachFiles('secret', entry.id, [id]) } catch { /* 搬不动就留在外面,数据还在 */ }
     }
-    return { id: entry.id, title: entry.title, tags: entry.tags, createdAt: now }
+    return { id: entry.id, title: entry.title, tags: entry.tags, collection: entry.collection, createdAt: now }
   }
 
   listSecrets() {
     return this.vaultRaw().entries.map((e) => ({
-      id: e.id, title: e.title, tags: e.tags || [], createdAt: e.createdAt, updatedAt: e.updatedAt,
+      id: e.id, title: e.title, tags: e.tags || [],
+      collection: DeskStore.normalizeCollection(e.collection),
+      order: Number.isFinite(Number(e.order)) ? Number(e.order) : 0,
+      createdAt: e.createdAt, updatedAt: e.updatedAt,
       fieldCount: 0,
     }))
   }
@@ -2068,7 +2096,10 @@ export class DeskStore {
     if (!entry) return null
     const payload = this.decryptPayload(entry)
     return {
-      id: entry.id, title: entry.title, tags: entry.tags || [], createdAt: entry.createdAt, updatedAt: entry.updatedAt,
+      id: entry.id, title: entry.title, tags: entry.tags || [],
+      collection: DeskStore.normalizeCollection(entry.collection),
+      order: Number.isFinite(Number(entry.order)) ? Number(entry.order) : 0,
+      createdAt: entry.createdAt, updatedAt: entry.updatedAt,
       fields: payload.fields || {}, note: payload.note || '',
       // 只给元信息;原件走 /desk-kit-api/files/<id>(读的时候才解密)
       files: (Array.isArray(payload.files) ? payload.files : [])
@@ -2120,6 +2151,14 @@ export class DeskStore {
     }
     if (patch.title) entry.title = String(patch.title).slice(0, 120)
     if (Array.isArray(patch.tags)) entry.tags = patch.tags.map(String).filter(Boolean).slice(0, 12)
+    if (patch.collection !== undefined) {
+      const next = DeskStore.normalizeCollection(patch.collection)
+      if (next !== DeskStore.normalizeCollection(entry.collection)) {
+        entry.collection = next
+        entry.order = this.nextSecretOrder(next, entry.id)
+      }
+    }
+    if (patch.order !== undefined && Number.isFinite(Number(patch.order))) entry.order = Number(patch.order)
     const note = typeof patch.note === 'string' ? patch.note.slice(0, 4000) : current.note || ''
     let fileIds = Array.isArray(current.files) ? current.files.slice() : []
     if (patch.files !== undefined) fileIds = this.pickFileIds(patch.files)
@@ -2133,6 +2172,39 @@ export class DeskStore {
     }
     for (const id of before) if (!fileIds.includes(id)) { try { this.setFileSecret(id, false) } catch { } }
     return { id: entry.id, title: entry.title }
+  }
+
+  /**
+   * 合集内拖动排序:只接受当前合集里真实存在的 id,按传入顺序重编号。
+   * 不跨合集搬家(搬家请走 updateSecret 的 collection),避免拖一下改错归属。
+   */
+  reorderSecrets(collection, ids) {
+    const target = DeskStore.normalizeCollection(collection)
+    const vault = this.vaultRaw()
+    const wanted = Array.isArray(ids) ? ids.map(String) : []
+    const seen = new Set()
+    for (const id of wanted) {
+      if (!id || seen.has(id)) throw new Error('排序列表里有重复或空 id')
+      seen.add(id)
+    }
+    const byId = new Map(vault.entries.map((e) => [e.id, e]))
+    for (const id of wanted) {
+      const entry = byId.get(id)
+      if (!entry) throw new Error('排序列表里有不存在的条目:' + id)
+      if (DeskStore.normalizeCollection(entry.collection) !== target) {
+        throw new Error('不能把别的合集拖进来排序:' + entry.title)
+      }
+    }
+    // 传入的 id 先按新顺序占 0..n-1;没传到的同合集条目接在后面,
+    // 保持原有相对顺序,避免「只排了一部分」时出现重复 order。
+    let next = 0
+    for (const id of wanted) byId.get(id).order = next++
+    const rest = vault.entries
+      .filter((e) => DeskStore.normalizeCollection(e.collection) === target && !seen.has(e.id))
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
+    for (const e of rest) e.order = next++
+    writeJson(this.vaultFile, vault)
+    return { collection: target, count: wanted.length }
   }
 
   /** 整库导出(给「备份」按钮用)。vault 是密文,key 不在这里,要单独拷。 */

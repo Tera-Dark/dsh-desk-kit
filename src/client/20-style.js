@@ -433,6 +433,15 @@
      '.__dk_toastlife{position:absolute;left:12px;right:12px;bottom:6px;height:2px;border-radius:2px;background:var(--dk-toast-accent);opacity:.45;transform-origin:left;animation:__dkToastLife var(--dk-toast-life,4.2s) linear forwards}',
      '.__dk_toast--out .__dk_toastlife{animation:none}',
      '@media (prefers-reduced-motion: reduce){.__dk_toast{animation:none!important}.__dk_toastlife{animation:none!important}}',
+     // 保险库合集:拖动排序与合集筛选
+     '.__dk_vaultsort{max-width:960px;margin:-2px auto 8px}',
+     '.__dk_drag{flex:none;display:grid;place-items:center;width:16px;height:20px;margin-top:1px;border-radius:6px;color:var(--dk-faint);cursor:grab;touch-action:none}',
+     '.__dk_drag:hover{background:var(--dk-surface);color:var(--dk-muted)}',
+     '.__dk_drag:active{cursor:grabbing}',
+     '.__dk_item--drag{opacity:.45;border-style:dashed}',
+     '.__dk_item--over{box-shadow:inset 0 2px 0 var(--dk-brand)}',
+     '.__dk_move{opacity:.7}',
+     '.__dk_move:disabled{opacity:.2;cursor:default}',
      // 键盘可达性:只在键盘聚焦时出现描边,不干扰鼠标
      '.__dk_sp button:focus-visible,.__dk_panel button:focus-visible,.__dk_dock button:focus-visible,.__dk_sp input:focus-visible,.__dk_panel input:focus-visible,.__dk_sp textarea:focus-visible,.__dk_panel textarea:focus-visible,.__dk_sp a:focus-visible,.__dk_panel a:focus-visible{outline:2px solid color-mix(in srgb,var(--dk-brand) 70%,transparent);outline-offset:2px}',
    ].join('\n')

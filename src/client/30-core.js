@@ -302,7 +302,10 @@
        add('file', f.id, f.name, '文件名', { updatedAt: f.createdAt, ownerKind: f.kind, ownerId: f.ownerId })
      }
      for (const s of state.secrets || []) {
-       if (searchMatch(s.title, variants)) add('secret', s.id, s.title, '标题', { updatedAt: s.updatedAt || s.createdAt })
+       const where = []
+       if (searchMatch(s.title, variants)) where.push('标题')
+       if (searchMatch(s.collection, variants)) where.push('合集')
+       if (where.length) add('secret', s.id, s.title, where.join('/'), { updatedAt: s.updatedAt || s.createdAt })
      }
      const order = { note: 0, secret: 1, reminder: 2, link: 3, file: 4 }
      hits.sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9) || (b.updatedAt || 0) - (a.updatedAt || 0))

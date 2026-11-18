@@ -668,6 +668,7 @@ async function act(ctx, s, action, payload) {
     }
     case 'secret.add': return s.addSecret(payload)
     case 'secret.update': return s.updateSecret(payload.query || payload.id, payload)
+    case 'secret.reorder': return s.reorderSecrets(payload.collection || '', payload.ids || [])
     case 'secret.delete': return s.deleteSecret(payload.query || payload.id)
     case 'secret.get': {
       const found = s.getSecret(payload.query || payload.id)
@@ -1132,6 +1133,7 @@ export function apply(ctx) {
       url: { type: 'string', description: '网址(可选)' },
       note: { type: 'string', description: '备注(可选)' },
       body: { type: 'string', description: '自由正文:想怎么记就怎么记(可选)' },
+      collection: { type: 'string', description: '合集名(可选,如「梯子订阅」)' },
       tags: { type: 'array', items: { type: 'string' }, description: '标签(可选)' },
     },
     output: outputSpec,
@@ -1154,7 +1156,7 @@ export function apply(ctx) {
     async execute() {
       const items = s.listSecrets()
       const text = items.length
-        ? items.map((e) => '- ' + e.title + (e.tags && e.tags.length ? ' [' + e.tags.join(',') + ']' : '') + ' | id=' + e.id).join('\n')
+        ? items.map((e) => '- ' + e.title + (e.collection ? ' {合集:' + e.collection + '}' : '') + (e.tags && e.tags.length ? ' [' + e.tags.join(',') + ']' : '') + ' | id=' + e.id).join('\n')
         : '保险库还是空的。'
       return out(text, items)
     },

@@ -211,6 +211,28 @@ test('便签默认只显示前 8 条,不堆满屏', () => {
   assert.ok(html.includes('显示更多'), '超出要能点开继续看')
 })
 
+test('保险库有合集筛选、合集字段和拖动排序入口', () => {
+  const st = {
+    ...state,
+    secrets: [
+      { id: 's1', title: '订阅一', collection: '梯子订阅', order: 1, tags: [], createdAt: 1, updatedAt: 2, fieldCount: 0 },
+      { id: 's2', title: '订阅二', collection: '梯子订阅', order: 2, tags: [], createdAt: 1, updatedAt: 3, fieldCount: 0 },
+      { id: 's3', title: '别的条目', collection: '', order: 1, tags: [], createdAt: 1, updatedAt: 4, fieldCount: 0 },
+    ],
+  }
+  const html = renderToString(h(T.VaultPage, { state: st, run }))
+  assert.ok(html.includes('搜保险库标题或合集'), '要有独立搜索框')
+  assert.ok(html.includes('梯子订阅 2'), '要显示合集与条数')
+  assert.ok(html.includes('全部 3'), '要有全部入口')
+  assert.ok(html.includes('未分类 1'), '要有未分类入口')
+  assert.ok(html.includes('__dk_secret_collections'), '新建/编辑要能填合集')
+  assert.ok(html.includes('选一个合集后可拖拽排序'), '未选合集时提示先选合集')
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes("secret.reorder"), '缺拖动排序动作')
+  assert.ok(src.includes('draggable: dragEnabled'), '缺拖拽标记')
+  assert.ok(src.includes("name: 'chevronUp'") && src.includes("name: 'chevronDown'"), '缺移动端上下移动按钮')
+})
+
 test('保险库新建是单个自由文本框', () => {
   const html = renderToString(h(T.VaultPage, { state, run }))
   assert.ok(html.includes('新条目'))

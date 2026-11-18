@@ -118,6 +118,34 @@ test('保险库:密文落盘、可读回、列表不泄密、删除生效', () =
   assert.equal(s.getSecret('不存在的条目'), null)
 })
 
+test('保险库合集:归属、顺序与拖动重排都持久化', () => {
+  const s = fresh()
+  const a = s.addSecret({ title: '订阅一', fields: { 链接: 'https://a.example' }, collection: '梯子订阅' })
+  const b = s.addSecret({ title: '订阅二', fields: { 链接: 'https://b.example' }, collection: '梯子订阅' })
+  const c = s.addSecret({ title: '别的东西', fields: { 链接: 'https://c.example' }, collection: '其他' })
+  assert.equal(s.getSecret(a.id).collection, '梯子订阅')
+  assert.equal(s.getSecret(a.id).order, 1)
+  assert.equal(s.getSecret(b.id).order, 2)
+  assert.equal(s.getSecret(c.id).order, 1, '不同合集各自从 1 开始')
+  assert.equal(s.listSecrets().filter((x) => x.collection === '梯子订阅').length, 2)
+
+  s.reorderSecrets('梯子订阅', [b.id, a.id])
+  const ordered = s.listSecrets().filter((x) => x.collection === '梯子订阅').sort((x, y) => x.order - y.order)
+  assert.deepEqual(ordered.map((x) => x.title), ['订阅二', '订阅一'], '拖动后的顺序要落盘')
+  // 只传一部分 id 也不能把没传到的条目挤出重复序号
+  s.reorderSecrets('梯子订阅', [a.id])
+  const partial = s.listSecrets().filter((x) => x.collection === '梯子订阅').sort((x, y) => x.order - y.order)
+  assert.deepEqual(partial.map((x) => x.title), ['订阅一', '订阅二'], '没传到的条目接在后面')
+  assert.deepEqual(partial.map((x) => x.order), [0, 1])
+  s.reorderSecrets('梯子订阅', [b.id, a.id])
+  assert.throws(() => s.reorderSecrets('梯子订阅', [c.id]), /不能把别的合集/)
+  assert.throws(() => s.reorderSecrets('梯子订阅', [a.id, a.id]), /重复/)
+
+  s.updateSecret(a.id, { collection: '其他' })
+  assert.equal(s.getSecret(a.id).collection, '其他')
+  assert.equal(s.getSecret(a.id).order, 2, '换合集后放到新合集末尾')
+})
+
 test('保险库:主密钥被换掉后旧密文解不开(而不是读出垃圾)', () => {
   const s = fresh()
   const item = s.addSecret({ title: 'x', fields: { 密码: 'secret' } })
