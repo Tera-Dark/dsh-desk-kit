@@ -25,6 +25,14 @@ export function hostOf(url) {
   }
 }
 
+/** YYYY-MM-DD 是不是真实存在的一天(2026-02-30 / 2026-13-01 都要拒绝)。 */
+export function isRealDate(ymd) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ''))) return false
+  const [y, m, d] = String(ymd).split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d
+}
+
 /** 本地 YYYY-MM-DD(不要用 toISOString:那是 UTC,晚上会串日)。 */
 export function localYmd(date = new Date()) {
   const y = date.getFullYear()
@@ -104,7 +112,10 @@ export function nextOccurrence(reminder, now = new Date()) {
   }
 
   if (reminder.lunar || reminder.annual) {
-    for (let i = 0; i < 400; i++) {
+    // 公历每年要扫 4 年多:2 月 29 日的生日隔 4 年才有一次,400 天扫不到就变成「没有下一次」,
+    // 那条提醒从此永远不响。农历一年一次,400 天足够。
+    const span = reminder.annual ? 1500 : 400
+    for (let i = 0; i < span; i++) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i)
       let hit = false
       if (reminder.lunar) {
@@ -138,11 +149,22 @@ export function nextOccurrence(reminder, now = new Date()) {
   return at(now)
 }
 
+const backedUp = new Set()
+
 function readJson(file, fallback) {
   try {
     const raw = readFileSync(file, 'utf8')
     return JSON.parse(raw)
   } catch {
+    // 文件存在但读不出来(半截写入 / 手改坏 / 磁盘错):先原样留一份再当成空库,
+    // 否则下一次 save() 就把它覆盖掉,里面的便签一条都找不回来了。
+    if (!backedUp.has(file)) {
+      backedUp.add(file)   // 同一个文件只留一份,别每次读都写一个
+      try {
+        const stuck = readFileSync(file, 'utf8')
+        if (stuck.trim()) writeFileSync(file + '.corrupt-' + Date.now(), stuck)
+      } catch { /* 读都读不到就算了 */ }
+    }
     return fallback
   }
 }
@@ -370,7 +392,13 @@ export class DeskStore {
       note: String(input.note || '').slice(0, 2000),
       time: String(clock.h).padStart(2, '0') + ':' + String(clock.m).padStart(2, '0'),
       weekdays: days,
-      date: typeof input.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : undefined,
+      date: (() => {
+        if (input.date === undefined || input.date === null || input.date === '') return undefined
+        const d = String(input.date)
+        // 以前只验格式:2026-02-30 会原样存下,那天永远不存在,提醒也不会响
+        if (!isRealDate(d)) throw new Error('日期不存在:' + d)
+        return d
+      })(),
       // 农历每年(生日):{month,day,isLeap}
       lunar: lunarIn && Number.isFinite(Number(lunarIn.month)) && Number.isFinite(Number(lunarIn.day))
         ? { month: Math.max(1, Math.min(12, Number(lunarIn.month))), day: Math.max(1, Math.min(30, Number(lunarIn.day))), isLeap: !!lunarIn.isLeap }
@@ -447,7 +475,11 @@ export class DeskStore {
       r.monthly = Number(patch.monthly)
       r.date = undefined; r.annual = undefined; r.lunar = undefined; r.weekdays = []
     }
-    if (typeof patch.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(patch.date)) { r.date = patch.date; r.weekdays = []; r.annual = undefined; r.lunar = undefined; r.monthly = undefined }
+    if (typeof patch.date === 'string' && patch.date) {
+      if (!isRealDate(patch.date)) throw new Error('日期不存在:' + patch.date)
+      r.date = patch.date
+      r.weekdays = []; r.annual = undefined; r.lunar = undefined; r.monthly = undefined
+    }
     if (patch.date === null) r.date = undefined
     // 改了时间点/周期 = 用户还想让它响,今天的静音作废
     const touchedSchedule = patch.time !== undefined || Array.isArray(patch.weekdays) || patch.date !== undefined
@@ -547,13 +579,17 @@ export class DeskStore {
       .filter((r) => !((r.deletedAt || 0) > 0))   // 垃圾箱里的不进主列表
       .map((r) => {
         // 用 nextOccurrence:生日/周几的提前量会跨天,occurrenceOf 只认"今天"
-        const occ = nextOccurrence(r, now)
+        let occ = nextOccurrence(r, now)
+        // 一次性提醒今天的时间已经过了:nextOccurrence 说「没有下一次」,
+        // 但 tick 当天还会补一张告警 —— 两边说法要一致,别一个「到点了」一个「没有下一次」。
+        if (!occ) { const todayAt = occurrenceOf(r, now); if (todayAt) occ = todayAt }
         const dueDate = occ ? localYmd(occ) : today
         const done = (r.doneDates || []).includes(dueDate)
         const doneToday = (r.doneDates || []).includes(today)
         let status = 'idle'
         if (!r.active) status = 'paused'
         else if (done) status = 'done'
+        else if (occ && localYmd(occ) === today && (r.silencedDates || []).includes(today)) status = 'silenced'
         else if (!occ) status = r.date && r.date < today ? 'expired' : 'no-next'
         else if (now.getTime() >= occ.getTime() - (r.leadMin || 0) * 60000) status = 'pending'
         else status = 'upcoming'
@@ -582,7 +618,13 @@ export class DeskStore {
     for (const r of this.data.reminders) {
       if ((r.deletedAt || 0) > 0) continue      // 垃圾箱里的不提醒
       if (!r.active) continue
-      const occ = nextOccurrence(r, now)        // 生日提前 3 天也要能算出来
+      let occ = nextOccurrence(r, now)          // 生日提前 3 天也要能算出来
+      if (!occ) {
+        // 一次性提醒的时间今天已经过了,nextOccurrence 会说「没有下一次」。
+        // 于是「早上八点关机、晚上才开 DSH」就永远收不到 —— 当天内补一张。
+        const todayAt = occurrenceOf(r, now)
+        if (todayAt && todayAt.getTime() <= nowMs) occ = todayAt
+      }
       if (!occ) continue
       const dueDate = localYmd(occ)
       if ((r.doneDates || []).includes(dueDate) || (r.doneDates || []).includes(today)) continue
@@ -615,8 +657,9 @@ export class DeskStore {
           at: nowMs,
           dueAt: occ.getTime(),
           over: nowMs >= occ.getTime(),
-          // 启动时补的一次:这条在 DSH 关着的时候就该响了,界面上要说明白
-          late: !!opts.catchUp && nowMs - dueFrom >= 60000,
+          // 超过一分钟才算「错过」(开机补算的、当天补的一次性提醒都走这条),
+          // 界面上写「计划几点」,而不是假装刚刚到点。
+          late: nowMs - dueFrom >= 60000,
           acked: false,
         })
         created++
@@ -711,6 +754,8 @@ export class DeskStore {
     }
     let url
     try { url = new URL(u) } catch { throw new Error('网址看起来不对:' + u) }
+    // 网址里带 user:pass 会明文躺进 data.json,书签也用不上,直接丢掉
+    if (url.username || url.password) { url.username = ''; url.password = '' }
     // www 和不带 www 视为同一个站点(同一个页面存两遍的常见来源)
     if (url.hostname.startsWith('www.')) url.hostname = url.hostname.slice(4)
     // 常见的分享跟踪参数留着没用,反而让同一条链接存两遍
@@ -803,6 +848,18 @@ export class DeskStore {
   restoreLink(id) {
     const x = this.data.links.find((l) => l.id === id)
     if (!x) throw new Error('找不到网页 ' + id)
+    // 删掉之后又把同一个网址加回来了:恢复时合并进现有那条,不然会有两条一样的
+    const clash = this.data.links.find((l) => l.id !== id && !((l.deletedAt || 0) > 0) && l.url === x.url)
+    if (clash) {
+      if (!clash.group && x.group) clash.group = x.group
+      if (!clash.icon && x.icon) clash.icon = x.icon
+      if (!clash.note && x.note) clash.note = x.note
+      clash.pinned = clash.pinned || x.pinned
+      clash.updatedAt = Date.now()
+      this.data.links = this.data.links.filter((l) => l.id !== id)
+      this.save()
+      return { ...clash, merged: true }
+    }
     x.deletedAt = 0
     x.updatedAt = Date.now()
     this.save()

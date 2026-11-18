@@ -1,6 +1,6 @@
 {
   "name": "dsh-desk-kit",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "DSH 随手台:定时提醒(签到类)、随手便签、加密保险库三合一。入口是 better-sidebar 的标签页(没装则右下角浮标),19 个 Agent 工具,数据在 ~/.dsh/desk-kit。",
   "type": "module",
   "main": "index.js",

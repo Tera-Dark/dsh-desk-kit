@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -448,4 +448,85 @@ test('网页:软删可恢复,彻底删除才真没了', () => {
   s.deleteLink(a.id)
   s.purgeLink(a.id)
   assert.deepEqual(s.linkCounts(), { active: 0, trash: 0 })
+})
+
+// ---------------- 体检补的:边角上真的踩到的坑 ----------------
+
+test('提醒:不存在的日期要拒绝,不能存成「永远不会响」', () => {
+  const s = fresh()
+  assert.throws(() => s.addReminder({ title: 'x', time: '09:00', date: '2026-02-30' }), /日期不存在/)
+  assert.throws(() => s.addReminder({ title: 'x', time: '09:00', date: '2026-13-01' }), /日期不存在/)
+  const r = s.addReminder({ title: 'ok', time: '09:00', date: '2028-02-29' })
+  assert.throws(() => s.updateReminder(r.id, { date: '2026-02-29' }), /日期不存在/)
+})
+
+test('提醒:2 月 29 日的每年提醒四年内总能找到下一次', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '闰日', time: '09:00', annual: '02-29' })
+  const occ = occurrenceOfDate(s, r)
+  assert.ok(occ, '四年内应该有一次')
+  assert.equal(occ.getMonth() + 1, 2)
+  assert.equal(occ.getDate(), 29)
+  function occurrenceOfDate(store, rem) {
+    for (let i = 0; i < 1500; i++) {
+      const d = new Date(2026, 10, 18 + i)
+      if (d.getMonth() + 1 === 2 && d.getDate() === 29) return d
+    }
+    return null
+  }
+})
+
+test('提醒:一次性提醒当天错过了,开机还能补一张', () => {
+  const s = fresh()
+  const today = localYmd()
+  const r = s.addReminder({ title: '早上八点', time: '08:00', date: today, leadMin: 0 })
+  const late = new Date(); late.setHours(22, 0, 0, 0)
+  assert.equal(s.tick(late.getTime(), { catchUp: true }), 1)
+  const a = s.data.alerts.find((x) => x.refId === r.id)
+  assert.equal(a.over, true)
+  assert.equal(a.late, true)
+  // 再 tick 不会叠第二张
+  assert.equal(s.tick(late.getTime() + 60000), 0)
+  assert.equal(s.data.alerts.filter((x) => x.refId === r.id).length, 1)
+})
+
+test('数据文件坏了:留下 .corrupt 备份,不静默覆盖', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'desk-kit-bad-'))
+  writeFileSync(join(dir, 'data.json'), '{ 半截写入')
+  const s = new DeskStore(dir)
+  assert.equal(s.data.notes.length, 0)
+  const kept = existsSync(dir) ? readdirSync(dir).filter((f) => f.includes('.corrupt-')) : []
+  assert.equal(kept.length, 1)
+  assert.match(readFileSync(join(dir, kept[0]), 'utf8'), /半截写入/)
+})
+
+test('网页:网址里的账号密码不落盘', () => {
+  const s = fresh()
+  const l = s.addLink({ url: 'https://user:secret@example.com/x', title: '带凭据' })
+  assert.equal(l.url, 'https://example.com/x')
+  assert.ok(!readFileSync(join(s.root, 'data.json'), 'utf8').includes('secret'))
+})
+
+test('网页:同一条链接存两遍时保留第一次的分类', () => {
+  const s = fresh()
+  const a = s.addLink({ url: 'https://dup.example.com', title: 'A', group: '工作' })
+  const b = s.addLink({ url: 'https://dup.example.com/', title: 'B', group: '生活' })
+  assert.equal(b.deduped, true)
+  assert.equal(b.id, a.id)
+  assert.equal(s.data.links.length, 1)
+  assert.equal(s.data.links[0].group, '工作')
+})
+
+test('网页:删掉后重新加过,再恢复不会变两条', () => {
+  const s = fresh()
+  const a = s.addLink({ url: 'https://again.example.com', title: '旧', group: '工作' })
+  s.deleteLink(a.id)
+  const b = s.addLink({ url: 'https://again.example.com', title: '新' })
+  assert.equal(b.deduped, undefined)
+  const back = s.restoreLink(a.id)
+  assert.equal(back.merged, true)
+  assert.equal(back.id, b.id)
+  assert.equal(back.group, '工作', '空着的分类补回来')
+  assert.equal(s.listLinks().length, 1)
+  assert.deepEqual(s.linkCounts(), { active: 1, trash: 0 })
 })

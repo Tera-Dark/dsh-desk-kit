@@ -212,6 +212,15 @@ const capLink = await post('capture', { text: '收藏 https://linear.app 分类:
 assert.equal(capLink.result.parsed.kind, 'link')
 assert.equal(capLink.result.item.title, 'Linear')
 assert.equal(capLink.result.item.group, '工具')
+// 空关键字不能当通配符用:includes('') 谁都匹配,一删一个准
+let emptyDel = null
+try { await tools.get('desk_link_delete').execute({ title: '' }) } catch (e) { emptyDel = e.message }
+assert.ok(emptyDel, '空标题删除必须报错')
+assert.equal((await get()).state.links.length, 3, '空标题删除不该删掉任何东西')
+// 网址里的账号密码不许落盘
+const cred = await post('link.add', { url: 'https://u:p@credentials.example.com/x' })
+assert.equal(cred.result.url, 'https://credentials.example.com/x')
+await post('link.delete', { id: cred.result.id })
 console.log('✓ 网页收藏:', snap.state.links.length, '个 ·', snap.state.linkGroups.groups.length, '个分类')
 
 server.close()

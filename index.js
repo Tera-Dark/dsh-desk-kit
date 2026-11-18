@@ -68,9 +68,12 @@ function persistParsed(s, parsed, rawText) {
       note: parsed.note || '',
     })
     // 已经有了就明说,别让「说了两遍」变成「两条提醒」
-    const reply = r.deduped
+    const base = r.deduped
       ? '这条提醒已经有了:' + String(describeCapture(parsed)).replace(/^已排成[^:]*:/, '')
       : describeCapture(parsed)
+    // 一次性提醒给了个过去的日期:存下了但永远不会响,得当面说清楚
+    const past = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) && parsed.date < localYmd()
+    const reply = past ? base + ' · 不过这天已经过去了,不会响;要改时间直接编辑它' : base
     return { parsed, reply, item: r, created: { kind: 'reminder', id: r.id, deduped: !!r.deduped } }
   }
   const note = s.addNote({ text: parsed.text || rawText })
@@ -239,7 +242,7 @@ export const name = 'dsh-desk-kit'
 export const inject = ['webServer']
 
 const ROUTE = '/desk-kit-api'
-const PLUGIN_VERSION = '1.8.0'
+const PLUGIN_VERSION = '1.8.1'
 const TICK_MS = 15000
 
 function dshHome() {
@@ -269,17 +272,22 @@ function json(res, code, body) {
 function readBody(req, maxBytes = 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let total = 0
+    let tooBig = false
     const chunks = []
+    // 以前超限直接 req.destroy():浏览器只看到 ECONNRESET,拿不到一句人话。
+    // 现在超限后停止缓存、继续把流读完,结束时回一句 413。
     req.on('data', (c) => {
       total += c.length
-      if (total > maxBytes) {
-        reject(new Error('请求体过大'))
-        req.destroy()
-        return
-      }
-      chunks.push(c)
+      if (total > maxBytes) { tooBig = true; chunks.length = 0; return }
+      if (!tooBig) chunks.push(c)
     })
     req.on('end', () => {
+      if (tooBig) {
+        const error = new Error('请求体过大(上限 ' + Math.round(maxBytes / 1024) + 'KB)')
+        error.code = 'E_TOO_BIG'
+        reject(error)
+        return
+      }
       try {
         resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {})
       } catch {
@@ -421,6 +429,9 @@ async function act(ctx, s, action, payload) {
         s.data.settings.tickSeconds = Math.max(5, Math.min(600, payload.tickSeconds))
       }
       if (typeof payload.muted === 'boolean') s.data.settings.muted = payload.muted
+      // 白名单漏了这两个:设置页拨开关会「拨完又弹回去」,因为存根本没写进去
+      if (typeof payload.sound === 'boolean') s.data.settings.sound = payload.sound
+      if (typeof payload.linkFavicons === 'boolean') s.data.settings.linkFavicons = payload.linkFavicons
       if (typeof payload.recognizeProvider === 'string') s.data.settings.recognizeProvider = payload.recognizeProvider
       if (typeof payload.recognizeModel === 'string') s.data.settings.recognizeModel = payload.recognizeModel
       if (typeof payload.classifyProvider === 'string') s.data.settings.classifyProvider = payload.classifyProvider
@@ -739,6 +750,8 @@ export function apply(ctx) {
     output: outputSpec,
     async execute(args) {
       const q = String(args && args.title || '').trim()
+      // 空关键字会把 includes('') 变成「谁都匹配」,一删一个准 —— 必须先挡住
+      if (!q) throw new Error('要删哪个?给个名字或 id')
       const hit = s.listLinks().find((l) => l.id === q)
         || s.listLinks().find((l) => l.title === q)
         || s.listLinks().find((l) => l.title.includes(q))

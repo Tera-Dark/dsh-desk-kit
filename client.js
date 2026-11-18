@@ -51,8 +51,9 @@ window.__ModuleLoader__.load({
    const FAB_PAD = 18
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-   const VERSION = '1.8.0'
-   const ORDER = ['links', 'reminders', 'notes', 'home', 'vault', 'settings']
+   const VERSION = '1.8.1'
+   // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
+   const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
    const SIDEBAR_ORDER = ['home', 'links', 'reminders', 'notes', 'vault', 'settings']
    const PANEL_LABELS = { home: '首页', links: '网页', reminders: '提醒', notes: '便签', vault: '保险库', settings: '设置' }
@@ -578,6 +579,8 @@ window.__ModuleLoader__.load({
      if (r.status === 'paused') return base + ' · 已暂停'
      // 一次性提醒过了那天就不该再装成「进行中」:列表里明说已过期
      if (r.status === 'expired') return base + ' · 已过期'
+     // 点过「知道了」:今天这条已经处理过,别一直挂着「到点了」
+     if (r.status === 'silenced') return base + ' · 今天不再提醒'
      if (r.done) return base + ' · 今天已完成'
      if (r.status === 'pending') return base + ' · 到点了'
      if (r.status === 'upcoming') return base + (r.occurrenceAt ? ' · ' + fmtClock(r.occurrenceAt - (r.leadMin || 0) * 60000) + ' 提醒' : '')
@@ -685,7 +688,7 @@ window.__ModuleLoader__.load({
      const rank = (r) => (r.done ? 3 : r.status === 'pending' ? 0 : r.status === 'upcoming' ? 1 : 2)
      const sorted = list.slice().sort((a, b) => rank(a) - rank(b) || (a.occurrenceAt || 0) - (b.occurrenceAt || 0))
      // 「今天」只放真的落在今天/已过点的;以后的事进「接下来」—— 标题得跟内容对得上
-     const todays = sorted.filter((r) => r.status === 'pending' || r.status === 'done')
+     const todays = sorted.filter((r) => r.status === 'pending' || r.status === 'done' || r.status === 'silenced')
      const expired = sorted.filter((r) => r.status === 'expired')
      const upcoming = sorted.filter((r) => r.status === 'upcoming' || r.status === 'not-today')
      const doneCount = todays.filter((r) => r.done).length
@@ -1330,12 +1333,15 @@ window.__ModuleLoader__.load({
    }
 
    /** 打开一次:记一笔(用于「最近用的排前面」),然后交给系统浏览器。 */
-   function openLink(run, l) {
+   function openLink(run, l, notify) {
      run('link.touch', { id: l.id })
-     try {
-       const w = window.open(l.url, '_blank', 'noopener,noreferrer')
-       if (!w) window.location.href = l.url
-     } catch { window.location.href = l.url }
+     let opened = null
+     try { opened = window.open(l.url, '_blank', 'noopener,noreferrer') } catch { opened = null }
+     // 弹窗被拦时绝不能 location.href:那会把 DSH 整个页面换成目标网站。
+     if (!opened) {
+       try { navigator.clipboard.writeText(l.url) } catch {}
+       if (notify) notify('浏览器拦了新窗口,链接已复制')
+     }
    }
 
    /** 一个格子。 */
@@ -1349,7 +1355,7 @@ window.__ModuleLoader__.load({
          h('button', {
            key: 'b', className: '__dk_app',
            style: custom ? { background: 'var(--dsw-alias-bg-layer-2,#24282e)' } : { background: 'hsl(' + linkHue(l.url) + ' 52% 40%)' },
-           onClick: () => openLink(run, l),
+           onClick: () => openLink(run, l, notify),
            title: l.title + ' · ' + l.url,
          }, [
            h('span', { key: 'c', className: '__dk_appchar', style: custom ? { fontSize: '22px' } : null }, emoji || linkInitial(l)),
@@ -1391,14 +1397,14 @@ window.__ModuleLoader__.load({
 
      const shown = links.filter((l) => !group || (group === '\u0000' ? !l.group : l.group === group))
 
-     const startAdd = () => setForm({ title: '', url: '', group: group && group !== '\u0000' ? group : '', icon: '' })
-     const startEdit = (l) => setForm({ id: l.id, title: l.title, url: l.url, group: l.group, icon: l.icon || '' })
+     const startAdd = () => setForm({ title: '', url: '', group: group && group !== '\u0000' ? group : '', icon: '', pinned: false })
+     const startEdit = (l) => setForm({ id: l.id, title: l.title, url: l.url, group: l.group, icon: l.icon || '', pinned: !!l.pinned })
      const save = async () => {
        const f = form || {}
        const title = String(f.title || '').trim()
        const url = String(f.url || '').trim()
-       if (!url) return
-       const payload = { title, url, group: f.group || '', icon: f.icon || '' }
+       if (!url) { say('先填个网址'); return }
+       const payload = { title, url, group: f.group || '', icon: f.icon || '', pinned: !!f.pinned }
        const body = f.id
          ? await run('link.update', { id: f.id, ...payload })
          : await run('link.add', payload)
@@ -1466,6 +1472,12 @@ window.__ModuleLoader__.load({
              key: 'i', className: '__dk_input', placeholder: '图标(可选:一个 emoji,或图片地址)',
              value: form.icon, onChange: (e) => setForm((f) => ({ ...f, icon: e.target.value })),
            }),
+           h('div', { key: 'pin', className: '__dk_groupchips', style: { padding: '2px 0 0' } }, [
+             h('button', {
+               key: 'p', className: '__dk_chip' + (form.pinned ? ' on' : ''),
+               onClick: () => setForm((f) => ({ ...f, pinned: !f.pinned })),
+             }, (form.pinned ? '★ ' : '☆ ') + '置顶'),
+           ]),
          ]),
          h('div', { key: 'r', className: '__dk_frow' }, [
            h('button', { key: 's', className: '__dk_btn p', disabled: !String(form.url || '').trim(), onClick: save }, '保存'),

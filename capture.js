@@ -247,6 +247,8 @@ export function parseLink(text, now = new Date()) {
   if (gm) group = gm[1]
   const LINK_FILLER = /(?:收藏|书签|网页|网址|网站|存成|存一下|存起来|保存|记一下|记下|添加到|加到|放进|放到|放入|加入|这个|那个|一下|给我|帮我|麻烦|请|吧|呢|里|中|的|把|到|了|叫|叫做|名叫|命名)/g
   const title = raw
+    // 一句里贴了两个网址时,只收第一个;剩下的网址不能留在标题里
+    .replace(/https?:\/\/[^\s,，、;；"'<>)\]]+/gi, ' ')
     .replace(urlIn[0], ' ')
     // 分类说明整段拿掉(「分类:设计」「放进「工具」」),别混进名字
     .replace(/(?:分类|分组|组)(?:\s*[:：]?\s*[「"']?[^」"'\s,，。；]{1,24}[」"']?)?/g, ' ')
@@ -258,7 +260,10 @@ export function parseLink(text, now = new Date()) {
     .trim()
   // 只剩一两个字(「当」「看」)说明用户没起名,用域名更清楚
   const nice = title.length >= 2 ? title : siteTitle(url)
-  return { kind: 'link', title: nice.slice(0, 40), url, group, raw }
+  // 多贴的网址不静默吞掉,回执里要说一声
+  const urls = raw.match(/https?:\/\/[^\s,，、;；"'<>)\]]+/gi) || []
+  const extra = Math.max(0, urls.filter((u, i) => urls.indexOf(u) === i).length - 1)
+  return { kind: 'link', title: nice.slice(0, 40), url, group, raw, extra }
 }
 
 /**
@@ -354,7 +359,8 @@ export function parseCapture(raw, now = new Date()) {
       : (rel ? rel.time : '09:00')
     return {
       kind: 'reminder',
-      title: cleanTitle(stripped) || '提醒',
+      // 「23:59 提醒我」这种没别的信息:叫「提醒」等于没名字,给个诚实的占位
+      title: cleanTitle(stripped) || '未命名提醒',
       time,
       date: rel ? rel.date : when.date,
       weekdays: when.weekdays,
@@ -384,6 +390,7 @@ export function describeCapture(parsed) {
   }
   if (parsed.kind === 'link') {
     return '已收进网页:' + parsed.title + ' · ' + parsed.url + (parsed.group ? '(分类:' + parsed.group + ')' : '')
+      + (parsed.extra ? ';另外 ' + parsed.extra + ' 个网址没存,要的话单独再说一次' : '')
   }
   if (parsed.kind === 'reminder' && parsed.yearly) {
     const when = parsed.lunar
