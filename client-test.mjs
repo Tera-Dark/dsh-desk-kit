@@ -737,3 +737,25 @@ test('首页有「常去」:直接点常用网页,不用先进网页页', () => 
   const none = renderToString(h(T.Home, { state: { ...state, links: [] }, run, notify: () => {}, onLink: () => {}, onGo: () => {} }))
   assert.ok(!none.includes('常去'), '没有网页就别占位')
 })
+
+test('转存:回执下能改分类,网页格子显示备注', () => {
+  // 回执 + 「分错了?转存到」
+  const reply = { text: '已收进网页:Example', move: { kind: 'link', id: 'w1' } }
+  const html = renderToString(h(T.ReplyMove, { reply, run, onSay: () => {} }))
+  for (const label of ['便签', '保险库', '提醒']) assert.ok(html.includes(label), '缺目标分类 ' + label)
+  assert.ok(html.includes('分错了'), '要有一句人话')
+  assert.equal(renderToString(h(T.ReplyMove, { reply: { text: 'x' }, run })), '', '没有可挪的条目就别显示')
+
+  // 网页格子:名字下面一行备注
+  const tile = renderToString(h(T.LinkTile, {
+    l: { id: 'w1', title: 'Example', url: 'https://example.com', note: '用来查资料', group: '', icon: '', pinned: false },
+    run, notify: () => {}, favicons: false, onEdit: () => {},
+  }))
+  assert.ok(tile.includes('__dk_appnote') && tile.includes('用来查资料'), '备注要显示在名字下面')
+
+  // 每个分类能转去的目标是对称的,别把「保险库 → 保险库」列出来
+  for (const [from, targets] of Object.entries(T.MOVE_TARGETS)) {
+    assert.ok(targets.length >= 2, from + ' 至少两个去处')
+    assert.ok(!targets.some(([to]) => to === from), from + ' 不该转给自己')
+  }
+})

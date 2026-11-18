@@ -151,6 +151,31 @@ export function nextOccurrence(reminder, now = new Date()) {
 
 const backedUp = new Set()
 
+/** 文本里能认出的网址:带协议的直接用,裸域名补 https。 */
+function urlInText(text) {
+  const s = String(text || '')
+  const withScheme = /https?:\/\/[^\s,，。；)）]+/i.exec(s)
+  if (withScheme) return withScheme[0]
+  const bare = /(?:^|[\s「(（])((?:[a-z0-9-]+\.)+[a-z]{2,})(?:[\s/」)）]|$)/i.exec(s)
+  return bare ? 'https://' + bare[1] : ''
+}
+
+/** 从一段话里取个像名字的标题:像句子就用域名,别把整句塞进标题。 */
+export function titleFromText(text, url, fallback = '') {
+  const first = String(text || '').split('\n')[0] || ''
+  let t = first
+    .replace(/https?:\/\/[^\s,，。；)）]+/gi, ' ')
+    .replace(/(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const looksDesc = !t || t.length > 20 || /[，。、；:：!?]/.test(t) || /不错|好用|挺好|适合|可以用|用来|推荐/.test(t)
+  if (looksDesc) {
+    const host = url ? String(url).replace(/^https?:\/\//i, '').split('/')[0].replace(/^www\./i, '') : ''
+    return (host || t.slice(0, 40) || fallback).slice(0, 80)
+  }
+  return t.slice(0, 80)
+}
+
 function readJson(file, fallback) {
   try {
     const raw = readFileSync(file, 'utf8')
@@ -797,6 +822,9 @@ export class DeskStore {
       if (link.group && !same.group) same.group = link.group
       if (link.icon && !same.icon) same.icon = link.icon
       if (input.title && !same.title) same.title = link.title
+      // 同一条链接又补了一句用途:别把备注丢了,也别把旧的一句顶掉
+      if (link.note && !same.note) same.note = link.note
+      else if (link.note && !same.note.includes(link.note) && same.note.length < 200) same.note = (same.note + ' · ' + link.note).slice(0, 2000)
       same.updatedAt = now
       this.save()
       return { ...same, deduped: true }
@@ -823,6 +851,98 @@ export class DeskStore {
     x.updatedAt = Date.now()
     this.save()
     return x
+  }
+
+  // ---------------- 转存:分错了自己挪 ----------------
+
+  /** 找一条原始记录(note/link/reminder/secret)。 */
+  findAny(kind, id) {
+    const list = kind === 'note' ? this.data.notes
+      : kind === 'link' ? this.data.links
+        : kind === 'reminder' ? this.data.reminders
+          : kind === 'secret' ? null : null
+    if (kind === 'secret') return this.getSecret(id)
+    if (!list) throw new Error('不认识的分类:' + kind)
+    return list.find((x) => x.id === id) || null
+  }
+
+  /**
+   * 把一条记录搬到另一个分类(自动分类分错了,用户自己挪)。
+   * 便签/网页/提醒搬走时原条目进垃圾箱;保险库没有垃圾箱 ——
+   * 没密码的直接删(内容已经在目标里),带密码的不许搬去明文分类。
+   */
+  convertItem(kind, id, to) {
+    const NAMES = { note: '便签', link: '网页', secret: '保险库', reminder: '提醒' }
+    const from = String(kind || '')
+    const target = String(to || '')
+    if (!NAMES[from]) throw new Error('不认识的分类:' + from)
+    if (!NAMES[target]) throw new Error('不认识的分类:' + target)
+    if (from === target) throw new Error('它已经在' + NAMES[from] + '里了')
+    const src = this.findAny(from, id)
+    if (!src) throw new Error('找不到这条' + NAMES[from])
+
+    let title = ''
+    let url = ''
+    let note = ''
+    let text = ''
+    let username = ''
+    let password = ''
+    if (from === 'note') {
+      text = String(src.text || '')
+      url = (text.match(/https?:\/\/[^\s,，。；]+/i) || [''])[0] || urlInText(text)
+      title = titleFromText(text, url)
+      // 网址已经是单独一个字段,备注里不用再重复一遍
+      note = url
+        ? text.split('\n').map((l) => l.split(url).join(' ').replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n')
+        : text
+    } else if (from === 'link') {
+      title = src.title || ''
+      url = src.url || ''
+      note = src.note || ''
+      text = [title, note, url].filter(Boolean).join('\n')
+    } else if (from === 'reminder') {
+      title = src.title || ''
+      note = src.note || ''
+      url = src.url || ''
+      text = [title, note].filter(Boolean).join('\n')
+    } else if (from === 'secret') {
+      title = src.title || ''
+      url = String(src.fields['网址'] || '') || urlInText([src.title, src.note, src.fields['内容']].filter(Boolean).join(' '))
+      username = String(src.fields['用户名'] || '')
+      password = String(src.fields['密码'] || '')
+      note = src.note || String(src.fields['内容'] || '')
+      // 明文便签 / 网页备注里放密码等于把保险库白开了
+      if (password) throw new Error('这条里有密码,不能搬到明文的地方;要挪的话先在保险库里删掉密码')
+      text = [title, note, url].filter(Boolean).join('\n')
+    }
+
+    let item
+    if (target === 'link') {
+      if (!url) throw new Error('这条里没有网址,存不成网页')
+      item = this.addLink({ title, url, note: note.slice(0, 300), group: '' })
+      // 撞上已有条目时把说明补进去,别让备注白丢
+      if (item.deduped && note && !item.note) item = this.updateLink(item.id, { note: note.slice(0, 300) })
+    } else if (target === 'note') {
+      item = this.addNote({ text: text || title || '' })
+    } else if (target === 'secret') {
+      // 正文走 note(和「内容」一样加密),带网址时也不会被 addSecret 丢掉
+      item = this.addSecret({ title: title || '未命名条目', username, password, url, note: text || note || title })
+    } else {
+      item = this.addReminder({
+        title: title || '提醒',
+        time: '09:00',
+        leadMin: 0,
+        note: [note, url].filter(Boolean).join(' ').slice(0, 500),
+        url,
+      })
+    }
+
+    if (from === 'note') this.deleteNote(id)
+    else if (from === 'link') this.deleteLink(id)
+    else if (from === 'reminder') this.deleteReminder(id)
+    else this.deleteSecret(id)
+
+    return { item, from, to: target, merged: !!item.deduped }
   }
 
   /** 打开一次:记一笔,方便「最近用的排前面」。 */

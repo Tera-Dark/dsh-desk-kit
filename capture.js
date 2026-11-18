@@ -181,9 +181,11 @@ function pickValue(text, names) {
   for (const name of names) {
     const idx = lower.indexOf(name.toLowerCase())
     if (idx < 0) continue
-    const rest = text.slice(idx + name.length).replace(/^[\s:：=]+/, '')
+    const rest = text.slice(idx + name.length).replace(/^[\s:：=是为]+/, '')
     const value = rest.split(/[\s,，;；、|]/)[0]
-    if (value && !/^(是|为|的)$/.test(value)) return value.replace(/[。!！~～]+$/, '')
+    // 「账号还没注册」「密码忘了」不是凭据值:以前会把「还没注册」当成用户名存进保险库
+    const notValue = /^(是|为|的|没|未|无|不|还|暂|待|空|等|忘|待定|不知道)/
+    if (value && !notValue.test(value) && value.length <= 64) return value.replace(/[。!！~～]+$/, '')
   }
   return ''
 }
@@ -226,7 +228,8 @@ export function parseMultiSite(text) {
   return { kind: 'multi', sites: urls.map((url) => ({ url, title: siteTitle(url) + ' 打卡' })) }
 }
 
-const LINK_WORDS = /网页|书签|收藏|网址栏|入口|常用站|收藏夹|加进|放进/i
+// 「收藏/书签」是明确指令;「网站不错/可以用来/推荐」是在介绍一个站,也算网页
+const LINK_WORDS = /网页|书签|收藏|网址|入口|常用站|收藏夹|网站|站点|平台|工具站|资源站|推荐|不错|好用|挺好|适合|可以用来|能用来|可以|能做|可以做|加进|放进/i
 
 /**
  * 「收藏这个网页」这类说法 → 网页收藏(手机桌面那种格子)。
@@ -237,7 +240,8 @@ export function parseLink(text, now = new Date()) {
   const raw = String(text || '')
   const urlIn = /(https?:\/\/[^\s,，、;；"'<>)\]]+)/i.exec(raw) || /(?:^|\s)((?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s,，、;；]*)?)/i.exec(raw)
   if (!urlIn) return null
-  const url = urlIn[1].replace(/[)。，,；;]+$/, '')
+  let url = urlIn[1].replace(/[)。，,；;]+$/, '')
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url
   // 说了「收藏/网页/书签/入口」才算网页;光贴一个链接还是便签(可能只是备忘)
   if (!LINK_WORDS.test(raw)) return null
   // 取分类:分类:xxx / 放到「xxx」/ 放进 xxx 分组
@@ -259,11 +263,33 @@ export function parseLink(text, now = new Date()) {
     .replace(/\s+/g, ' ')
     .trim()
   // 只剩一两个字(「当」「看」)说明用户没起名,用域名更清楚
-  const nice = title.length >= 2 ? title : siteTitle(url)
+  let nice = title.length >= 2 ? title : siteTitle(url)
+  // 「这站不错,可以用来查资料」不是名字,是说明:名字用域名,说明进备注
+  const looksDesc = /[，。、；:：]/.test(nice) || /不错|好用|挺好|合适|适合|可以用|可以用来|能用来|可以做|推荐|值得|登录|注册/.test(nice) || nice.length > 14
+  const desc = raw
+    .replace(/https?:\/\/[^\s,，、;；"'<>)\]]+/gi, ' ')
+    .replace(/(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/gi, ' ')
+    .replace(/(?:分类|分组|组)\s*[:：]?\s*[「"']?[^」"'\s,，。；]{1,24}[」"']?/g, ' ')
+    .replace(/[「"'][^」"']{1,24}[」"']/g, ' ')
+    .replace(/^(?:请|帮我|麻烦|把|给我)\s*/, '')
+    .replace(/^[,，。；:：\-—\s]+|[,，。；:：\-—\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (looksDesc) nice = siteTitle(url)
   // 多贴的网址不静默吞掉,回执里要说一声
   const urls = raw.match(/https?:\/\/[^\s,，、;；"'<>)\]]+/gi) || []
   const extra = Math.max(0, urls.filter((u, i) => urls.indexOf(u) === i).length - 1)
-  return { kind: 'link', title: nice.slice(0, 40), url, group, raw, extra }
+  // 用途说明留进备注:「这站不错,可以用来查资料」→ note=查资料
+  const note = raw
+    .replace(/https?:\/\/[^\s,，、;；"'<>)\]]+/gi, ' ')
+    .replace(/(?:分类|分组|组)(?:\s*[:：]?\s*[「"']?[^」"'\s,，。；]{1,24}[」"']?)?/g, ' ')
+    .replace(/[「"'][^」"']{1,24}[」"']/g, ' ')
+    .replace(LINK_FILLER, ' ')
+    .replace(/^(?:这|那)(?:个|家)?(?:网站|站点|平台)?/g, ' ')
+    .replace(/^[,，。；:：\-—\s]+|[,，。；:：\-—\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { kind: 'link', title: nice.slice(0, 40), note: looksDesc ? desc.slice(0, 300) : '', url, group, raw, extra }
 }
 
 /**
@@ -318,19 +344,34 @@ export function parseCapture(raw, now = new Date()) {
   if (wantsSecret) {
     const password = pickValue(text, ['密码', '口令', 'password', 'pwd', '密钥', 'token', 'api key', 'apikey'])
     const username = pickValue(text, ['账号', '账户', '用户名', 'username', 'user', '手机号'])
-    const url = (/(https?:\/\/[^\s,，]+)/.exec(text) || [])[1] || ''
-    if (password || username || url) {
+    let url = (/(https?:\/\/[^\s,，]+)/.exec(text) || [])[1] || ''
+    // 「example.org 的 api 密钥」这类只说域名的,也补成能点的网址
+    if (!url) {
+      const bare = /(?:^|[\s「(（])((?:[a-z0-9-]+\.)+[a-z]{2,})(?:[\s/」)）]|$)/i.exec(text)
+      if (bare && /密钥|token|api|apikey|后台|站点|网站/i.test(text)) url = 'https://' + bare[1]
+    }
+    // 「这网站登录之后能干嘛」也会命中「登录」,但凭据得真有账号或密码。
+    // 只有网址没有凭据 = 在说一个网站,交给下面的网页分支。
+    if (password || username) {
       const title = text
         .replace(/(账号|账户|用户名|username|user|密码|口令|password|pwd|密钥|token|api key|apikey|卡号|身份证|登陆|登录)(\s*[:：=]?\s*[^\s,，;；、|]+)?/gi, '')
+        .replace(/(网址|链接|地址)\s*[:：]?\s*\S*/gi, '')
         .replace(/(请|帮我|麻烦|把|存一下|存起来|保存|记一下|记下|记)/g, '')
-        .replace(/[。!！~～\s]+$/g, '')
+        .replace(/^[,，。；:：\-—\s]+|[,，。；!！~～\s]+$/g, '')
         .trim()
       // 标题取「看得懂的那个」:自己写的名字 → 网址主机名 → 账号名 → 兜底
       const host = url ? String(url).replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0] : ''
       const fallback = username ? username + ' 的账号' : '一组凭据'
       // 只贴了个链接时,标题用主机名,别让整条 URL 占满列表
-      const cleaned = String(title || '').replace(/https?:\/\/\S+/gi, '').replace(/[。!！~～\s]+$/g, '').trim()
-      return { kind: 'secret', title: (cleaned || host || fallback).slice(0, 40), username, password, url, note: text }
+      let cleaned = String(title || '').replace(/https?:\/\/\S+/gi, '')
+      // 密码/账号的值会残留在标题里(「密码是 abc」→「的 abc」),先摘掉
+      for (const v of [password, username]) if (v) cleaned = cleaned.split(v).join(' ')
+      cleaned = cleaned
+        .replace(/^[\s的是为和了给把,，。；:：\-—]+/, '')
+        .replace(/[。!！~～\s]+$/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+      return { kind: 'secret', title: (cleaned.length >= 2 ? cleaned : host || fallback).slice(0, 40), username, password, url, note: text }
     }
   }
 
@@ -390,6 +431,7 @@ export function describeCapture(parsed) {
   }
   if (parsed.kind === 'link') {
     return '已收进网页:' + parsed.title + ' · ' + parsed.url + (parsed.group ? '(分类:' + parsed.group + ')' : '')
+      + (parsed.note ? ' · 备注:' + String(parsed.note).slice(0, 24) : '')
       + (parsed.extra ? ';另外 ' + parsed.extra + ' 个网址没存,要的话单独再说一次' : '')
   }
   if (parsed.kind === 'reminder' && parsed.yearly) {

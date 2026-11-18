@@ -108,5 +108,25 @@ test('分类:网页收藏(带网址 + 收藏/网页这类词)', () => {
   assert.equal(c.title, '今日热榜')
   // 光贴一个网址 / 带密码的句子,都不该进网页
   assert.equal(parseCapture('https://example.com 这个先记着', now).kind, 'note')
-  assert.equal(parseCapture('记一下 example.com 的登录密码是 abc', now).kind, 'note')
+  // 「密码是 abc」以前因为「是」没被当成分隔符,凭据会掉成便签 —— 现在要认出来
+  const d = parseCapture('记一下 example.com 的登录密码是 abc', now)
+  assert.equal(d.kind, 'secret')
+  assert.equal(d.password, 'abc')
+})
+
+test('分类:说「这站不错,能干什么」是网页,不是保险库', () => {
+  const a = parseCapture('https://example.com 这个网站不错，可以用来查资料、看论文', now)
+  assert.equal(a.kind, 'link', '带网址的介绍不该进保险库')
+  assert.equal(a.url, 'https://example.com')
+  assert.equal(a.title, 'Example', '名字用域名,别把整句当标题')
+  assert.match(a.note, /查资料/, '用途说明要进备注')
+
+  // 「登录」以前会让整句掉进保险库,哪怕一个凭据都没有
+  const b = parseCapture('example.com 登录之后可以看订单', now)
+  assert.equal(b.kind, 'link')
+  assert.equal(b.url, 'https://example.com', '裸域名要补协议')
+
+  const c = parseCapture('这个站挺好用的 https://tool.example.com 适合做设计', now)
+  assert.equal(c.kind, 'link')
+  assert.match(c.note, /适合做设计/)
 })

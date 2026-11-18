@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
    const FAB_PAD = 18
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-   const VERSION = '1.8.1'
+   const VERSION = '1.9.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -79,6 +79,7 @@ window.__ModuleLoader__.load({
      undo: ['M9 14L4 9l5-5', 'M4 9h9a7 7 0 0 1 0 14H8'],
      trash: ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'],
      clock: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18', 'M12 7v5l3.5 2'],
+     swap: ['M4 8h13', 'M14 5l3 3-3 3', 'M20 16H7', 'M10 19l-3-3 3-3'],
      pause: ['M9 5v14', 'M15 5v14'],
      play: ['M8 5l11 7-11 7z'],
      download: ['M12 4v11', 'M8 11l4 4 4-4', 'M5 20h14'],
@@ -269,6 +270,8 @@ window.__ModuleLoader__.load({
      '.__dk_tile:hover .__dk_appact,.__dk_tile:focus-within .__dk_appact{opacity:1}',
      '.__dk_appact .__dk_mini{width:20px;height:20px;border-radius:6px;background:var(--dsw-alias-bg-layer-2,#24282e);box-shadow:0 1px 4px rgba(0,0,0,.3)}',
      '.__dk_groupchips{display:flex;gap:6px;flex-wrap:wrap;padding:2px 0 6px}',
+     '.__dk_movechips{align-items:center;padding:4px 2px 6px}',
+     '.__dk_appnote{max-width:78px;font-size:10.5px;line-height:1.3;color:var(--dsw-alias-label-tertiary,#8b949e);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
      '.__dk_grid--home{grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:10px 4px;padding:2px 0 10px}',
      '.__dk_grid--home .__dk_app{width:48px;height:48px;border-radius:14px}',
      '.__dk_grid--home .__dk_appname{max-width:68px;font-size:11px}',
@@ -663,10 +666,39 @@ window.__ModuleLoader__.load({
     * 统一反馈条:一句结果 + 一个「撤销」(可选)。
     * 人改错东西的第一反应是「刚才那下能撤吗」,而不是去垃圾箱里翻。
     */
-   function ReplyBar({ reply, run, onClear }) {
+   // 自动分类分错了,一条记录换到别的分类
+   const MOVE_TARGETS = {
+     note: [['link', '网页'], ['secret', '保险库'], ['reminder', '提醒']],
+     link: [['note', '便签'], ['secret', '保险库'], ['reminder', '提醒']],
+     secret: [['link', '网页'], ['note', '便签']],
+     reminder: [['note', '便签'], ['link', '网页']],
+   }
+
+   /**
+    * 「分错了?转存到:网页 / 便签 / 保险库」。
+    * 便签/网页/提醒转走后原条目进垃圾箱;保险库带密码时会被拦下(明文存不得)。
+    */
+   function MoveChips({ kind, id, run, notify, label }) {
+     const targets = MOVE_TARGETS[kind] || []
+     if (!targets.length) return null
+     return h('div', { className: '__dk_groupchips __dk_movechips' }, [
+       h('span', { key: 'l', className: '__dk_hint' }, label || '转存到'),
+       ...targets.map(([to, name]) => h('button', {
+         key: to, className: '__dk_chip',
+         onClick: async () => {
+           const body = await run('item.convert', { kind, id, to })
+           if (!body || body.ok === false) return
+           if (notify) notify((body.result && body.result.reply) || ('已转到' + name))
+         },
+       }, name)),
+     ])
+   }
+
+   function ReplyBar({ reply, run, onClear, onSay }) {
      if (!reply) return null
      const text = typeof reply === 'string' ? reply : reply.text
      const undo = reply && typeof reply === 'object' ? reply.undo : null
+     const move = reply && typeof reply === 'object' ? reply.move : null
      return h('div', { className: '__dk_reply' }, [
        h('span', { key: 't', className: '__dk_replytext' }, text),
        undo
@@ -680,6 +712,13 @@ window.__ModuleLoader__.load({
          }, '撤销')
          : null,
      ])
+   }
+
+   /** 回执下的第二行:存错分类了,直接挪。 */
+   function ReplyMove({ reply, run, onSay }) {
+     const move = reply && typeof reply === 'object' ? reply.move : null
+     if (!move || !move.id) return null
+     return h(MoveChips, { kind: move.kind, id: move.id, run, notify: onSay, label: '分错了?转存到' })
    }
 
    // ---------------------------------------------------------------- 首页
@@ -942,6 +981,7 @@ window.__ModuleLoader__.load({
      const [editing, setEditing] = useState('')
      const [adding, setAdding] = useState(false)
      const [view, setView] = useState('active')          // active | trash
+     const [moveId, setMoveId] = useState('')            // 哪一条正在挑分类
      const all = state.reminders || []
      const trashed = state.trashedReminders || []
      const rc = state.reminderCounts || { active: all.length, trash: trashed.length }
@@ -1015,6 +1055,7 @@ window.__ModuleLoader__.load({
                        say(r.active === false ? '已继续提醒' : '已暂停,不再弹提醒')
                      },
                    }, h(Ico, { name: r.active === false ? 'play' : 'pause', size: 15 })),
+                   h('button', { key: 'mv', className: '__dk_mini', title: '转存到别的分类', 'aria-label': '转存到别的分类', onClick: () => setMoveId(moveId === r.id ? '' : r.id) }, h(Ico, { name: 'swap', size: 15 })),
                    h('button', { key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑', onClick: () => { setEditing(r.id); setAdding(false) } }, h(Ico, { name: 'edit', size: 15 })),
                    h('button', {
                      key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
@@ -1026,6 +1067,7 @@ window.__ModuleLoader__.load({
                    }, h(Ico, { name: 'trash', size: 15 })),
                  ]),
                ]),
+               moveId === r.id ? h(MoveChips, { key: 'mv', kind: 'reminder', id: r.id, run, notify: (t) => { setMoveId(''); say(t) } }) : null,
              ]),
          ]))
          : h('div', { key: 'e', className: '__dk_empty' }, [
@@ -1054,6 +1096,7 @@ window.__ModuleLoader__.load({
      const [showArchived, setShowArchived] = useState(false)
      const [limit, setLimit] = useState(8)
      const [view, setView] = useState('main')      // main | trash
+     const [moveId, setMoveId] = useState('')      // 哪一条正在挑分类
      const PAGE = 8
      const say = (text, undo) => { if (notify) notify(text, undo) }
 
@@ -1108,6 +1151,7 @@ window.__ModuleLoader__.load({
              if (!n.completedAt) say('已标记完成', { action: 'note.complete', payload: { id: n.id, done: false } })
            },
          }, h(Ico, { name: 'check', size: 14 })))
+         actions.push(h('button', { key: 'mv', className: '__dk_mini', title: '转存到别的分类', 'aria-label': '转存到别的分类', onClick: () => setMoveId(moveId === n.id ? '' : n.id) }, h(Ico, { name: 'swap', size: 14 })))
          if (isLong) actions.push(h('button', { key: 'sh', className: '__dk_mini', title: '移回进行中', 'aria-label': '移回进行中', onClick: () => run('note.update', { id: n.id, shelf: 'daily' }) }, h(Ico, { name: 'undo', size: 14 })))
          actions.push(h('button', { key: 'p', className: '__dk_mini', title: n.pinned ? '取消置顶' : '置顶', 'aria-label': n.pinned ? '取消置顶' : '置顶', onClick: () => run('note.update', { id: n.id, pinned: !n.pinned }) }, h(Ico, { name: 'pin', size: 14 })))
          actions.push(h('button', {
@@ -1147,6 +1191,7 @@ window.__ModuleLoader__.load({
                  ...actions,
                ]),
              ]),
+             moveId === n.id ? h(MoveChips, { key: 'mv', kind: 'note', id: n.id, run, notify: (t) => { setMoveId(''); say(t) } }) : null,
            ]),
        ])
      }
@@ -1381,6 +1426,8 @@ window.__ModuleLoader__.load({
          ]),
        ]),
        h('div', { key: 'n', className: '__dk_appname' }, l.title),
+       // 一句备注:「查资料用」「公司后台」—— 比标题更能提醒自己为什么收它
+       l.note ? h('div', { key: 'nt', className: '__dk_appnote', title: l.note }, l.note) : null,
      )
    }
 
@@ -1397,14 +1444,14 @@ window.__ModuleLoader__.load({
 
      const shown = links.filter((l) => !group || (group === '\u0000' ? !l.group : l.group === group))
 
-     const startAdd = () => setForm({ title: '', url: '', group: group && group !== '\u0000' ? group : '', icon: '', pinned: false })
-     const startEdit = (l) => setForm({ id: l.id, title: l.title, url: l.url, group: l.group, icon: l.icon || '', pinned: !!l.pinned })
+     const startAdd = () => setForm({ title: '', url: '', group: group && group !== '\u0000' ? group : '', icon: '', note: '', pinned: false })
+     const startEdit = (l) => setForm({ id: l.id, title: l.title, url: l.url, group: l.group, icon: l.icon || '', note: l.note || '', pinned: !!l.pinned })
      const save = async () => {
        const f = form || {}
        const title = String(f.title || '').trim()
        const url = String(f.url || '').trim()
        if (!url) { say('先填个网址'); return }
-       const payload = { title, url, group: f.group || '', icon: f.icon || '', pinned: !!f.pinned }
+       const payload = { title, url, group: f.group || '', icon: f.icon || '', note: f.note || '', pinned: !!f.pinned }
        const body = f.id
          ? await run('link.update', { id: f.id, ...payload })
          : await run('link.add', payload)
@@ -1472,12 +1519,18 @@ window.__ModuleLoader__.load({
              key: 'i', className: '__dk_input', placeholder: '图标(可选:一个 emoji,或图片地址)',
              value: form.icon, onChange: (e) => setForm((f) => ({ ...f, icon: e.target.value })),
            }),
+           h('input', {
+             key: 'nt', className: '__dk_input', placeholder: '备注(可选:这站用来干什么)',
+             value: form.note || '', onChange: (e) => setForm((f) => ({ ...f, note: e.target.value })),
+             onKeyDown: (e) => { if (e.key === 'Enter') { e.preventDefault(); save() } },
+           }),
            h('div', { key: 'pin', className: '__dk_groupchips', style: { padding: '2px 0 0' } }, [
              h('button', {
                key: 'p', className: '__dk_chip' + (form.pinned ? ' on' : ''),
                onClick: () => setForm((f) => ({ ...f, pinned: !f.pinned })),
              }, (form.pinned ? '★ ' : '☆ ') + '置顶'),
            ]),
+           form.id ? h(MoveChips, { key: 'mv', kind: 'link', id: form.id, run, notify: (t) => { setForm(null); say(t) } }) : null,
          ]),
          h('div', { key: 'r', className: '__dk_frow' }, [
            h('button', { key: 's', className: '__dk_btn p', disabled: !String(form.url || '').trim(), onClick: save }, '保存'),
@@ -1526,6 +1579,7 @@ window.__ModuleLoader__.load({
    }
 
    function VaultPage({ state, run, notify }) {
+     const [moving, setMoving] = useState('')
      const [openAdd, setOpenAdd] = useState(false)
      const [title, setTitle] = useState('')
      const [body, setBody] = useState('')
@@ -1626,6 +1680,7 @@ window.__ModuleLoader__.load({
                onClick: () => reveal(s.id),
              }, revealed[s.id] ? '收起' : '显示'),
              h('div', { key: 'act', className: '__dk_iact' }, [
+               h('button', { key: 'mv', className: '__dk_mini', title: '转存到别的分类', 'aria-label': '转存到别的分类', onClick: () => setMoving(moving === s.id ? '' : s.id) }, h(Ico, { name: 'swap', size: 14 })),
                h('button', {
                  key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑',
                  onClick: async () => {
@@ -1658,6 +1713,7 @@ window.__ModuleLoader__.load({
              h('span', { key: 'd' }, fmtWhen(s.updatedAt || s.createdAt)),
              revealed[s.id] ? h('span', { key: 't' }, '30 秒后自动收起') : null,
            ]),
+           moving === s.id ? h(MoveChips, { key: 'mv', kind: 'secret', id: s.id, run, notify: (t) => { setMoving(''); say(t) } }) : null,
          ]))
          : h('div', { key: 'e', className: '__dk_empty' }, [
            h('div', { key: 't', className: '__dk_emptytitle' }, '保险库是空的'),
@@ -2154,8 +2210,8 @@ window.__ModuleLoader__.load({
 
      // notify(text) 									只报一句
      // notify(text, {action, payload}) 		顺手给一个「撤销」,6 秒内可点
-     const showReply = useCallback((text, undo) => {
-       setReply(text ? { text: text, undo: undo || null } : null)
+     const showReply = useCallback((text, undo, move) => {
+       setReply(text ? { text: text, undo: undo || null, move: move || null } : null)
        if (timer.current) clearTimeout(timer.current)
        if (!text) return
        timer.current = setTimeout(() => setReply(null), undo ? 6000 : 3500)
@@ -2293,7 +2349,9 @@ window.__ModuleLoader__.load({
        else if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'reminder' && c.id && !c.deduped) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
-       showReply(r.reply || '已保存', undo)
+       // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
+       const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
+       showReply(r.reply || '已保存', undo, move)
        if (r.parsed && r.parsed.kind === 'link') { setDir('left'); setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setDir('left'); setPage('notes'); setSeq((s) => s + 1) }
@@ -2383,6 +2441,7 @@ window.__ModuleLoader__.load({
              ]),
            ]),            h('div', { key: 'body', className: '__dk_body', onPointerDown, onPointerUp }, [
              h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply('') }),
+             h(ReplyMove, { key: 'rmove', reply, run, onSay: (t) => showReply(t) }),
              err ? h('div', { key: 'err', className: '__dk_err' }, err) : null,
              // key 带 seq:切页整块重建,滑屏动画才会重放
              h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page __dk_page--' + dir },
@@ -2472,8 +2531,8 @@ window.__ModuleLoader__.load({
 
      // notify(text) 									只报一句
      // notify(text, {action, payload}) 		顺手给一个「撤销」,6 秒内可点
-     const showReply = useCallback((text, undo) => {
-       setReply(text ? { text: text, undo: undo || null } : null)
+     const showReply = useCallback((text, undo, move) => {
+       setReply(text ? { text: text, undo: undo || null, move: move || null } : null)
        if (timer.current) clearTimeout(timer.current)
        if (!text) return
        timer.current = setTimeout(() => setReply(null), undo ? 6000 : 3500)
@@ -2491,7 +2550,9 @@ window.__ModuleLoader__.load({
        else if (c && c.kind === 'note' && c.id && !c.deduped) undo = { action: 'note.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'reminder' && c.id && !c.deduped) undo = { action: 'reminder.delete', payload: { id: c.id }, after: () => setSeed(raw) }
        else if (c && c.kind === 'secret' && c.id) undo = { action: 'secret.delete', payload: { query: c.id }, after: () => setSeed(raw) }
-       showReply(r.reply || '已保存', undo)
+       // 刚建出来的这条可以在回执里直接改分类(去重命中时挪的是旧条目,不给)
+       const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
+       showReply(r.reply || '已保存', undo, move)
        if (r.parsed && r.parsed.kind === 'link') { setPage('links'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
        else if (r.parsed && r.parsed.kind === 'note') { setPage('notes'); setSeq((s) => s + 1) }
@@ -2560,6 +2621,7 @@ window.__ModuleLoader__.load({
          // 提醒主视觉在右下角提醒坞;这里只留一条紧凑状态条,不重复堆卡片
          h(AlertInline, { key: 'alerts', alerts, run }),
          h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply }),
+         h(ReplyMove, { key: 'rmove', reply, run, onSay: onClearReply ? (t) => showReply(t) : null }),
          err ? h('div', { key: 'err', className: '__dk_err' }, err) : null,
          h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page' }, h(SafePage, null, body)),
        ]),
@@ -2680,7 +2742,7 @@ window.__ModuleLoader__.load({
      Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, HeaderButton,
      Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO, alertHead,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
-     LinksPage, LinkTile, linkInitial, linkHue, linkHost,
+     LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS,
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,

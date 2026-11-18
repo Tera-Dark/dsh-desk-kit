@@ -530,3 +530,61 @@ test('网页:删掉后重新加过,再恢复不会变两条', () => {
   assert.equal(s.listLinks().length, 1)
   assert.deepEqual(s.linkCounts(), { active: 1, trash: 0 })
 })
+
+// ---------------- 转存:分错了自己挪 ----------------
+
+test('转存:便签 → 网页(带备注,原便签进垃圾箱)', () => {
+  const s = fresh()
+  const n = s.addNote({ text: 'https://example.com 这个网站不错，可以用来查资料' })
+  const r = s.convertItem('note', n.id, 'link')
+  assert.equal(r.item.url, 'https://example.com')
+  assert.equal(r.item.title, 'example.com')
+  assert.match(r.item.note, /查资料/)
+  assert.ok(!r.item.note.includes('https://'), '备注里不用再重复网址')
+  assert.equal(s.listNotes().length, 0)
+  assert.equal(s.listNotes({ view: 'trash' }).length, 1, '原便签要能找回')
+})
+
+test('转存:网页 → 便签 / 保险库', () => {
+  const s = fresh()
+  const l = s.addLink({ url: 'https://tool.example.com', title: '工具站', note: '设计用' })
+  const note = s.convertItem('link', l.id, 'note')
+  assert.match(note.item.text, /工具站/)
+  assert.match(note.item.text, /设计用/)
+  assert.match(note.item.text, /tool\.example\.com/)
+  assert.equal(s.listLinks().length, 0)
+
+  const l2 = s.addLink({ url: 'https://vault.example.com', title: '要存密码的', note: '账号在这里' })
+  const sec = s.convertItem('link', l2.id, 'secret')
+  const back = s.getSecret(sec.item.id)
+  assert.equal(back.title, '要存密码的')
+  assert.match(back.note, /账号在这里/)
+})
+
+test('转存:保险库搬出来(没密码可以,有密码拦下)', () => {
+  const s = fresh()
+  const plain = s.addSecret({ title: '某站', body: 'example.net 是个工具站' })
+  const r = s.convertItem('secret', plain.id, 'link')
+  assert.equal(r.item.url, 'https://example.net', '说明里的域名也要认出来')
+  assert.equal(s.listSecrets().length, 0, '搬走后保险库里不留')
+
+  const secret = s.addSecret({ title: '有账密的', username: 'me', password: 'pw', url: 'https://x.example.com' })
+  assert.throws(() => s.convertItem('secret', secret.id, 'link'), /不能搬到明文/)
+  assert.equal(s.listSecrets().length, 1, '拦下时不能删掉')
+})
+
+test('转存:提醒 → 便签;同分类 / 找不到 / 没网址都要报错', () => {
+  const s = fresh()
+  const r = s.addReminder({ title: '交房租', time: '09:00', date: '2026-11-20' })
+  const n = s.convertItem('reminder', r.id, 'note')
+  assert.match(n.item.text, /交房租/)
+  assert.equal(s.data.reminders.filter((x) => !x.deletedAt).length, 0)
+
+  const l = s.addLink({ url: 'https://only.example.com', title: '只有网址' })
+  assert.throws(() => s.convertItem('link', l.id, 'link'), /已经在/)
+  assert.throws(() => s.convertItem('note', 'nope', 'link'), /找不到/)
+  assert.throws(() => s.convertItem('wat', l.id, 'link'), /不认识的分类/)
+  const plainNote = s.addNote({ text: '一句话没有网址' })
+  assert.throws(() => s.convertItem('note', plainNote.id, 'link'), /没有网址/)
+  assert.equal(s.listNotes().length, 2, '转失败不能把原条目弄丢(1 条是上面提醒转来的,1 条是它自己)')
+})

@@ -8,6 +8,46 @@
 dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 ```
 
+## 1.9.0 · 网站该进「网页」,进错了能自己挪
+
+### 「说一个网站好、能干什么」不再进保险库
+
+以前的判定是「句子里出现登录/账号 + 有网址 → 凭据」,于是
+
+> https://example.com 这个网站不错,可以用来查资料
+
+只要带上「登录」「账号」就掉进保险库 —— 而它根本没有账号密码。现在:
+
+- **真凭据才进保险库**:必须抓到密码或账号的**值**才收;只有网址的一律按网页处理。
+- 「账号还没注册」「密码忘了」这种也不算值(以前会把「还没注册」当用户名存进去)。
+- 说「这站不错 / 挺好用 / 适合 / 可以用来」时,名字取域名,**用途那句话进备注**,显示在格子名字下面。
+- 配了分类模型时,提示词里也加了 `link` 一类;模型若仍把「只有网址」判成凭据,会**降级成网页**,不会写进保险库。
+
+### 分错了,自己挪
+
+四个分类之间可以互转,不用删了重记:
+
+- 刚存完:回执下面直接给「分错了?转存到 便签 / 保险库 / 提醒」。
+- 每条记录:便签行、网页编辑框、保险库行、提醒行都有 `⇄`,点开选目标分类。
+- Agent:`desk_item_move`(按标题/id 挪)。
+
+规则说清楚:
+
+| 从 → 到 | 结果 |
+|---|---|
+| 便签 → 网页 | 从正文里认网址(裸域名也认),第一行当名字、整段当备注;原便签进垃圾箱 |
+| 网页 → 便签 | 名字 + 备注 + 网址拼成一段正文;原网页进垃圾箱 |
+| 保险库 → 网页/便签 | 没密码才允许搬(说明里的域名会自动认出来);搬完保险库那条删除;**有密码直接拦下**,并告诉你先在保险库里删掉密码 |
+| 任意 → 保险库 | 整段加密存进去,列表照旧只看得到标题 |
+| 任意 → 提醒 | 默认今天 09:00,次数自己改 |
+
+搬走时原条目进垃圾箱(保险库没有垃圾箱,无密码的条目直接删),所以手滑了还能从垃圾箱捞回来。
+
+### 网页备注
+
+- 格子里名字下面多一行小字,就是备注(超长显示省略号)。
+- 编辑框里能直接写备注;同一句里又说了一遍的话,报告会说「已经收过了」,备注会**补进去**而不是被丢掉。
+
 ## 1.8.1 · 全量体检后修的七个坑
 
 拿真实数据往边角上撞了一轮(非法网址、不存在的日期、坏掉的数据文件、并发、2000 条便签、500 个网页、所有页面 × 空/脏数据),修的是这些:
@@ -120,9 +160,9 @@ dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 
 ```
 node --check store.js capture.js index.js client.js
-node test.mjs           # 38 pass（提醒 + 网页:归一化、去重、分类排序、软删、脏数据、当天补提醒）
-node client-test.mjs    # 50 pass
-node capture.test.mjs   # 9 pass
+node test.mjs           # 42 pass（提醒 + 网页:归一化、去重、分类排序、软删、脏数据、当天补提醒）
+node client-test.mjs    # 51 pass
+node capture.test.mjs   # 10 pass
 node lunar.test.mjs     # 4 pass
 node ai-classify.test.mjs / ownership.test.mjs / harness.mjs / verify-installed.mjs  全绿
 ```
@@ -162,7 +202,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs / verify-installed.
 node --check client.js
 node client-test.mjs    # 46 pass(新增 7 条:IME、撤销条、分页、查看全部、轮播暂停、自动收起、表单分组)
 node test.mjs           # 15 pass
-node capture.test.mjs   # 9 pass
+node capture.test.mjs   # 10 pass
 node lunar.test.mjs     # 4 pass
 node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 ```
@@ -327,6 +367,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 | 每天晚上9点提醒我吃药 | 提醒:每天 21:00 |
 | 周一到周五 8点半 打卡 | 提醒:工作日 08:30 |
 | 示例站点账号 demo_user 密码 abc123 | 保险库:标题取域名,账号密码加密落盘 |
+| https://example.com 这站不错,用来查资料 | 网页:名字取域名,用途进备注 |
 | 记一下 周末去修耳机 | 便签 |
 
 模型侧同款工具: `desk_capture`(只要用户随口说一句,调它就行,不用拆)。
@@ -351,7 +392,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 - 主密钥在 ~/.dsh/desk-kit/vault.key(0600)。**vault.key 丢了,vault.json 就解不开**,备份要一起拷。
 - 这是"本机文件权限 + 静态加密"级别,不是端到端;能读你用户目录的程序理论上都能读密钥文件。
 
-## Agent 工具(22 个)
+## Agent 工具(23 个)
 
 | 工具 | 用途 |
 |---|---|
@@ -363,6 +404,7 @@ node ai-classify.test.mjs / ownership.test.mjs / harness.mjs  全绿
 | desk_due | 现在有没有到期没处理的 |
 | desk_secret_add / list / get / delete | 保险库(列表不含明文) |
 | desk_link_add / list / delete | 网页收藏:加入口 / 按分类列 / 移入垃圾箱 |
+| desk_item_move | 一条记录换分类(分错了自己挪) |
 
 对 Agent 说这些话就会命中:
 

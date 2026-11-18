@@ -64,7 +64,7 @@ assert.equal(noteRes.data.text, '周末去修耳机')
 const listRes = await tools.get('desk_note_list').execute({})
 assert.ok(listRes.text.includes('修耳机'))
 console.log('✓ 便签工具:', listRes.text.split('\n')[0])
-assert.equal(tools.size, 22, '应注册 22 个工具,实际 ' + tools.size)
+assert.equal(tools.size, 23, '应注册 23 个工具,实际 ' + tools.size)
 
 // 一句话入口:模型侧工具
 const cap = await tools.get('desk_capture').execute({ text: '明天10点提醒我交电费' })
@@ -221,6 +221,27 @@ assert.equal((await get()).state.links.length, 3, '空标题删除不该删掉�
 const cred = await post('link.add', { url: 'https://u:p@credentials.example.com/x' })
 assert.equal(cred.result.url, 'https://credentials.example.com/x')
 await post('link.delete', { id: cred.result.id })
+// 14) 转存:分错了自己挪
+const movNote = await post('note.add', { text: 'https://move.example.com 这个站用来查资料' })
+const mov = await post('item.convert', { kind: 'note', id: movNote.result.id, to: 'link' })
+assert.equal(mov.ok, true, '转存要成功')
+assert.equal(mov.result.item.url, 'https://move.example.com')
+assert.ok(mov.result.reply.includes('网页'))
+const afterMove = await get()
+assert.equal(afterMove.state.notes.filter((n) => n.id === movNote.result.id && !n.deletedAt).length, 0, '原便签要移走')
+assert.ok(afterMove.state.notes.some((n) => n.id === movNote.result.id && n.deletedAt), '原便签要能找回')
+const movBack = await post('item.convert', { kind: 'link', id: mov.result.item.id, to: 'note' })
+assert.equal(movBack.ok, true)
+// 工具版:按名字挪(便签没有标题字段,要能从正文里认出来)
+await post('note.add', { text: 'https://wiki2.example.com 每天看新闻' })
+const movTool = await tools.get('desk_item_move').execute({ to: 'link', title: '每天看新闻' })
+assert.ok(movTool.text.includes('网页'))
+// 带密码的保险库条目不许搬到明文
+const pv = await post('secret.add', { title: '带密码的', username: 'u', password: 'p', url: 'https://pv.example.com' })
+const pvMove = await post('item.convert', { kind: 'secret', id: pv.result.id, to: 'link' })
+assert.equal(pvMove.ok, false, '带密码搬到网页必须被拦下')
+console.log('✓ 转存:便签⇄网页⇄保险库 · 工具 desk_item_move')
+
 console.log('✓ 网页收藏:', snap.state.links.length, '个 ·', snap.state.linkGroups.groups.length, '个分类')
 
 server.close()

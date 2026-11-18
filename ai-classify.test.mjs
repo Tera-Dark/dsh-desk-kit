@@ -108,6 +108,23 @@ const r7 = await post('capture', { text: '记一下买菜' })
 assert.equal(r7.result.viaAI, undefined)
 console.log('✓ 非法 kind:回退本地')
 
+// --- 9) 模型把「网站 + 用途」判成 secret:没有凭据值要降级成网页 ---
+llmReply = '{"kind":"secret","title":"某个站","url":"https://site.example.com","note":"查资料用"}'
+// 得带上「账号/记得」这类词才会去问模型
+const r9 = await post('capture', { text: '记得某站可以用来查资料' })
+assert.equal(r9.result.parsed.kind, 'link', '只有网址没有账号密码,不该进保险库')
+assert.equal(r9.result.item.url, 'https://site.example.com')
+assert.ok(String(r9.result.item.note).includes('查资料'), '说明要落到备注')
+console.log('✓ 只有网址的 secret:降级成网页 →', r9.result.item.title)
+
+// --- 10) 模型直接给 link ---
+llmReply = '{"kind":"link","title":"示例站","url":"https://example.org","group":"工具","note":"每周看一次"}'
+const r10 = await post('capture', { text: '记得帮我收着一个站' })
+assert.equal(r10.result.parsed.kind, 'link')
+assert.equal(r10.result.item.group, '工具')
+assert.equal(r10.result.item.note, '每周看一次')
+console.log('✓ AI link:group =', r10.result.item.group, '| note =', r10.result.item.note)
+
 // --- 8) settings 持久化 ---
 const st = await get()
 assert.equal(st.state.settings.classifyProvider, 'p1')

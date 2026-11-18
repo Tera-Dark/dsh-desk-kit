@@ -41,7 +41,8 @@ function persistParsed(s, parsed, rawText) {
     return { parsed, reply, item: created, created: { kind: 'reminder', ids: created.map((r2) => r2.id) } }
   }
   if (parsed.kind === 'link') {
-    const item = s.addLink({ title: parsed.title, url: parsed.url, group: parsed.group })
+    // 一句话里的用途说明要一起存进备注(以前只存了标题和网址)
+    const item = s.addLink({ title: parsed.title, url: parsed.url, group: parsed.group, note: parsed.note || '' })
     return {
       parsed,
       reply: item.deduped ? '这个网址已经收过了,已把它顶到前面:' + item.title : describeCapture(parsed),
@@ -107,7 +108,20 @@ function normalizeAI(ai, raw) {
     const h = Math.min(23, Number(m[1]))
     return String(h).padStart(2, '0') + ':' + m[2]
   }
+  if (ai.kind === 'link') {
+    const url = str(ai.url)
+    const title = str(ai.title).slice(0, 80)
+    if (!url) return { kind: 'note', text: str(ai.text) || raw }
+    return { kind: 'link', title, url, group: str(ai.group).slice(0, 24), note: str(ai.note).slice(0, 300), raw }
+  }
   if (ai.kind === 'secret') {
+    // 模型有时把「一个网址 + 用途」判成 secret;没有凭据值就不该进保险库
+    if (!str(ai.password) && !str(ai.username)) {
+      const url = str(ai.url)
+      return url
+        ? { kind: 'link', title: str(ai.title).slice(0, 80), url, group: '', note: str(ai.note).slice(0, 300) || raw, raw }
+        : { kind: 'note', text: str(ai.text) || str(ai.note) || raw }
+    }
     return {
       kind: 'secret',
       title: str(ai.title).slice(0, 80) || '未命名条目',
@@ -151,12 +165,15 @@ async function aiClassify(ctx, text, sel) {
   const weekday = '日一二三四五六'[new Date().getDay()]
   const system = [
     '你是信息整理助手。把用户随口说的一句话整理成 JSON。只输出 JSON,不要解释,不要代码块。',
-    'kind 必须三选一:',
+    'kind 必须四选一:',
     '- reminder:有明确时间点、或需要到点提醒(签到/打卡/上课/开会/交费/吃药/生日/纪念日)',
-    '- secret:含账号、密码、密钥、卡号等凭据',
+    '- secret:含真正的账号、密码、密钥、卡号等凭据值',
+    '- link:用户想收藏/推荐一个网址,常配有「这个站不错」「可以用来干什么」之类的说明',
     '- note:其余(想法、清单、合集、长文、备忘)',
-    '可用字段(没有就省略):kind, title, time("HH:MM" 24小时制), date("YYYY-MM-DD"), weekdays([0=周日..6=周六]), lunar({month,day}), annual("MM-DD"), leadMin(数字,分钟), url, text(note 的正文,尽量保留原话), username, password, note',
+    '可用字段(没有就省略):kind, title, time("HH:MM" 24小时制), date("YYYY-MM-DD"), weekdays([0=周日..6=周六]), lunar({month,day}), annual("MM-DD"), leadMin(数字,分钟), url, group, text(note 的正文,尽量保留原话), username, password, note',
     '规则:生日/纪念日优先用 annual 或 lunar,不要用 date;一般提醒才用 time+date/weekdays。',
+    '规则:只提到网址、没有账号密码值的,不要用 secret —— 那是 link(用途说明写进 note);',
+    '规则:link 的 title 用站点名或用户起的名字,别把整句说明塞进标题。',
     '今天是 ' + today + '(星期' + weekday + ')。',
   ].join('\n')
 
@@ -182,7 +199,7 @@ async function aiClassify(ctx, text, sel) {
   if (!m) return null
   let parsed
   try { parsed = JSON.parse(m[0]) } catch { return null }
-  if (!parsed || !['reminder', 'note', 'secret'].includes(parsed.kind)) return null
+  if (!parsed || !['reminder', 'note', 'secret', 'link'].includes(parsed.kind)) return null
   return parsed
 }
 
@@ -200,6 +217,7 @@ function shouldAskAI(local, text) {
   if (!local) return true
   // 本地已经能排出时间/认出凭据/拆成多条了,再问一遍模型只是多花钱多等几秒
   if (local.kind === 'multi' || local.kind === 'secret' || local.kind === 'reminder') return false
+  if (local.kind === 'link') return false
   const t = String(text || '')
   if (local.missingTime) return true
   return TODO_HINT.test(t) || TIME_HINT.test(t) || SECRET_HINT.test(t)
@@ -242,7 +260,7 @@ export const name = 'dsh-desk-kit'
 export const inject = ['webServer']
 
 const ROUTE = '/desk-kit-api'
-const PLUGIN_VERSION = '1.8.1'
+const PLUGIN_VERSION = '1.9.0'
 const TICK_MS = 15000
 
 function dshHome() {
@@ -416,6 +434,13 @@ async function act(ctx, s, action, payload) {
     case 'link.restore': return s.restoreLink(payload.id)
     case 'link.purge': return s.purgeLink(payload.id)       // 彻底删除
     case 'link.touch': return s.touchLink(payload.id)       // 打开一次,记一笔
+    // 分错了自己挪:便签 ⇄ 网页 ⇄ 保险库 ⇄ 提醒
+    case 'item.convert': {
+      const r = s.convertItem(payload.kind, payload.id, payload.to)
+      const NAME = { note: '便签', link: '网页', secret: '保险库', reminder: '提醒' }
+      const what = r.item.title || String(r.item.text || '').slice(0, 20).trim() || '这条'
+      return { ...r, reply: '已转到' + NAME[payload.to] + ':' + what + (r.merged ? '(和已有的那条合并了)' : '') }
+    }
     case 'secret.add': return s.addSecret(payload)
     case 'secret.update': return s.updateSecret(payload.query || payload.id, payload)
     case 'secret.delete': return s.deleteSecret(payload.query || payload.id)
@@ -738,6 +763,37 @@ export function apply(ctx) {
         ? items.map((l) => '- ' + l.title + ' | ' + (l.group || '未分类') + ' | ' + l.url).join('\n')
         : (want ? '「' + want + '」这个分类下还没有网页。' : '还没有收藏网页。')
       return out(text, items)
+    },
+  })))
+
+  reg('desk_item_move', () => ctx.tools.register(defineTool({
+    name: 'desk_item_move',
+    description: '把一条记录从原来的分类转到另一个分类(自动分类分错了、用户说「这条不该放这儿」时用)。便签/网页/提醒转走后原条目进垃圾箱;保险库条目带密码时不许转到明文的地方。',
+    parameters: {
+      to: { type: 'string', description: '目标分类:note(便签)/ link(网页)/ secret(保险库)/ reminder(提醒)' },
+      from: { type: 'string', description: '原分类,省略就在四个分类里按名字找' },
+      title: { type: 'string', description: '那条记录的标题或 id' },
+    },
+    output: outputSpec,
+    async execute(args) {
+      const to = String(args && args.to || '').trim()
+      const q = String(args && args.title || '').trim()
+      if (!q) throw new Error('要挪哪一条?给个标题或 id')
+      const kinds = args && args.from ? [String(args.from)] : ['note', 'link', 'reminder', 'secret']
+      let hit = null
+      let hitKind = ''
+      for (const k of kinds) {
+        const list = k === 'note' ? s.listNotes({ view: 'all', includeArchived: true })
+          : k === 'link' ? s.listLinks()
+            : k === 'reminder' ? s.todayView()
+              : s.listSecrets()
+        const row = list.find((x) => x.id === q) || list.find((x) => x.title === q) || list.find((x) => String(x.title || x.text || '').includes(q))
+        if (row) { hit = row; hitKind = k; break }
+      }
+      if (!hit) throw new Error('找不到「' + q + '」')
+      const r = s.convertItem(hitKind, hit.id, to)
+      const NAME = { note: '便签', link: '网页', secret: '保险库', reminder: '提醒' }
+      return out('已转到' + NAME[to] + ':' + (r.item.title || '这条'), { id: r.item.id, from: hitKind, to })
     },
   })))
 

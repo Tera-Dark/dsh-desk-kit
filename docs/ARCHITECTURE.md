@@ -19,7 +19,7 @@
 
 | 项 | 数值 | 结论 |
 |---|---|---|
-| 代码量 | index 779 / store 729 / client 1672 / capture 280 = 3642 行 | 单文件承载了组合根 + 19 个工具 + HTTP 路由 + 动作分发 + AI 分类 |
+| 代码量 | index 779 / store 729 / client 1672 / capture 280 = 3642 行 | 单文件承载了组合根 + 23 个工具 + HTTP 路由 + 动作分发 + AI 分类 |
 | `store()` 单例调用 | 24 处 | 进程级单例，生命周期挂在模块加载上，不归 Cordis 管 |
 | 模块级可变状态 | index 2 个（`singleton`、`actCtx`）+ client 2 个（`sidebarReady`、`openSidebarTab`） | 正是 P0「singleton pattern」 |
 | 未回收副作用 | `window.addEventListener(OPEN_EVENT, …)` 在 apply 里挂了就没人摘 | 正是 P0「unreversed side effect」；重建插件会叠监听 |
@@ -64,8 +64,8 @@
 - `window.addEventListener(OPEN_EVENT, …)` 包进 `ctx.effect`，dispose 时 `removeEventListener` 同一个函数。
 
 ### 5. 测试从「断言源码」转向「断言行为」
-- 新增 `ownership.test.mjs`：桩 ctx 跑 `apply()`，断言 3 个 effect、19 个工具 disposer、1 个路由 disposer 全部被持有；
-  逆序 dispose 后断言 19 个工具逐个注销、路由取消注册。**这是所有权修复的自证，不是口头声明。**
+- 新增 `ownership.test.mjs`：桩 ctx 跑 `apply()`，断言 3 个 effect、23 个工具 disposer、1 个路由 disposer 全部被持有；
+  逆序 dispose 后断言 23 个工具逐个注销、路由取消注册。**这是所有权修复的自证，不是口头声明。**
 - 新增：侧门监听挂载 1 个 / dispose 摘掉 1 个且是同一函数引用。
 - 新增：`floatEnabled` 六种输入组合的契约。
 - 源码字符串断言 54 → 37（剩余多为「不许再写成某形状」的防回归护栏）。
@@ -80,7 +80,7 @@ node capture.test.mjs  # 8 pass
 node lunar.test.mjs    # 4 pass
 node ai-classify.test.mjs  # ALL PASSED
 node ownership.test.mjs    # effects=3 tools=19 routes=1，dispose 后全部收回
-node harness.mjs       # ALL HOST TESTS PASSED（真起 HTTP + 桩 ctx，跑 19 个工具）
+node harness.mjs       # ALL HOST TESTS PASSED（真起 HTTP + 桩 ctx，跑 23 个工具）
 ```
 
 ## 六、还没做（按收益排序）
