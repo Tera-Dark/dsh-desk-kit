@@ -1062,6 +1062,8 @@ export class DeskStore {
         r.silencedDates = Array.isArray(r.silencedDates) ? r.silencedDates : []
         if (!r.silencedDates.includes(a.date)) r.silencedDates.push(a.date)
         if (r.silencedDates.length > MAX_CHECKINS) r.silencedDates = r.silencedDates.slice(-MAX_CHECKINS)
+        // 「今天点已过,明天开始」只在登记当天成立;之后自己点「知道了」不该再挂这句话
+        r.startTomorrow = false
       }
     }
     this.save()
@@ -1082,6 +1084,7 @@ export class DeskStore {
           r.silencedDates = Array.isArray(r.silencedDates) ? r.silencedDates : []
           if (!r.silencedDates.includes(a.date)) r.silencedDates.push(a.date)
           if (r.silencedDates.length > MAX_CHECKINS) r.silencedDates = r.silencedDates.slice(-MAX_CHECKINS)
+          r.startTomorrow = false
         }
       }
     }
