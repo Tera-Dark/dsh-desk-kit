@@ -1,6 +1,6 @@
 {
   "name": "dsh-desk-kit",
-  "version": "1.23.0",
+  "version": "1.24.0",
   "description": "定时提醒、随手便签(可带截图/文件)、网页收藏格子、加密保险库,四块都在侧栏标签页里;全局搜索 + 定时清理,另有 27 个 Agent 工具",
   "type": "module",
   "main": "index.js",

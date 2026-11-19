@@ -185,7 +185,6 @@
          h('div', { key: 't', className: '__dk_sptitle' }, [
            '随手台',
            h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: lv.code + ' · ' + lv.name + ':' + (lv.hint || '') }, [h('i', { key: 'i' }), lv.name]),
-           due ? h('span', { key: 'd', className: '__dk_spdot' }, String(due)) : null,
          ]),
          h('div', { key: 'v', className: '__dk_note', title: 'Ctrl/Cmd+Shift+K 也能直接跳到这里' },
            fmtDay(state.today) + (due ? ' · ' + due + ' 项待办' : ' · 暂无待办')),

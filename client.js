@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.23.0'
+   const VERSION = '1.24.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -660,6 +660,250 @@ window.__ModuleLoader__.load({
      '@media (max-width:420px){.__dk_edittools .__dk_hint{display:none}.__dk_editacts{justify-content:stretch}.__dk_editacts .__dk_btn{flex:1 1 0}}',
      // 键盘可达性:只在键盘聚焦时出现描边,不干扰鼠标
      '.__dk_sp button:focus-visible,.__dk_panel button:focus-visible,.__dk_dock button:focus-visible,.__dk_sp input:focus-visible,.__dk_panel input:focus-visible,.__dk_sp textarea:focus-visible,.__dk_panel textarea:focus-visible,.__dk_sp a:focus-visible,.__dk_panel a:focus-visible{outline:2px solid color-mix(in srgb,var(--dk-brand) 70%,transparent);outline-offset:2px}',
+     // ------------------------------------------------ 3.0 单色基调「纸与仪器」
+     // 参照 impeccable 的设计语言:纸与墨两色、chroma 0;彩色只留给「失败」。
+     //   · 深度只给仪器(输入、开关轨道、浮标),其余一律平整,分隔用 1px 发丝线;
+     //   · 机器数据(时间、计数、键值、节标题)走等宽,正文走系统无衬线,11px 是功能文字地板;
+     //   · 圆角收小:标签/胶囊 3,卡片/按钮 6,面板 10;不再有渐变、玻璃、光晕、投影堆叠。
+     // 下面只覆盖视觉,不动布局算法与 class 契约。
+     '.__dk_sp,.__dk_panel,.__dk_root,.__dk_dock,.__dk_page,.__dk_card,.__dk_toast,.__dk_alert{'
+       + '--dk-paper:var(--dsw-alias-bg-layer-1,#fafaf9);'
+       + '--dk-ink:var(--dsw-alias-label-primary,#15171a);'
+       + '--dk-ink-2:color-mix(in srgb,var(--dk-ink) 60%,var(--dk-paper));'
+       + '--dk-ink-3:color-mix(in srgb,var(--dk-ink) 42%,var(--dk-paper));'
+       + '--dk-rule:color-mix(in srgb,var(--dk-ink) 12%,transparent);'
+       + '--dk-rule-2:color-mix(in srgb,var(--dk-ink) 26%,transparent);'
+       + '--dk-wash:color-mix(in srgb,var(--dk-ink) 4%,transparent);'
+       + '--dk-wash-2:color-mix(in srgb,var(--dk-ink) 8%,transparent);'
+       + '--dk-danger:#9b2c20;'
+       + '--dk-mono:ui-monospace,"SF Mono",SFMono-Regular,"JetBrains Mono",Menlo,Consolas,monospace;'
+       + '--dk-r-1:3px;--dk-r-2:6px;--dk-r-3:10px;'
+       // 旧别名全部指回纸墨,这样历史规则里的 --dk-brand / --dk-surface 自动变成单色
+       + '--dk-bg:var(--dk-paper);--dk-surface:var(--dk-wash);--dk-surface-strong:var(--dk-wash-2);'
+       + '--dk-line:var(--dk-rule);--dk-line-2:var(--dk-rule-2);'
+       + '--dk-text:var(--dk-ink);--dk-muted:var(--dk-ink-2);--dk-faint:var(--dk-ink-3);'
+       + '--dk-brand:var(--dk-ink);--dk-ok:var(--dk-ink-2);'
+       + '--dk-r-sm:var(--dk-r-2);--dk-r-md:var(--dk-r-2);--dk-r-lg:var(--dk-r-3);--dk-r-xl:var(--dk-r-3);'
+       + '--dk-shadow-sm:none;--dk-shadow-md:0 1px 2px rgba(0,0,0,.06);--dk-shadow-lg:0 10px 28px rgba(0,0,0,.12)}',
+     // 画布:一张纸,没有光晕
+     '.__dk_sp{background:var(--dk-paper)}',
+     '.__dk_panel{background:var(--dk-paper);border:1px solid var(--dk-rule-2);border-radius:var(--dk-r-3);box-shadow:0 14px 40px rgba(0,0,0,.13)}',
+     // 头部与分区导航:发丝线分隔,选中的页只用墨色下划线
+     '.__dk_head{padding:12px 14px 10px;border-bottom:1px solid var(--dk-rule)}',
+     '.__dk_title{font-size:14px;font-weight:600;letter-spacing:0}',
+     '.__dk_subtitle{font-family:var(--dk-mono);font-size:10px;letter-spacing:.02em;font-variant-numeric:tabular-nums}',
+     '.__dk_sphead{padding:14px 16px 8px}',
+     '.__dk_sptitle{font-size:15px;font-weight:600;letter-spacing:0}',
+     '.__dk_spnav{gap:2px;padding:8px 14px 0;border-bottom:1px solid var(--dk-rule)}',
+     '.__dk_stab{height:28px;border:none;border-bottom:2px solid transparent;border-radius:0;padding:0 9px;background:transparent;color:var(--dk-ink-3);font-size:12px;font-weight:500}',
+     '.__dk_stab:hover{background:transparent;color:var(--dk-ink)}',
+     '.__dk_stab.on{background:transparent;border-color:transparent;border-bottom-color:var(--dk-ink);color:var(--dk-ink);box-shadow:none;font-weight:600}',
+     '.__dk_icobtn{border-radius:var(--dk-r-1);color:var(--dk-ink-3)}',
+     '.__dk_icobtn:hover{background:var(--dk-wash);color:var(--dk-ink)}',
+     '.__dk_icobtn.on{color:var(--dk-ink)}',
+     '.__dk_lvl{margin-left:6px;padding:0 5px;height:15px;border:1px solid currentColor;border-radius:var(--dk-r-1);font-family:var(--dk-mono);font-size:9px;font-weight:600;letter-spacing:.08em;opacity:.55}',
+     '.__dk_lvl i{display:none}',
+     // 输入:仪器内凹,聚焦只换描边颜色,不加光圈
+     '.__dk_input{background:var(--dk-paper);border:1px solid var(--dk-rule);border-radius:var(--dk-r-2);padding:8px 10px;font-size:13px;box-shadow:none}',
+     '.__dk_input:hover{background:var(--dk-paper);border-color:var(--dk-rule-2)}',
+     '.__dk_input:focus{border-color:var(--dk-ink);background:var(--dk-paper);box-shadow:none}',
+     '.__dk_capture{gap:6px;padding:8px;background:var(--dk-paper);border:1px solid var(--dk-rule);border-radius:var(--dk-r-2);box-shadow:none}',
+     '.__dk_capture .__dk_input{border:none;background:transparent;padding:4px 2px}',
+     '.__dk_capture .__dk_input:focus{border:none;box-shadow:none}',
+     '.__dk_send{width:32px;height:32px;border-radius:var(--dk-r-1);background:var(--dk-ink);color:var(--dk-paper);box-shadow:none;transition:opacity .14s}',
+     '.__dk_send:hover{filter:none;transform:none;opacity:.82}',
+     '.__dk_send:active{transform:none}',
+     '.__dk_send:disabled{opacity:.28}',
+     // 分区头:等宽大写 + 发丝线,计数不再做成胶囊
+     '.__dk_sec{margin:20px auto 6px;font-family:var(--dk-mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--dk-ink-3)}',
+     '.__dk_sec::after{background:var(--dk-rule);opacity:1}',
+     '.__dk_sec > span:last-child{background:transparent;border:none;padding:0;font-family:var(--dk-mono);font-size:10px;font-weight:500;letter-spacing:.02em;color:var(--dk-ink-3);font-variant-numeric:tabular-nums}',
+     '.__dk_sec--act{color:var(--dk-ink)}',
+     '.__dk_sec--act::before{background:var(--dk-ink);width:4px;height:4px}',
+     '.__dk_sec--ref{color:var(--dk-ink-3);font-weight:500}',
+     // 行:悬停只上一层极淡的墨;待行动靠字重,不靠红条
+     '.__dk_row{padding:9px 8px;border-radius:var(--dk-r-1);gap:8px}',
+     '.__dk_row:hover{background:var(--dk-wash)}',
+     '.__dk_row--act{box-shadow:none}',
+     '.__dk_row--act .__dk_rt{font-weight:600}',
+     '.__dk_row--act .__dk_check{border-color:var(--dk-ink-3)}',
+     '.__dk_row--act .__dk_dotsep{background:var(--dk-ink)}',
+     '.__dk_rt{font-size:13px;letter-spacing:0}',
+     '.__dk_rm{font-family:var(--dk-mono);font-size:10.5px;letter-spacing:.01em;color:var(--dk-ink-3);font-variant-numeric:tabular-nums}',
+     '.__dk_dotsep{width:4px;height:4px;margin:0 9px 0 5px;background:var(--dk-rule-2)}',
+     '.__dk_row--dim .__dk_rt,.__dk_row--dim .__dk_rm{opacity:.62}',
+     '.__dk_row--dim .__dk_dotsep{background:var(--dk-rule)}',
+     '.__dk_check{width:18px;height:18px;border:1px solid var(--dk-rule-2);border-radius:50%;color:var(--dk-paper)}',
+     '.__dk_check.on{background:var(--dk-ink);border-color:var(--dk-ink)}',
+     '.__dk_check:not(.on):hover{border-color:var(--dk-ink)}',
+     '.__dk_go{font-family:var(--dk-mono);font-size:10px;letter-spacing:.04em;color:var(--dk-ink);border:1px solid var(--dk-rule-2);border-radius:var(--dk-r-1);padding:2px 7px}',
+     '.__dk_go:hover{border-color:var(--dk-ink);text-decoration:none}',
+     '.__dk_mini{width:26px;height:26px;border-radius:var(--dk-r-1);color:var(--dk-ink-3)}',
+     '.__dk_mini:hover{background:var(--dk-wash-2);color:var(--dk-ink)}',
+     // 条目:不再是一张浮起的卡,而是一条被发丝线分格的记录
+     '.__dk_item{background:transparent;border:none;border-top:1px solid var(--dk-rule);border-radius:0;padding:10px 6px;margin:0;box-shadow:none;transition:background .14s}',
+     '.__dk_item:first-child{border-top:none}',
+     '.__dk_item:hover{background:var(--dk-wash);border-color:var(--dk-rule);transform:none}',
+     '.__dk_item:hover .__dk_iact--bar,.__dk_item:focus-within .__dk_iact--bar{opacity:1}',
+     '@media (hover:none){.__dk_iact--bar{opacity:1}}',
+     '.__dk_setrow:last-child{border-bottom:none}',
+     '.__dk_setrow > span:first-child{font-weight:400}',
+     '.__dk_itext{font-size:13px;line-height:1.65}',
+     '.__dk_imeta{font-family:var(--dk-mono);font-size:10px;letter-spacing:.02em;gap:7px;margin-top:5px;color:var(--dk-ink-3);font-variant-numeric:tabular-nums}',
+     '.__dk_tag{border:none;background:var(--dk-wash-2);border-radius:var(--dk-r-1);padding:1px 5px;font-family:var(--dk-mono);font-size:9px;letter-spacing:.04em;color:var(--dk-ink-2)}',
+     '.__dk_field{background:var(--dk-wash);border-radius:var(--dk-r-1);padding:3px 7px}',
+     '.__dk_field .k{font-family:var(--dk-mono);font-size:10px;letter-spacing:.04em;color:var(--dk-ink-3)}',
+     '.__dk_field .v{font-size:11px}',
+     '.__dk_showbtn{height:24px;padding:0 8px;border:1px solid var(--dk-rule-2);border-radius:var(--dk-r-1);font-family:var(--dk-mono);font-size:10px;letter-spacing:.04em;color:var(--dk-ink-2)}',
+     '.__dk_showbtn:hover{background:var(--dk-wash-2);border-color:var(--dk-ink);color:var(--dk-ink)}',
+     '.__dk_iact--bar{border-top:none;padding-top:0;margin-top:2px;opacity:0;transition:opacity .13s}',
+     // 按钮与胶囊:描边式,主按钮=墨底纸字
+     '.__dk_btn{height:28px;border-radius:var(--dk-r-1);border:1px solid var(--dk-rule-2);background:transparent;color:var(--dk-ink);font-size:11.5px;font-weight:500;box-shadow:none}',
+     '.__dk_btn:hover{background:var(--dk-wash);border-color:var(--dk-ink)}',
+     '.__dk_btn.p{background:var(--dk-ink);border-color:var(--dk-ink);color:var(--dk-paper);font-weight:600;box-shadow:none}',
+     '.__dk_btn.p:hover{background:var(--dk-ink);filter:none}',
+     '.__dk_chip{height:24px;padding:0 8px;border:1px solid var(--dk-rule);border-radius:var(--dk-r-1);background:transparent;color:var(--dk-ink-2);font-size:11px}',
+     '.__dk_chip:hover{border-color:var(--dk-rule-2);background:var(--dk-wash);color:var(--dk-ink)}',
+     '.__dk_chip.on{background:var(--dk-ink);border-color:var(--dk-ink);color:var(--dk-paper);font-weight:600}',
+     '.__dk_chipmore{border-style:dashed;color:var(--dk-ink-3)}',
+     '.__dk_collbtn{border-radius:var(--dk-r-1);border-color:var(--dk-rule);color:var(--dk-ink-2);font-size:10.5px}',
+     '.__dk_collbtn:hover{background:var(--dk-wash);border-color:var(--dk-rule-2);color:var(--dk-ink)}',
+     '.__dk_collbtn.on{background:transparent;border-color:var(--dk-ink);color:var(--dk-ink);font-weight:600}',
+     '.__dk_reply{background:var(--dk-wash);border:1px solid var(--dk-rule);border-radius:var(--dk-r-2);color:var(--dk-ink)}',
+     '.__dk_replybtn{height:22px;border-radius:var(--dk-r-1);border:1px solid var(--dk-rule-2);color:var(--dk-ink);font-size:11px}',
+     '.__dk_replybtn:hover{background:var(--dk-wash-2)}',
+     '.__dk_replybtn--go{background:var(--dk-ink);border-color:var(--dk-ink);color:var(--dk-paper);font-weight:600}',
+     '.__dk_replybtn--go:hover{background:var(--dk-ink);opacity:.86}',
+     // 表单分组:描边分块,不做嵌套卡片
+     '.__dk_group{background:transparent;border:1px solid var(--dk-rule);border-radius:var(--dk-r-2);padding:10px;gap:8px}',
+     '.__dk_grouph{font-family:var(--dk-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dk-ink-3);font-weight:600}',
+     '.__dk_group .__dk_input{background:var(--dk-paper)}',
+     '.__dk_editform{background:transparent;border-color:var(--dk-rule);border-radius:var(--dk-r-2)}',
+     '.__dk_editsection{background:transparent;border-color:var(--dk-rule);border-radius:var(--dk-r-1)}',
+     '.__dk_editsectionh{font-family:var(--dk-mono);font-size:9.5px;letter-spacing:.06em;color:var(--dk-ink-3)}',
+     '.__dk_day{border-radius:var(--dk-r-1);border-color:var(--dk-rule);color:var(--dk-ink-3)}',
+     '.__dk_day.on{background:var(--dk-ink);border-color:var(--dk-ink);color:var(--dk-paper)}',
+     // 快搜
+     '.__dk_search{background:var(--dk-paper);box-shadow:none}',
+     '.__dk_qfbar{height:38px;background:var(--dk-paper);border:1px solid var(--dk-rule);border-radius:var(--dk-r-2);box-shadow:none}',
+     '.__dk_qfbar:focus-within{background:var(--dk-paper);border-color:var(--dk-ink);box-shadow:none}',
+     '.__dk_qfinput{font-size:13px}',
+     '.__dk_qfres{margin-top:4px;background:transparent;border:1px solid var(--dk-rule);border-radius:var(--dk-r-2)}',
+     '.__dk_qfrow:hover{background:var(--dk-wash)}',
+     '.__dk_qfkind{background:transparent;border:none;padding:0;min-width:34px;font-family:var(--dk-mono);font-size:9px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--dk-ink-3)}',
+     '.__dk_qft{font-size:12.5px}',
+     '.__dk_qfm{font-family:var(--dk-mono);font-size:9.5px;letter-spacing:.02em;color:var(--dk-ink-3)}',
+     '.__dk_qfgo{font-family:var(--dk-mono);font-size:10px;letter-spacing:.04em;color:var(--dk-ink);font-weight:500}',
+     '.__dk_qfempty{font-size:11px;color:var(--dk-ink-3)}',
+     '.__dk_qfdeep{color:var(--dk-ink);font-size:11px}',
+     '.__dk_qfdeep:hover{background:var(--dk-wash)}',
+     // 空态 / 更多 / 提示
+     '.__dk_empty{background:transparent;border:1px dashed var(--dk-rule-2);border-radius:var(--dk-r-2);padding:26px 16px;color:var(--dk-ink-3);font-size:11.5px}',
+     '.__dk_emptytitle{color:var(--dk-ink-2);font-size:12.5px;font-weight:600}',
+     '.__dk_morebtn{border:1px solid var(--dk-rule-2);border-radius:var(--dk-r-1);color:var(--dk-ink-2);font-family:var(--dk-mono);font-size:10px;letter-spacing:.06em}',
+     '.__dk_morebtn:hover{background:var(--dk-wash);border-color:var(--dk-ink);color:var(--dk-ink)}',
+     '.__dk_hint,.__dk_gtip,.__dk_qhint,.__dk_cardkbd{color:var(--dk-ink-3)}',
+     '.__dk_linkbtn{color:var(--dk-ink);font-family:var(--dk-mono);font-size:10px;letter-spacing:.04em}',
+     // 网页格子:纸底墨字 + 发丝描边,同形不同名,没有彩虹
+     '.__dk_app{width:52px;height:52px;background:var(--dk-paper);border:1px solid var(--dk-rule-2);border-radius:var(--dk-r-2);color:var(--dk-ink);box-shadow:none;transition:border-color .14s,background .14s}',
+     '.__dk_app:hover{transform:none;box-shadow:none;border-color:var(--dk-ink);background:var(--dk-paper)}',
+     '.__dk_app:active{transform:none}',
+     '.__dk_appchar{font-size:17px;font-weight:500;letter-spacing:0}',
+     '.__dk_appname{color:var(--dk-ink-2);font-size:11px}',
+     '.__dk_appnote{color:var(--dk-ink-3)}',
+     '.__dk_apppin{color:var(--dk-ink-3)}',
+     '.__dk_appact .__dk_mini{width:20px;height:20px;background:var(--dk-paper);border:1px solid var(--dk-rule);border-radius:var(--dk-r-1);box-shadow:none}',
+     '.__dk_grid--home .__dk_app{width:46px;height:46px;border-radius:var(--dk-r-2)}',
+     '.__dk_fchip{width:64px;height:64px;border-radius:var(--dk-r-1);border-color:var(--dk-rule);background:var(--dk-wash)}',
+     '.__dk_fchip:hover{border-color:var(--dk-rule-2)}',
+     '.__dk_item .__dk_fchip{width:76px;height:76px;border-radius:var(--dk-r-1)}',
+     '.__dk_fext{font-family:var(--dk-mono);font-size:10px;letter-spacing:.04em;color:var(--dk-ink-2)}',
+     '.__dk_fname{font-family:var(--dk-mono);font-size:8.5px}',
+     '.__dk_fdel{background:var(--dk-ink);color:var(--dk-paper);border-radius:var(--dk-r-1)}',
+     // 设置:开关是唯一真正需要「深度」的仪器 —— 内凹轨道 + 纸质滑块
+     '.__dk_setrow{background:transparent;border:none;border-bottom:1px solid var(--dk-rule);border-radius:0;padding:11px 2px;margin:0}',
+     '.__dk_switch{width:34px;height:20px;background:color-mix(in srgb,var(--dk-ink) 16%,transparent);box-shadow:inset 0 1px 2px rgba(0,0,0,.14)}',
+     '.__dk_switch::after{width:16px;height:16px;background:var(--dk-paper);box-shadow:0 1px 2px rgba(0,0,0,.2)}',
+     '.__dk_switch.on{background:var(--dk-ink)}',
+     '.__dk_switch.on::after{transform:translateX(14px)}',
+     '.__dk_card{background:transparent;border:none;border-top:1px solid var(--dk-rule);border-radius:0;padding:12px 2px 2px}',
+     '.__dk_cardtitle{font-size:13px;font-weight:600}',
+     '.__dk_cardcount b{font-family:var(--dk-mono);font-weight:600;font-variant-numeric:tabular-nums}',
+     '.__dk_cardcount span{font-size:11px;color:var(--dk-ink-3)}',
+     '.__dk_usebar{background:var(--dk-wash-2)}',
+     '.__dk_usebar i{background:var(--dk-ink);opacity:1}',
+     '.__dk_usenum{font-family:var(--dk-mono);font-size:10px;color:var(--dk-ink-3)}',
+     '.__dk_trashtop{border-top-color:var(--dk-rule)}',
+     '.__dk_trashkind{background:var(--dk-wash-2);border-radius:var(--dk-r-1);font-family:var(--dk-mono);font-size:9px;letter-spacing:.04em}',
+     '.__dk_trashrow{font-size:11px}',
+     '.__dk_vaultstats{font-family:var(--dk-mono);font-size:10.5px;letter-spacing:.02em}',
+     '.__dk_vaultstats strong{font-size:12px}',
+     '.__dk_vaultlock{border-radius:var(--dk-r-1);border-color:var(--dk-rule-2);font-family:var(--dk-mono);font-size:9px;letter-spacing:.06em}',
+     '.__dk_vaultacts .__dk_btn{height:28px}',
+     '.__dk_expire,.__dk_okmsg{color:var(--dk-ink-3)}',
+     // 底栏:发丝线 + 墨色回首页键,不再是发光的蓝色圆钮
+     '.__dk_tabbar{border-top:1px solid var(--dk-rule);background:var(--dk-paper);backdrop-filter:none;padding:5px 6px max(6px,env(safe-area-inset-bottom))}',
+     '.__dk_tab{border-radius:var(--dk-r-1);color:var(--dk-ink-3);font-size:10px}',
+     '.__dk_tab:hover{background:var(--dk-wash);color:var(--dk-ink)}',
+     '.__dk_tab.on{background:transparent;color:var(--dk-ink);font-weight:600}',
+     '.__dk_tabhome{width:42px;height:42px;border-radius:var(--dk-r-2);background:var(--dk-ink);color:var(--dk-paper);box-shadow:0 6px 16px rgba(0,0,0,.16);margin-top:-16px}',
+     '.__dk_tabhome:hover{transform:none}',
+     '.__dk_tabhome .__dk_dot{background:var(--dk-paper);color:var(--dk-ink);font-family:var(--dk-mono)}',
+     // 浮标:纸上的一个小方块,不是发光的球
+     '.__dk_fab{border-radius:var(--dk-r-2);background:var(--dk-paper);border:1px solid var(--dk-rule-2);box-shadow:0 4px 14px rgba(0,0,0,.12);transition:border-color .14s}',
+     '.__dk_fab:hover{transform:none;box-shadow:0 6px 18px rgba(0,0,0,.16)}',
+     '.__dk_badge{background:var(--dk-ink);color:var(--dk-paper);border:2px solid var(--dk-paper);font-family:var(--dk-mono);font-size:9px}',
+     '.__dk_spdot{background:transparent;border:1px solid var(--dk-rule-2);color:var(--dk-ink-2);font-family:var(--dk-mono);font-size:9.5px;font-weight:500;min-width:16px;height:16px;line-height:14px;border-radius:var(--dk-r-1)}',
+     '.__dk_hdot{background:var(--dk-ink);color:var(--dk-paper);font-family:var(--dk-mono)}',
+     '.__dk_hbtn{border-radius:var(--dk-r-1);color:var(--dk-ink-3)}',
+     '.__dk_hbtn:hover{background:var(--dk-wash);color:var(--dk-ink)}',
+     // 提醒坞:一张纸卡片,没有彩色侧条和渐变
+     '.__dk_alert{border-radius:var(--dk-r-2);border:1px solid var(--dk-rule-2);background:var(--dk-paper);box-shadow:0 12px 32px rgba(0,0,0,.13);backdrop-filter:none;-webkit-backdrop-filter:none}',
+     '.__dk_alert::before,.__dk_alert--calm::before{display:none}',
+     '.__dk_alert:hover{box-shadow:0 14px 36px rgba(0,0,0,.16)}',
+     '.__dk_aicon{width:20px;height:20px;border-radius:var(--dk-r-1);background:transparent;border:1px solid var(--dk-rule-2);color:var(--dk-ink)}',
+     '.__dk_alert--calm .__dk_aicon{background:transparent;border-color:var(--dk-rule-2);color:var(--dk-ink-2)}',
+     '.__dk_atitle{font-size:12.5px;font-weight:600;letter-spacing:0}',
+     '.__dk_ameta{font-family:var(--dk-mono);font-size:10px;letter-spacing:.02em;color:var(--dk-ink-3)}',
+     '.__dk_ax{border-radius:var(--dk-r-1);color:var(--dk-ink-3)}',
+     '.__dk_ax:hover{background:var(--dk-wash-2);color:var(--dk-ink)}',
+     '.__dk_tbtn{height:30px;border-radius:var(--dk-r-1);border:1px solid var(--dk-rule);background:transparent;color:var(--dk-ink-2);font-size:11px}',
+     '.__dk_tbtn:hover{background:var(--dk-wash);border-color:var(--dk-rule-2);color:var(--dk-ink)}',
+     '.__dk_tbtn.p{background:var(--dk-ink);border-color:var(--dk-ink);color:var(--dk-paper);font-weight:600}',
+     '.__dk_tbtn.p:hover{filter:none;opacity:.86;background:var(--dk-ink)}',
+     '.__dk_dockmore{color:var(--dk-ink-3);font-family:var(--dk-mono);font-size:9.5px}',
+     '.__dk_dockmore:hover{background:var(--dk-wash);color:var(--dk-ink)}',
+     '.__dk_inline{border:none;border-bottom:1px solid var(--dk-rule);border-radius:0;background:transparent;padding:7px 2px;margin:0 0 6px}',
+     // 存完的提示:一张纸 + 墨线,四类只靠标签区分
+     '.__dk_toast{--dk-toast-accent:var(--dk-ink);background:var(--dk-paper);border:1px solid var(--dk-ink);border-radius:var(--dk-r-2);box-shadow:0 14px 34px rgba(0,0,0,.14)}',
+     '.__dk_toast--note,.__dk_toast--reminder,.__dk_toast--link,.__dk_toast--secret{--dk-toast-accent:var(--dk-ink)}',
+     '.__dk_toast--err{--dk-toast-accent:var(--dk-danger);border-color:var(--dk-danger)}',
+     '.__dk_toasticon{width:24px;height:24px;border-radius:var(--dk-r-1);background:transparent;border:1px solid var(--dk-rule-2);color:var(--dk-ink);font-size:12px}',
+     '.__dk_toast--err .__dk_toasticon{border-color:var(--dk-danger);color:var(--dk-danger)}',
+     '.__dk_toastbadge{background:transparent;border:1px solid var(--dk-rule-2);border-radius:var(--dk-r-1);font-family:var(--dk-mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;color:var(--dk-ink-2);padding:1px 5px}',
+     '.__dk_toast--err .__dk_toastbadge{border-color:var(--dk-danger);color:var(--dk-danger)}',
+     '.__dk_toaststatus{font-family:var(--dk-mono);font-size:9.5px;letter-spacing:.04em;color:var(--dk-ink-3)}',
+     '.__dk_toasttitle{font-size:13px;font-weight:600}',
+     '.__dk_toasttext{font-size:11px;color:var(--dk-ink-3)}',
+     '.__dk_toastx{border-radius:var(--dk-r-1);color:var(--dk-ink-3)}',
+     '.__dk_toastx:hover{background:var(--dk-wash-2);color:var(--dk-ink)}',
+     '.__dk_toastlife{background:var(--dk-ink);opacity:.4}',
+     // 大图:墨色底
+     '.__dk_light{background:color-mix(in srgb,var(--dk-ink) 88%,transparent)}',
+     '.__dk_lightimg{border-radius:var(--dk-r-1);box-shadow:none;border:1px solid rgba(255,255,255,.14)}',
+     // 失败是唯一允许出现的彩色:正文用墨,只有错误条用朱红
+     '.__dk_err{background:transparent;border:1px solid color-mix(in srgb,var(--dk-danger) 45%,transparent);border-radius:var(--dk-r-2);color:var(--dk-danger);font-size:11.5px;padding:7px 10px}',
+     '.__dk_errbar .__dk_btn{height:24px;padding:0 8px;font-size:10.5px}',
+     // 拖动排序
+     '.__dk_item--over{box-shadow:inset 0 2px 0 var(--dk-ink)}',
+     '.__dk_drag{border-radius:var(--dk-r-1);color:var(--dk-ink-3)}',
+     '.__dk_drag:hover{background:var(--dk-wash);color:var(--dk-ink)}',
+     // 浏览器留下的表面也要上色:选区、滚动条、焦点环
+     '.__dk_sp ::selection,.__dk_panel ::selection,.__dk_toast ::selection,.__dk_dock ::selection{background:color-mix(in srgb,var(--dk-ink) 18%,transparent);color:var(--dk-ink)}',
+     '.__dk_sp :focus-visible,.__dk_panel :focus-visible,.__dk_dock :focus-visible,.__dk_toast :focus-visible{outline:2px solid var(--dk-ink);outline-offset:2px}',
+     '.__dk_capture .__dk_input:focus-visible,.__dk_qfbar .__dk_qfinput:focus-visible{outline:none}',
+     '.__dk_spbody,.__dk_body{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--dk-ink) 22%,transparent) transparent}',
+     '.__dk_spbody::-webkit-scrollbar-thumb,.__dk_body::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--dk-ink) 20%,transparent);border:3px solid transparent;border-radius:8px;background-clip:content-box}',
    ].join('\n')
 
    /**
@@ -1274,7 +1518,9 @@ window.__ModuleLoader__.load({
      return h('div', { className: '__dk_capture' }, [
        h('textarea', {
          key: 'i', ref: ref, rows: 1, className: '__dk_input __dk_grow', autoFocus: true,
-         placeholder: '说一句:10分钟后提醒我关火 / 明天10点交电费 / 把这段存起来\n(Shift+Enter 换行)',
+         // 一行放得下才读得完:示例只留一个,换行说明挪到 title
+         placeholder: '说一句:明天10点交电费',
+         title: '说人话就行,比如「明天10点交电费」「每天7:50吃药」「把这段存起来」;Shift+Enter 换行',
          value: text,
          onChange: (e) => setText(e.target.value),
          onCompositionStart: () => { composing.current = true },
@@ -1433,7 +1679,7 @@ window.__ModuleLoader__.load({
          h(Ico, { key: 'i', name: 'search', size: 15, className: '__dk_qfico' }),
          h('input', {
            key: 'q', className: '__dk_qfinput', type: 'search', value: q,
-           placeholder: '找账号、便签、网页…(试试「脸书」)',
+           placeholder: '找账号、便签、网页…',
            'aria-label': '全库快速查找',
            onChange: (e) => { setQ(e.target.value); setAllFor('') },
            onKeyDown: (e) => {
@@ -2209,7 +2455,7 @@ window.__ModuleLoader__.load({
        h('div', { key: 'sq', className: '__dk_search' }, h('div', { className: '__dk_qwrap' }, [
          h('input', {
            key: 'i', className: '__dk_input', type: 'search',
-           placeholder: '搜便签、提醒、网页、保险库标题…(试试「脸书」或「Facebook」)', value: q,
+           placeholder: '搜便签、提醒、网页、保险库…', value: q,
            onChange: (e) => setQ(e.target.value),
            onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setQ('') } },
          }),
@@ -2439,7 +2685,8 @@ window.__ModuleLoader__.load({
        h('div', { key: 'w', className: '__dk_appbtn' }, [
          h('button', {
            key: 'b', className: '__dk_app',
-           style: custom ? { background: 'var(--dsw-alias-bg-layer-2,#24282e)' } : { background: 'hsl(' + linkHue(l.url) + ' 52% 40%)' },
+           // 单色:不再按域名取色,格子一律纸底墨字,靠描边和名字区分
+           style: null,
            onClick: () => openLink(run, l, notify),
            title: l.title + ' · ' + l.url,
          }, [
@@ -3422,12 +3669,13 @@ window.__ModuleLoader__.load({
     *   L4 配置   —— 一年点两次的:设置。收在最右。
     */
    const LEVELS = {
-     home: { code: 'L1', name: '待行动', color: '#e5484d', hint: '今天/过点要你动手的' },
-     links: { code: 'L2', name: '常用入口', color: 'var(--dsw-alias-brand-primary)', hint: '常点的站,一格格摆着' },
-     reminders: { code: 'L1', name: '待行动', color: '#e5484d', hint: '到点会响的提醒' },
-     notes: { code: 'L2', name: '记录', color: 'var(--dsw-alias-brand-primary)', hint: '正在跟进的事,记着不催' },
-     vault: { code: 'L3', name: '备查', color: '#8b949e', hint: '存着不催,列表不摊明文' },
-     settings: { code: 'L4', name: '配置', color: '#8b949e', hint: '一年点两次的地方' },
+     // 单色基调:四档只用墨的浓淡区分,不再拿颜色当语义(hover 的 tooltip 里说清楚)
+     home: { code: 'L1', name: '待行动', color: 'var(--dk-ink)', hint: '今天/过点要你动手的' },
+     links: { code: 'L2', name: '常用入口', color: 'var(--dk-ink-2)', hint: '常点的站,一格格摆着' },
+     reminders: { code: 'L1', name: '待行动', color: 'var(--dk-ink)', hint: '到点会响的提醒' },
+     notes: { code: 'L2', name: '记录', color: 'var(--dk-ink-2)', hint: '正在跟进的事,记着不催' },
+     vault: { code: 'L3', name: '备查', color: 'var(--dk-ink-3)', hint: '存着不催,列表不摊明文' },
+     settings: { code: 'L4', name: '配置', color: 'var(--dk-ink-3)', hint: '一年点两次的地方' },
    }
 
    // 浮标可能被别的浮窗盖住,所以留了两条侧门:会话顶栏的小图标 + 快捷键。
@@ -4273,7 +4521,6 @@ window.__ModuleLoader__.load({
          h('div', { key: 't', className: '__dk_sptitle' }, [
            '随手台',
            h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: lv.code + ' · ' + lv.name + ':' + (lv.hint || '') }, [h('i', { key: 'i' }), lv.name]),
-           due ? h('span', { key: 'd', className: '__dk_spdot' }, String(due)) : null,
          ]),
          h('div', { key: 'v', className: '__dk_note', title: 'Ctrl/Cmd+Shift+K 也能直接跳到这里' },
            fmtDay(state.today) + (due ? ' · ' + due + ' 项待办' : ' · 暂无待办')),

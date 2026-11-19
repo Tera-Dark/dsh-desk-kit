@@ -72,7 +72,9 @@
      return h('div', { className: '__dk_capture' }, [
        h('textarea', {
          key: 'i', ref: ref, rows: 1, className: '__dk_input __dk_grow', autoFocus: true,
-         placeholder: '说一句:10分钟后提醒我关火 / 明天10点交电费 / 把这段存起来\n(Shift+Enter 换行)',
+         // 一行放得下才读得完:示例只留一个,换行说明挪到 title
+         placeholder: '说一句:明天10点交电费',
+         title: '说人话就行,比如「明天10点交电费」「每天7:50吃药」「把这段存起来」;Shift+Enter 换行',
          value: text,
          onChange: (e) => setText(e.target.value),
          onCompositionStart: () => { composing.current = true },

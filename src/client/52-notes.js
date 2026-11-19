@@ -362,7 +362,7 @@
        h('div', { key: 'sq', className: '__dk_search' }, h('div', { className: '__dk_qwrap' }, [
          h('input', {
            key: 'i', className: '__dk_input', type: 'search',
-           placeholder: '搜便签、提醒、网页、保险库标题…(试试「脸书」或「Facebook」)', value: q,
+           placeholder: '搜便签、提醒、网页、保险库…', value: q,
            onChange: (e) => setQ(e.target.value),
            onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setQ('') } },
          }),

@@ -48,7 +48,8 @@
        h('div', { key: 'w', className: '__dk_appbtn' }, [
          h('button', {
            key: 'b', className: '__dk_app',
-           style: custom ? { background: 'var(--dsw-alias-bg-layer-2,#24282e)' } : { background: 'hsl(' + linkHue(l.url) + ' 52% 40%)' },
+           // 单色:不再按域名取色,格子一律纸底墨字,靠描边和名字区分
+           style: null,
            onClick: () => openLink(run, l, notify),
            title: l.title + ' · ' + l.url,
          }, [

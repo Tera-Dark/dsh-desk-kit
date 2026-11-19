@@ -45,7 +45,7 @@
          h(Ico, { key: 'i', name: 'search', size: 15, className: '__dk_qfico' }),
          h('input', {
            key: 'q', className: '__dk_qfinput', type: 'search', value: q,
-           placeholder: '找账号、便签、网页…(试试「脸书」)',
+           placeholder: '找账号、便签、网页…',
            'aria-label': '全库快速查找',
            onChange: (e) => { setQ(e.target.value); setAllFor('') },
            onKeyDown: (e) => {
