@@ -25,11 +25,12 @@ npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址�
 - `capture.js` / `lunar.js` / `tool.js`：一句话分拣、农历、工具 schema。
 - `paste.js`：粘贴网页图片时的公网地址校验、下载与大小限制。
 - `src/client/`：按文件名顺序拼成 `client.js`；**改这里，再 `npm run build`**。
+  样式只有一个真身：`20-style.js` 末尾的「3.0 单色基调」区块 + `--dk-*` token。
 - `client.js` 是生成物，不要直接改；`npm run build:check` 和 `npm test` 会验一致性。
 - `test/`、`*.test.mjs`、`harness.mjs`：行为测试与真 HTTP 集成测试。
 - 文档口径以 `README.md` + `package.json` 为准；历史过程进 `CHANGELOG.md`。
 
 ## 当前状态
 
-- 版本 1.23.0，27 个 Agent 工具。
-- 已知待办：store 按域拆分、动作表收敛、浅色主题实测、空 catch 收敛（见 `docs/ARCHITECTURE.md`）。
+- 版本 1.24.0，27 个 Agent 工具。界面基调(极简单色)见 `docs/DESIGN.md`，改样式前先读。
+- 已知待办：store 按域拆分、动作表收敛、历史视觉层清理、空 catch 收敛（见 `docs/ARCHITECTURE.md`）。
