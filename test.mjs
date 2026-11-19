@@ -1029,3 +1029,30 @@ test('导入:换过 vault.key 的条目跳过并计数,不污染其它数据', (
   assert.equal(rep.added.notes, 1, '同批的明文数据照常导入')
   assert.equal(b.vaultRaw().entries.length, 0)
 })
+
+test('重复提醒登记时今天的点已过:从明天开始,不立刻报「错过」', () => {
+  const s = fresh()
+  const now = new Date()
+  const pastH = (now.getHours() + 22) % 24          // 22 小时前,肯定已经过了
+  const past = String(pastH).padStart(2, '0') + ':00'
+  const r = s.addReminder({ title: '吃药', time: past })
+  assert.equal(r.startTomorrow, true, '要标记从明天开始')
+  assert.ok(r.silencedDates.includes(localYmd(now)), '今天这一天静音')
+  assert.equal(s.tick(now.getTime()), 0, '不该立刻造一张「错过的提醒」')
+  const row = s.todayView(now).find((x) => x.id === r.id)
+  assert.equal(row.status, 'silenced')
+  assert.equal(row.startTomorrow, true)
+})
+
+test('刚刚到点 / 明说了日期的一次性提醒,仍然照常提醒', () => {
+  const s = fresh()
+  const now = new Date()
+  const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')
+  const just = s.addReminder({ title: '立刻到期', time: hhmm })
+  assert.ok(!just.startTomorrow, '刚刚到点的不能静音')
+
+  const s2 = fresh()
+  const once = s2.addReminder({ title: '今天的事', time: '00:01', date: localYmd(now) })
+  assert.ok(!once.startTomorrow, '一次性提醒是用户指定的那一天,不替他跳过')
+  assert.ok(s2.tick(now.getTime()) >= 1, '一次性提醒过了点仍然补一张')
+})

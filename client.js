@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.22.0'
+   const VERSION = '1.23.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -440,6 +440,8 @@ window.__ModuleLoader__.load({
      '.__dk_replytext{flex:1;min-width:0}',
      '.__dk_replybtn{flex:none;border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#4d7cf3) 45%,transparent);background:transparent;color:var(--dsw-alias-brand-primary,#4d7cf3);border-radius:8px;height:24px;padding:0 9px;font-size:11.5px;font-family:inherit;cursor:pointer}',
      '.__dk_replybtn:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d7cf3) 16%,transparent)}',
+     // 「去看看」是主行动:存完留在原地,想去那类里看就点它
+     '.__dk_replybtn--go{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d7cf3) 16%,transparent);font-weight:650}',
      // 提醒坞:轮播时鼠标一放上去就停,别把人正在读的那条切走
      '.__dk_dock{padding-bottom:2px}',
      '.__dk_dock--paused .__dk_alert{transition:none}',
@@ -590,7 +592,7 @@ window.__ModuleLoader__.load({
      '.__dk_toaststatus{font-size:11px;color:var(--dk-muted)}',
      '.__dk_toasttitle{font-size:13.5px;font-weight:650;line-height:1.4;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
      '.__dk_toasttext{font-size:11.5px;line-height:1.55;color:var(--dk-muted);margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}',
-     '.__dk_toastacts{display:flex;justify-content:flex-end;margin-top:8px}',
+     '.__dk_toastacts{display:flex;justify-content:flex-end;gap:6px;margin-top:8px}',
      '.__dk_toastmove{margin-top:7px}',
      '.__dk_toast .__dk_movechips{gap:5px;margin:0}',
      '.__dk_toast .__dk_chip{height:24px;font-size:10.5px;padding:0 8px}',
@@ -1179,7 +1181,10 @@ window.__ModuleLoader__.load({
      // 一次性提醒过了那天就不该再装成「进行中」:列表里明说已过期
      if (r.status === 'expired') return base + ' · 已过期'
      // 点过「知道了」:今天这条已经处理过,别一直挂着「到点了」
-     if (r.status === 'silenced') return base + ' · 今天不再提醒'
+     if (r.status === 'silenced') {
+       // 刚登记就发现今天的点已过(下午登记「每天 7:50 吃药」):说清楚从明天开始,别让人以为今天还得补
+       return base + (r.startTomorrow ? ' · 今天的点已过,明天开始' : ' · 今天不再提醒')
+     }
      if (r.done) return base + ' · 今天已完成'
      if (r.status === 'pending') return base + ' · 到点了'
      if (r.status === 'upcoming') return base + (r.occurrenceAt ? ' · ' + fmtClock(r.occurrenceAt - (r.leadMin || 0) * 60000) + ' 提醒' : '')
@@ -1200,6 +1205,8 @@ window.__ModuleLoader__.load({
 
    // 存完那条提示要让人一眼看清「进了哪个栏位」,而不只是「已保存」。
    const CAPTURE_LABEL = { note: '便签', reminder: '提醒', link: '网页', secret: '保险库', multi: '提醒' }
+   // 回执里的「去看看」:存完不再自己跳页(连记三件事就不用跑三次首页),要去再点。
+   const CAPTURE_PAGE = { note: 'notes', reminder: 'reminders', link: 'links', secret: 'vault', multi: 'reminders' }
    function captureToast(r) {
      const parsed = (r && r.parsed) || {}
      const kind = parsed.kind || 'note'
@@ -1219,7 +1226,11 @@ window.__ModuleLoader__.load({
        detail = detail.replace(title, '').replace(/^[^:：]*[:：]\s*/, '').replace(/^[·,，;；\s]+/, '').trim()
      }
      if (!detail) detail = kind === 'note' ? '已收进便签' : '已保存'
-     return { label, title, detail, tone: kind === 'multi' ? 'reminder' : kind }
+     return {
+       label, title, detail,
+       tone: kind === 'multi' ? 'reminder' : kind,
+       goPage: CAPTURE_PAGE[kind] || '',
+     }
    }
 
    /** 一句话输入:多行自适应。内容多就长高,到上限后内部滚动。 */
@@ -1315,11 +1326,12 @@ window.__ModuleLoader__.load({
      ])
    }
 
-   function ReplyBar({ reply, run, onClear, onSay }) {
+   function ReplyBar({ reply, run, onClear, onSay, onGo }) {
      if (!reply) return null
      const text = typeof reply === 'string' ? reply : reply.text
      const undo = reply && typeof reply === 'object' ? reply.undo : null
      const move = reply && typeof reply === 'object' ? reply.move : null
+     const goPage = reply && typeof reply === 'object' ? reply.goPage : ''
      const label = reply && typeof reply === 'object' ? reply.label : ''
      const title = reply && typeof reply === 'object' ? reply.title : ''
      const tone = (reply && typeof reply === 'object' && reply.tone) || 'ok'
@@ -1338,7 +1350,12 @@ window.__ModuleLoader__.load({
          text ? h('div', { key: 'd', className: '__dk_toasttext __dk_replytext' }, text) : null,
          move ? h('div', { key: 'mv', className: '__dk_toastmove' },
            h(MoveChips, { kind: move.kind, id: move.id, run, notify: onSay, label: '分错了?转存到' })) : null,
-         undo ? h('div', { key: 'a', className: '__dk_toastacts' },
+         undo ? h('div', { key: 'a', className: '__dk_toastacts' }, [
+           // 存完默认留在原地:要去对应分类看,点这里。
+           goPage && onGo ? h('button', {
+             key: 'g', className: '__dk_replybtn __dk_replybtn--go',
+             onClick: () => { onGo(goPage); if (onClear) onClear() },
+           }, '去看看') : null,
            h('button', {
              key: 'u', className: '__dk_replybtn', title: '撤销刚才那一步',
              onClick: async () => {
@@ -1346,7 +1363,13 @@ window.__ModuleLoader__.load({
                if (typeof undo.after === 'function') undo.after()
                if (onClear) onClear()
              },
-           }, '撤销')) : null,
+           }, '撤销'),
+         ]) : (goPage && onGo ? h('div', { key: 'a', className: '__dk_toastacts' }, [
+           h('button', {
+             key: 'g', className: '__dk_replybtn __dk_replybtn--go',
+             onClick: () => { onGo(goPage); if (onClear) onClear() },
+           }, '去看看'),
+         ]) : null),
        ]),
        h('button', {
          key: 'x', className: '__dk_toastx', title: '关闭', 'aria-label': '关闭提示',
@@ -1375,12 +1398,15 @@ window.__ModuleLoader__.load({
      const [q, setQ] = useState('')
      const [deep, setDeep] = useState({ q: '', hits: [], done: false })
      const [busy, setBusy] = useState(false)
+     // 「显示全部 N 条」:搜索结果默认只给 5 条,以前只剩一句「再输入一个字缩小范围」
+     const [allFor, setAllFor] = useState('')
      const found = q.trim() ? searchSnapshot(state, q) : null
-     const hits = found ? found.hits.slice(0, 5) : []
+     const showAll = !!q.trim() && allFor === q.trim()
+     const hits = found ? found.hits.slice(0, showAll ? 100 : 5) : []
      const deepHits = found && deep.q === q.trim() ? deep.hits : []
      const deepDone = found && deep.q === q.trim() && deep.done
      const known = new Set((found ? found.hits : []).map((h) => h.kind + ':' + h.id))
-     const extra = deepHits.filter((h) => !known.has(h.kind + ':' + h.id)).slice(0, 3)
+     const extra = deepHits.filter((h) => !known.has(h.kind + ':' + h.id)).slice(0, showAll ? 100 : 3)
      const rows = hits.concat(extra)
      const hasSecretHit = found ? found.hits.some((h) => h.kind === 'secret') : false
      const KIND = { note: '便签', secret: '保险库', reminder: '提醒', link: '网页', file: '附件' }
@@ -1409,7 +1435,7 @@ window.__ModuleLoader__.load({
            key: 'q', className: '__dk_qfinput', type: 'search', value: q,
            placeholder: '找账号、便签、网页…(试试「脸书」)',
            'aria-label': '全库快速查找',
-           onChange: (e) => setQ(e.target.value),
+           onChange: (e) => { setQ(e.target.value); setAllFor('') },
            onKeyDown: (e) => {
              if (e.key === 'Escape') { e.stopPropagation(); setQ('') }
              if (e.key === 'Enter' && rows.length) { e.preventDefault(); openHit(rows[0]) }
@@ -1437,7 +1463,10 @@ window.__ModuleLoader__.load({
            ? h('div', { key: 'dh', className: '__dk_qfempty' }, '保险库内容里也没有匹配的条目')
            : null,
          found.total > rows.length
-           ? h('div', { key: 'more', className: '__dk_qfempty' }, '还有 ' + (found.total - rows.length) + ' 条,再输入一个字缩小范围')
+           ? h('button', {
+             key: 'more', type: 'button', className: '__dk_qfdeep',
+             onClick: () => setAllFor(q.trim()),
+           }, '显示全部 ' + found.total + ' 条')
            : null,
        ]) : null,
      ])
@@ -1448,10 +1477,13 @@ window.__ModuleLoader__.load({
      const list = (state.reminders || []).filter((r) => r.active !== false && r.status !== 'paused')
      const rank = (r) => (r.done ? 3 : r.status === 'pending' ? 0 : r.status === 'upcoming' ? 1 : 2)
      const sorted = list.slice().sort((a, b) => rank(a) - rank(b) || (a.occurrenceAt || 0) - (b.occurrenceAt || 0))
-     // 「今天」只放真的落在今天/已过点的;以后的事进「接下来」—— 标题得跟内容对得上
-     const todays = sorted.filter((r) => r.status === 'pending' || r.status === 'done' || r.status === 'silenced')
+     // 「今天」只放真的落在今天/已过点的;以后的事进「接下来」—— 标题得跟内容对得上。
+     // 刚登记时今天这个点已经过去的重复提醒(startTomorrow)放「接下来」,别在「今天」里占一行。
+     const todays = sorted.filter((r) => r.status === 'pending' || r.status === 'done'
+       || (r.status === 'silenced' && !r.startTomorrow))
      const expired = sorted.filter((r) => r.status === 'expired')
-     const upcoming = sorted.filter((r) => r.status === 'upcoming' || r.status === 'not-today')
+     const upcoming = sorted.filter((r) => r.status === 'upcoming' || r.status === 'not-today'
+       || (r.status === 'silenced' && !!r.startTomorrow))
      const doneCount = todays.filter((r) => r.done).length
      const activeNotes = (state.notes || []).filter((n) => !n.archived
        && !((n.deletedAt || 0) > 0) && !((n.completedAt || 0) > 0) && n.shelf !== 'long')
@@ -3374,7 +3406,7 @@ window.__ModuleLoader__.load({
              },
            }, [h(Ico, { key: 'i', name: 'download', size: 14 }), ' 导出为 JSON']),
          ]),
-         h('span', { key: 'h', className: '__dk_hint' }, '提醒和便签是明文;保险库导出的是密文,换机器要连 vault.key 一起拷才解得开。'),
+         h('span', { key: 'h', className: '__dk_hint' }, '提醒和便签是明文;保险库导出的是密文,要连 vault.key 一起拷才解得开;附件原件不在 JSON 里,还得拷数据目录的 blobs/。'),
        ]),
      ])
    }
@@ -3390,12 +3422,12 @@ window.__ModuleLoader__.load({
     *   L4 配置   —— 一年点两次的:设置。收在最右。
     */
    const LEVELS = {
-     home: { code: 'L1', name: '待行动', color: '#e5484d' },
-     links: { code: 'L2', name: '常用入口', color: 'var(--dsw-alias-brand-primary)' },
-     reminders: { code: 'L1', name: '待行动', color: '#e5484d' },
-     notes: { code: 'L2', name: '记录', color: 'var(--dsw-alias-brand-primary)' },
-     vault: { code: 'L3', name: '备查', color: '#8b949e' },
-     settings: { code: 'L4', name: '配置', color: '#8b949e' },
+     home: { code: 'L1', name: '待行动', color: '#e5484d', hint: '今天/过点要你动手的' },
+     links: { code: 'L2', name: '常用入口', color: 'var(--dsw-alias-brand-primary)', hint: '常点的站,一格格摆着' },
+     reminders: { code: 'L1', name: '待行动', color: '#e5484d', hint: '到点会响的提醒' },
+     notes: { code: 'L2', name: '记录', color: 'var(--dsw-alias-brand-primary)', hint: '正在跟进的事,记着不催' },
+     vault: { code: 'L3', name: '备查', color: '#8b949e', hint: '存着不催,列表不摊明文' },
+     settings: { code: 'L4', name: '配置', color: '#8b949e', hint: '一年点两次的地方' },
    }
 
    // 浮标可能被别的浮窗盖住,所以留了两条侧门:会话顶栏的小图标 + 快捷键。
@@ -3928,10 +3960,8 @@ window.__ModuleLoader__.load({
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
        showReply(r.reply || '已保存', undo, move, captureToast(r))
        setFocus(null)
-       if (r.parsed && r.parsed.kind === 'link') { setDir('left'); setPage('links'); setSeq((s) => s + 1) }
-       else if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
-       else if (r.parsed && r.parsed.kind === 'note') { setDir('left'); setPage('notes'); setSeq((s) => s + 1) }
-       else setPage('home')
+       // 存完**不切页**:连记三件事的人不用每存一条就点一次「首页」。
+       // 想去那类里看,回执上有「去看看」按钮(goPage)。
      }, [showReply])
 
      const onCaptureFail = useCallback(() => {
@@ -4009,8 +4039,10 @@ window.__ModuleLoader__.load({
              h('div', { key: 't', className: '__dk_titlewrap' }, [
                h('div', { key: 'tt', className: '__dk_title' }, [
                  TITLES[page] || '随手台',
-                 h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: '重要等级:' + lv.name }, [
-                   h('i', { key: 'i' }), lv.code + ' ' + lv.name,
+                 // 只显示中文档位名:「L3 备查」对头一天用的人只是三个字 + 一个数字要他去猜。
+                 // 代号留在 tooltip 里,想深究的人一样查得到。
+                 h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: lv.code + ' · ' + lv.name + ':' + (lv.hint || '') }, [
+                   h('i', { key: 'i' }), lv.name,
                  ]),
                ]),
                // 标题下面一条轻量状态:日期 + 待办,不用切到首页也知道今天有没有事
@@ -4041,7 +4073,7 @@ window.__ModuleLoader__.load({
                intake(files)
              },
            }, [
-             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: (t) => showReply(t) }),
+             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: (t) => showReply(t), onGo: goTo }),
              err ? h(ErrorBar, { key: 'err', text: err, onRetry: load }) : null,
              // key 带 seq:切页整块重建,滑屏动画才会重放
              h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page __dk_page--' + dir },
@@ -4182,10 +4214,7 @@ window.__ModuleLoader__.load({
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
        showReply(r.reply || '已保存', undo, move, captureToast(r))
        setFocus(null)
-       if (r.parsed && r.parsed.kind === 'link') { setPage('links'); setSeq((s) => s + 1) }
-       else if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
-       else if (r.parsed && r.parsed.kind === 'note') { setPage('notes'); setSeq((s) => s + 1) }
-       else setPage('home')
+       // 存完留在原地:回执上有「去看看」,不替用户跳页
      }, [showReply])
 
      const onCaptureFail = useCallback(() => {
@@ -4243,7 +4272,7 @@ window.__ModuleLoader__.load({
        h('div', { key: 'head', className: '__dk_sphead' }, [
          h('div', { key: 't', className: '__dk_sptitle' }, [
            '随手台',
-           h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: '重要等级:' + lv.name }, [h('i', { key: 'i' }), lv.code + ' ' + lv.name]),
+           h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: lv.code + ' · ' + lv.name + ':' + (lv.hint || '') }, [h('i', { key: 'i' }), lv.name]),
            due ? h('span', { key: 'd', className: '__dk_spdot' }, String(due)) : null,
          ]),
          h('div', { key: 'v', className: '__dk_note', title: 'Ctrl/Cmd+Shift+K 也能直接跳到这里' },
@@ -4253,7 +4282,7 @@ window.__ModuleLoader__.load({
        h('div', { key: 'body', className: '__dk_spbody' }, [
          // 提醒主视觉在右下角提醒坞;这里只留一条紧凑状态条,不重复堆卡片
          h(AlertInline, { key: 'alerts', alerts, run }),
-         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: onClearReply ? (t) => showReply(t) : null }),
+         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: onClearReply ? (t) => showReply(t) : null, onGo: goTo }),
          err ? h(ErrorBar, { key: 'err', text: err, onRetry }) : null,
          h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page' }, h(SafePage, null, body)),
        ]),

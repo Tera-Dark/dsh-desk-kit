@@ -287,6 +287,28 @@ const oneOff = await post('capture', { text: '后天下午3点提醒我开会' }
 assert.equal(oneOff.result.parsed.date !== null, true)
 console.log('✓ capture API:', capApi.result.reply, '| 一次性:', oneOff.result.parsed.date, oneOff.result.parsed.time)
 
+// 9b) 第一天用下来的三个卡点:几号也算提醒 / 裸域名算网页 / 备用码单独成字段
+{
+  const monthly = await post('capture', { text: '每月15号还信用卡' })
+  assert.equal(monthly.result.parsed.kind, 'reminder', '「每月 15 号」不能降级成便签')
+  assert.equal(monthly.result.parsed.monthly, 15)
+  assert.ok(monthly.result.reply.includes('09:00'), '没写几点要说清 9 点是补的:' + monthly.result.reply)
+
+  const bare = await post('capture', { text: 'douban.com 豆瓣电影，查影评和放映时间' })
+  assert.equal(bare.result.parsed.kind, 'link', '开头裸域名算网页')
+  assert.equal(bare.result.parsed.url, 'https://douban.com')
+  await post('link.delete', { id: bare.result.created.id })
+
+  const extra = await post('capture', { text: 'GitHub账号 chenmo 密码 Cm@2026 备用码 ABCD-EFGH' })
+  assert.equal(extra.result.parsed.kind, 'secret')
+  const read = await post('secret.get', { query: extra.result.created.id })
+  assert.equal(read.result.fields['用户名'], 'chenmo')
+  assert.equal(read.result.fields['备用码'], 'ABCD-EFGH', '备用码要落成加密字段')
+  assert.ok(!extra.result.parsed.title.includes('ABCD-EFGH'), '标题里不留备用码')
+  await post('secret.delete', { query: extra.result.created.id })
+  console.log('✓ 三个卡点:', monthly.result.reply)
+}
+
 const bad = await post('note.add', { text: '   ' })
 assert.equal(bad.ok, false)
 const bad2 = await post('reminder.add', { title: 'x', time: '25:99' })

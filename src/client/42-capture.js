@@ -3,6 +3,8 @@
 
    // 存完那条提示要让人一眼看清「进了哪个栏位」,而不只是「已保存」。
    const CAPTURE_LABEL = { note: '便签', reminder: '提醒', link: '网页', secret: '保险库', multi: '提醒' }
+   // 回执里的「去看看」:存完不再自己跳页(连记三件事就不用跑三次首页),要去再点。
+   const CAPTURE_PAGE = { note: 'notes', reminder: 'reminders', link: 'links', secret: 'vault', multi: 'reminders' }
    function captureToast(r) {
      const parsed = (r && r.parsed) || {}
      const kind = parsed.kind || 'note'
@@ -22,7 +24,11 @@
        detail = detail.replace(title, '').replace(/^[^:：]*[:：]\s*/, '').replace(/^[·,，;；\s]+/, '').trim()
      }
      if (!detail) detail = kind === 'note' ? '已收进便签' : '已保存'
-     return { label, title, detail, tone: kind === 'multi' ? 'reminder' : kind }
+     return {
+       label, title, detail,
+       tone: kind === 'multi' ? 'reminder' : kind,
+       goPage: CAPTURE_PAGE[kind] || '',
+     }
    }
 
    /** 一句话输入:多行自适应。内容多就长高,到上限后内部滚动。 */

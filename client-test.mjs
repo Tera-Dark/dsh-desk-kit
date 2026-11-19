@@ -810,6 +810,29 @@ test('反馈条:有撤销动作才出「撤销」按钮', () => {
   assert.equal(renderToString(h(T.ReplyBar, { reply: null, run, onClear: () => {} })), '')
 })
 
+test('存完不跳页:回执带「去看看」,点了才走', () => {
+  const toast = T.captureToast({ parsed: { kind: 'note' }, item: { id: 'n1', text: '随手一句' }, reply: '已记成便签' })
+  assert.equal(toast.goPage, 'notes', '便签要给便签页')
+  const withGo = renderToString(h(T.ReplyBar, {
+    reply: { ...toast, text: '已记成便签' }, run, onClear: () => {}, onGo: () => {},
+  }))
+  assert.ok(withGo.includes('去看看'), '回执要给出去处')
+  const noGo = renderToString(h(T.ReplyBar, { reply: { ...toast, text: '已记成便签' }, run, onClear: () => {} }))
+  assert.ok(!noGo.includes('去看看'), '没有导航能力时不要画一个死按钮')
+
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(!src.includes("setPage('links'); setSeq"), '存完网页不该自己跳页')
+  assert.ok(!src.includes("setPage('notes'); setSeq"), '存完便签不该自己跳页')
+  assert.ok(!src.includes("setPage('vault'); setSeq"), '存完保险库不该自己跳页')
+})
+
+test('等级胶囊说人话:显示中文档位名,代号收进 tooltip', () => {
+  assert.equal(T.LEVELS.vault.name, '备查')
+  assert.ok(T.LEVELS.vault.hint, '每档要有一句解释,方便 tooltip')
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(!src.includes("lv.code + ' ' + lv.name"), '界面别再显示「L3 备查」这种要人猜的字')
+})
+
 test('便签超出 8 条:给「显示更多」而不是让人自己去搜', () => {
   const many = Array.from({ length: 20 }, (_, i) => ({
     id: 'n' + i, text: '便签' + i, tags: [], shelf: 'daily',

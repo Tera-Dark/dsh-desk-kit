@@ -362,7 +362,7 @@
              },
            }, [h(Ico, { key: 'i', name: 'download', size: 14 }), ' 导出为 JSON']),
          ]),
-         h('span', { key: 'h', className: '__dk_hint' }, '提醒和便签是明文;保险库导出的是密文,换机器要连 vault.key 一起拷才解得开。'),
+         h('span', { key: 'h', className: '__dk_hint' }, '提醒和便签是明文;保险库导出的是密文,要连 vault.key 一起拷才解得开;附件原件不在 JSON 里,还得拷数据目录的 blobs/。'),
        ]),
      ])
    }

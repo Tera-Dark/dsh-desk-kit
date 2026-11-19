@@ -31,11 +31,12 @@
      ])
    }
 
-   function ReplyBar({ reply, run, onClear, onSay }) {
+   function ReplyBar({ reply, run, onClear, onSay, onGo }) {
      if (!reply) return null
      const text = typeof reply === 'string' ? reply : reply.text
      const undo = reply && typeof reply === 'object' ? reply.undo : null
      const move = reply && typeof reply === 'object' ? reply.move : null
+     const goPage = reply && typeof reply === 'object' ? reply.goPage : ''
      const label = reply && typeof reply === 'object' ? reply.label : ''
      const title = reply && typeof reply === 'object' ? reply.title : ''
      const tone = (reply && typeof reply === 'object' && reply.tone) || 'ok'
@@ -54,7 +55,12 @@
          text ? h('div', { key: 'd', className: '__dk_toasttext __dk_replytext' }, text) : null,
          move ? h('div', { key: 'mv', className: '__dk_toastmove' },
            h(MoveChips, { kind: move.kind, id: move.id, run, notify: onSay, label: '分错了?转存到' })) : null,
-         undo ? h('div', { key: 'a', className: '__dk_toastacts' },
+         undo ? h('div', { key: 'a', className: '__dk_toastacts' }, [
+           // 存完默认留在原地:要去对应分类看,点这里。
+           goPage && onGo ? h('button', {
+             key: 'g', className: '__dk_replybtn __dk_replybtn--go',
+             onClick: () => { onGo(goPage); if (onClear) onClear() },
+           }, '去看看') : null,
            h('button', {
              key: 'u', className: '__dk_replybtn', title: '撤销刚才那一步',
              onClick: async () => {
@@ -62,7 +68,13 @@
                if (typeof undo.after === 'function') undo.after()
                if (onClear) onClear()
              },
-           }, '撤销')) : null,
+           }, '撤销'),
+         ]) : (goPage && onGo ? h('div', { key: 'a', className: '__dk_toastacts' }, [
+           h('button', {
+             key: 'g', className: '__dk_replybtn __dk_replybtn--go',
+             onClick: () => { onGo(goPage); if (onClear) onClear() },
+           }, '去看看'),
+         ]) : null),
        ]),
        h('button', {
          key: 'x', className: '__dk_toastx', title: '关闭', 'aria-label': '关闭提示',

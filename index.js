@@ -60,7 +60,15 @@ function persistParsed(s, parsed, rawText) {
     }
   }
   if (parsed.kind === 'secret') {
-    const item = s.addSecret({ title: parsed.title, username: parsed.username, password: parsed.password, url: parsed.url, note: parsed.note })
+    const item = s.addSecret({
+      title: parsed.title,
+      username: parsed.username,
+      password: parsed.password,
+      url: parsed.url,
+      // 一句话里认出来的备用码/恢复码当成独立字段存(加密),不要剩在标题里
+      fields: parsed.fields,
+      note: parsed.note,
+    })
     return { parsed, reply: describeCapture(parsed), item, created: { kind: 'secret', id: item.id } }
   }
   if (parsed.kind === 'reminder') {
@@ -83,7 +91,9 @@ function persistParsed(s, parsed, rawText) {
       : describeCapture(parsed)
     // 一次性提醒给了个过去的日期:存下了但永远不会响,得当面说清楚
     const past = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) && parsed.date < localYmd()
-    const reply = past ? base + ' · 不过这天已经过去了,不会响;要改时间直接编辑它' : base
+    // 重复提醒今天的点已经过了:说出来,不然用户会以为今天漏了一条
+    const later = !parsed.date && r.startTomorrow ? ' · 今天的点已经过了,从明天开始' : ''
+    const reply = (past ? base + ' · 不过这天已经过去了,不会响;要改时间直接编辑它' : base) + later
     return { parsed, reply, item: r, created: { kind: 'reminder', id: r.id, deduped: !!r.deduped } }
   }
   const note = s.addNote({ text: parsed.text || rawText })

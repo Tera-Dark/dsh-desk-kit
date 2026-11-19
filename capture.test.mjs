@@ -146,3 +146,47 @@ test('分类:说「这站不错,能干什么」是网页,不是保险库', () =>
   assert.equal(c.kind, 'link')
   assert.match(c.note, /适合做设计/)
 })
+
+test('「每月 15 号」没有钟点也是提醒,不降级成便签', () => {
+  const a = parseCapture('每月15号还信用卡', now)
+  assert.equal(a.kind, 'reminder', '口头说的「几号」本身就是排期')
+  assert.equal(a.monthly, 15)
+  assert.equal(a.time, '09:00', '没写几点先按 9 点')
+  assert.equal(a.dateGuessed, true, '要如实告诉用户 9 点是替他补的')
+  assert.equal(a.title, '还信用卡')
+  const b = parseCapture('每月1号交房租', now)
+  assert.equal(b.kind, 'reminder')
+  assert.equal(b.monthly, 1)
+  // 但「上周三看到一只猫」这种过去叙述不能被当成排期
+  assert.equal(parseCapture('上周三看到一只猫', now).kind, 'note')
+})
+
+test('开头的裸域名也算网页:不用非得写 https://', () => {
+  const a = parseCapture('douban.com 豆瓣电影，查影评和放映时间', now)
+  assert.equal(a.kind, 'link', '用户写域名就是在说这个站')
+  assert.equal(a.url, 'https://douban.com')
+  assert.match(a.note, /查影评/, '说明进备注')
+  assert.ok(!a.note.includes('douban.com'), '备注里不该再留一遍域名')
+
+  const b = parseCapture('figma.com/files 设计稿都在这', now)
+  assert.equal(b.kind, 'link')
+
+  // 文件名不是域名:「IMG_2043.jpg 修图备注」不能变成网页
+  const c = parseCapture('IMG_2043.jpg 修图备注', now)
+  assert.equal(c.kind, 'note')
+  const d = parseCapture('notes.md 记一下 Markdown 语法', now)
+  assert.equal(d.kind, 'note')
+})
+
+test('保险库:备用码/恢复码单独成字段,不塞进标题', () => {
+  const a = parseCapture('GitHub账号 chenmo 密码 Cm@2026 备用码 ABCD-EFGH', now)
+  assert.equal(a.kind, 'secret')
+  assert.equal(a.username, 'chenmo')
+  assert.equal(a.password, 'Cm@2026')
+  assert.equal(a.fields['备用码'], 'ABCD-EFGH', '备用码要能单独取出来')
+  assert.ok(!a.title.includes('ABCD-EFGH'), '标题里不该出现备用码的值')
+  assert.ok(describeCapture(a).includes('备用码已加密'), '回执要说清楚备用码也加密了')
+
+  const b = parseCapture('某站 账号 demo 密码 abc 恢复码 11 22 33', now)
+  assert.equal(b.fields['备用码'], '11', '恢复码同样认得')
+})

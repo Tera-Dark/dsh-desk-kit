@@ -98,7 +98,10 @@
      // 一次性提醒过了那天就不该再装成「进行中」:列表里明说已过期
      if (r.status === 'expired') return base + ' · 已过期'
      // 点过「知道了」:今天这条已经处理过,别一直挂着「到点了」
-     if (r.status === 'silenced') return base + ' · 今天不再提醒'
+     if (r.status === 'silenced') {
+       // 刚登记就发现今天的点已过(下午登记「每天 7:50 吃药」):说清楚从明天开始,别让人以为今天还得补
+       return base + (r.startTomorrow ? ' · 今天的点已过,明天开始' : ' · 今天不再提醒')
+     }
      if (r.done) return base + ' · 今天已完成'
      if (r.status === 'pending') return base + ' · 到点了'
      if (r.status === 'upcoming') return base + (r.occurrenceAt ? ' · ' + fmtClock(r.occurrenceAt - (r.leadMin || 0) * 60000) + ' 提醒' : '')

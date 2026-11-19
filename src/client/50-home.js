@@ -10,12 +10,15 @@
      const [q, setQ] = useState('')
      const [deep, setDeep] = useState({ q: '', hits: [], done: false })
      const [busy, setBusy] = useState(false)
+     // 「显示全部 N 条」:搜索结果默认只给 5 条,以前只剩一句「再输入一个字缩小范围」
+     const [allFor, setAllFor] = useState('')
      const found = q.trim() ? searchSnapshot(state, q) : null
-     const hits = found ? found.hits.slice(0, 5) : []
+     const showAll = !!q.trim() && allFor === q.trim()
+     const hits = found ? found.hits.slice(0, showAll ? 100 : 5) : []
      const deepHits = found && deep.q === q.trim() ? deep.hits : []
      const deepDone = found && deep.q === q.trim() && deep.done
      const known = new Set((found ? found.hits : []).map((h) => h.kind + ':' + h.id))
-     const extra = deepHits.filter((h) => !known.has(h.kind + ':' + h.id)).slice(0, 3)
+     const extra = deepHits.filter((h) => !known.has(h.kind + ':' + h.id)).slice(0, showAll ? 100 : 3)
      const rows = hits.concat(extra)
      const hasSecretHit = found ? found.hits.some((h) => h.kind === 'secret') : false
      const KIND = { note: '便签', secret: '保险库', reminder: '提醒', link: '网页', file: '附件' }
@@ -44,7 +47,7 @@
            key: 'q', className: '__dk_qfinput', type: 'search', value: q,
            placeholder: '找账号、便签、网页…(试试「脸书」)',
            'aria-label': '全库快速查找',
-           onChange: (e) => setQ(e.target.value),
+           onChange: (e) => { setQ(e.target.value); setAllFor('') },
            onKeyDown: (e) => {
              if (e.key === 'Escape') { e.stopPropagation(); setQ('') }
              if (e.key === 'Enter' && rows.length) { e.preventDefault(); openHit(rows[0]) }
@@ -72,7 +75,10 @@
            ? h('div', { key: 'dh', className: '__dk_qfempty' }, '保险库内容里也没有匹配的条目')
            : null,
          found.total > rows.length
-           ? h('div', { key: 'more', className: '__dk_qfempty' }, '还有 ' + (found.total - rows.length) + ' 条,再输入一个字缩小范围')
+           ? h('button', {
+             key: 'more', type: 'button', className: '__dk_qfdeep',
+             onClick: () => setAllFor(q.trim()),
+           }, '显示全部 ' + found.total + ' 条')
            : null,
        ]) : null,
      ])
@@ -83,10 +89,13 @@
      const list = (state.reminders || []).filter((r) => r.active !== false && r.status !== 'paused')
      const rank = (r) => (r.done ? 3 : r.status === 'pending' ? 0 : r.status === 'upcoming' ? 1 : 2)
      const sorted = list.slice().sort((a, b) => rank(a) - rank(b) || (a.occurrenceAt || 0) - (b.occurrenceAt || 0))
-     // 「今天」只放真的落在今天/已过点的;以后的事进「接下来」—— 标题得跟内容对得上
-     const todays = sorted.filter((r) => r.status === 'pending' || r.status === 'done' || r.status === 'silenced')
+     // 「今天」只放真的落在今天/已过点的;以后的事进「接下来」—— 标题得跟内容对得上。
+     // 刚登记时今天这个点已经过去的重复提醒(startTomorrow)放「接下来」,别在「今天」里占一行。
+     const todays = sorted.filter((r) => r.status === 'pending' || r.status === 'done'
+       || (r.status === 'silenced' && !r.startTomorrow))
      const expired = sorted.filter((r) => r.status === 'expired')
-     const upcoming = sorted.filter((r) => r.status === 'upcoming' || r.status === 'not-today')
+     const upcoming = sorted.filter((r) => r.status === 'upcoming' || r.status === 'not-today'
+       || (r.status === 'silenced' && !!r.startTomorrow))
      const doneCount = todays.filter((r) => r.done).length
      const activeNotes = (state.notes || []).filter((n) => !n.archived
        && !((n.deletedAt || 0) > 0) && !((n.completedAt || 0) > 0) && n.shelf !== 'long')

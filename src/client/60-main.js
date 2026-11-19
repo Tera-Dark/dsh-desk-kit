@@ -9,12 +9,12 @@
     *   L4 配置   —— 一年点两次的:设置。收在最右。
     */
    const LEVELS = {
-     home: { code: 'L1', name: '待行动', color: '#e5484d' },
-     links: { code: 'L2', name: '常用入口', color: 'var(--dsw-alias-brand-primary)' },
-     reminders: { code: 'L1', name: '待行动', color: '#e5484d' },
-     notes: { code: 'L2', name: '记录', color: 'var(--dsw-alias-brand-primary)' },
-     vault: { code: 'L3', name: '备查', color: '#8b949e' },
-     settings: { code: 'L4', name: '配置', color: '#8b949e' },
+     home: { code: 'L1', name: '待行动', color: '#e5484d', hint: '今天/过点要你动手的' },
+     links: { code: 'L2', name: '常用入口', color: 'var(--dsw-alias-brand-primary)', hint: '常点的站,一格格摆着' },
+     reminders: { code: 'L1', name: '待行动', color: '#e5484d', hint: '到点会响的提醒' },
+     notes: { code: 'L2', name: '记录', color: 'var(--dsw-alias-brand-primary)', hint: '正在跟进的事,记着不催' },
+     vault: { code: 'L3', name: '备查', color: '#8b949e', hint: '存着不催,列表不摊明文' },
+     settings: { code: 'L4', name: '配置', color: '#8b949e', hint: '一年点两次的地方' },
    }
 
    // 浮标可能被别的浮窗盖住,所以留了两条侧门:会话顶栏的小图标 + 快捷键。

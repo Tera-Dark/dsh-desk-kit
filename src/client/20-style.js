@@ -273,6 +273,8 @@
      '.__dk_replytext{flex:1;min-width:0}',
      '.__dk_replybtn{flex:none;border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#4d7cf3) 45%,transparent);background:transparent;color:var(--dsw-alias-brand-primary,#4d7cf3);border-radius:8px;height:24px;padding:0 9px;font-size:11.5px;font-family:inherit;cursor:pointer}',
      '.__dk_replybtn:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d7cf3) 16%,transparent)}',
+     // 「去看看」是主行动:存完留在原地,想去那类里看就点它
+     '.__dk_replybtn--go{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d7cf3) 16%,transparent);font-weight:650}',
      // 提醒坞:轮播时鼠标一放上去就停,别把人正在读的那条切走
      '.__dk_dock{padding-bottom:2px}',
      '.__dk_dock--paused .__dk_alert{transition:none}',
@@ -423,7 +425,7 @@
      '.__dk_toaststatus{font-size:11px;color:var(--dk-muted)}',
      '.__dk_toasttitle{font-size:13.5px;font-weight:650;line-height:1.4;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
      '.__dk_toasttext{font-size:11.5px;line-height:1.55;color:var(--dk-muted);margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}',
-     '.__dk_toastacts{display:flex;justify-content:flex-end;margin-top:8px}',
+     '.__dk_toastacts{display:flex;justify-content:flex-end;gap:6px;margin-top:8px}',
      '.__dk_toastmove{margin-top:7px}',
      '.__dk_toast .__dk_movechips{gap:5px;margin:0}',
      '.__dk_toast .__dk_chip{height:24px;font-size:10.5px;padding:0 8px}',

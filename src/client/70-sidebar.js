@@ -126,10 +126,7 @@
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
        showReply(r.reply || '已保存', undo, move, captureToast(r))
        setFocus(null)
-       if (r.parsed && r.parsed.kind === 'link') { setPage('links'); setSeq((s) => s + 1) }
-       else if (r.parsed && r.parsed.kind === 'secret') { setPage('vault'); setSeq((s) => s + 1) }
-       else if (r.parsed && r.parsed.kind === 'note') { setPage('notes'); setSeq((s) => s + 1) }
-       else setPage('home')
+       // 存完留在原地:回执上有「去看看」,不替用户跳页
      }, [showReply])
 
      const onCaptureFail = useCallback(() => {
@@ -187,7 +184,7 @@
        h('div', { key: 'head', className: '__dk_sphead' }, [
          h('div', { key: 't', className: '__dk_sptitle' }, [
            '随手台',
-           h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: '重要等级:' + lv.name }, [h('i', { key: 'i' }), lv.code + ' ' + lv.name]),
+           h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: lv.code + ' · ' + lv.name + ':' + (lv.hint || '') }, [h('i', { key: 'i' }), lv.name]),
            due ? h('span', { key: 'd', className: '__dk_spdot' }, String(due)) : null,
          ]),
          h('div', { key: 'v', className: '__dk_note', title: 'Ctrl/Cmd+Shift+K 也能直接跳到这里' },
@@ -197,7 +194,7 @@
        h('div', { key: 'body', className: '__dk_spbody' }, [
          // 提醒主视觉在右下角提醒坞;这里只留一条紧凑状态条,不重复堆卡片
          h(AlertInline, { key: 'alerts', alerts, run }),
-         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: onClearReply ? (t) => showReply(t) : null }),
+         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: onClearReply ? (t) => showReply(t) : null, onGo: goTo }),
          err ? h(ErrorBar, { key: 'err', text: err, onRetry }) : null,
          h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page' }, h(SafePage, null, body)),
        ]),

@@ -788,6 +788,18 @@ export class DeskStore {
       this.save()
       return { ...same, deduped: true }
     }
+    // 新登记的重复提醒,如果今天这次的点已经过去了一阵,别立刻在右下角报「你错过了」。
+    // 下午三点登记「每天早上 7:50 吃药」,要的是从明早开始,不是被告知今天已经错过。
+    // 只超过 5 分钟以上才算「过去的点」:刚刚到点的(hh:mm 截到分)照常响。
+    // 一次性提醒(明说了日期)不动:那本来就是用户指定的那一天。
+    if (!reminder.date) {
+      const todayAt = occurrenceOf(reminder, new Date(now))
+      const dueFrom = todayAt ? todayAt.getTime() - (reminder.leadMin || 0) * 60000 : 0
+      if (todayAt && dueFrom <= now - 5 * 60000) {
+        reminder.silencedDates.push(localYmd(new Date(now)))
+        reminder.startTomorrow = true
+      }
+    }
     this.data.reminders.push(reminder)
     this.save()
     return reminder

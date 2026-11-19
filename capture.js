@@ -207,6 +207,21 @@ function pickValue(text, names) {
 const SECRET_WORDS = ['密码', '密钥', '口令', 'token', 'api key', 'apikey', '卡号', '身份证', '账号', '账户', '用户名', 'username', '登录']
 
 /**
+ * 一句话里能认出来的「额外凭据字段」。
+ * 只认账号/密码的话,「GitHub 账号 x 密码 y 备用码 Z」会把备用码塞进标题,
+ * 而那正是两步验证丢了最想找的一串。统一收进 fields['备用码'](加密)。
+ */
+const EXTRA_SECRET_NAMES = ['备用码', '备份码', '恢复码', '救援码', '二次验证码', '两步验证码', '动态验证码', 'totp', '2fa']
+
+export function pickExtraSecrets(text) {
+  for (const name of EXTRA_SECRET_NAMES) {
+    const value = pickValue(text, [name])
+    if (value) return { name: '备用码', value }
+  }
+  return null
+}
+
+/**
  * 从一串网址里认出站点名(用于提醒标题)。
  * api.example.org → example ; new.example.dev → example ; example.com → example
  */
@@ -246,6 +261,30 @@ export function parseMultiSite(text) {
 const LINK_WORDS = /网页|书签|收藏|网址|入口|常用站|收藏夹|网站|站点|平台|工具站|资源站|推荐|不错|好用|挺好|适合|可以用来|能用来|可以|能做|可以做|加进|放进/i
 
 /**
+ * 文件名后缀不算域名。
+ * 「IMG_2043.jpg 修图备注」这类句子里的 jpg 长得像顶级域,认成网页就把便签弄丢了。
+ */
+const FILE_TLD = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic', 'tif', 'tiff', 'raw',
+  'mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v',
+  'mp3', 'wav', 'flac', 'm4a', 'aac',
+  'pdf', 'txt', 'md', 'csv', 'json', 'yaml', 'yml', 'xml', 'html', 'htm',
+  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pages', 'numbers',
+  'zip', 'rar', '7z', 'tar', 'gz', 'bz2',
+  'exe', 'msi', 'dmg', 'apk', 'iso',
+  'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'sh', 'bat', 'ps1',
+  'log', 'bak', 'tmp', 'db', 'sqlite', 'ipynb',
+])
+
+/** 句子开头就是一个裸域名(没写 http://)—— 这通常就是「我要存这个站」的意思。 */
+function bareDomainLead(raw) {
+  const m = /^\s*((?:[a-z0-9][a-z0-9-]*\.)+[a-z]{2,})(?=\s|$|[,，。；;：:、)）\/])/i.exec(raw)
+  if (!m) return ''
+  const tld = m[1].split('.').pop().toLowerCase()
+  return FILE_TLD.has(tld) ? '' : m[1]
+}
+
+/**
  * 「收藏这个网页」这类说法 → 网页收藏(手机桌面那种格子)。
  * 只认带网址的句子:没网址的话仍交给便签,别把「收藏这句话」当网页。
  * @returns {{kind:'link',title:string,url:string,group:string,raw:string}|null}
@@ -256,8 +295,10 @@ export function parseLink(text, now = new Date()) {
   if (!urlIn) return null
   let url = urlIn[1].replace(/[)。，,；;]+$/, '')
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url
-  // 说了「收藏/网页/书签/入口」才算网页;光贴一个链接还是便签(可能只是备忘)
-  if (!LINK_WORDS.test(raw)) return null
+  // 说了「收藏/网页/书签/入口」才算网页;光贴一个链接还是便签(可能只是备忘)。
+  // 但**开头就写裸域名**是例外:「douban.com 豆瓣电影,查影评」是在说一个站,
+  // 不是随手贴的链接 —— 这种句子以前会掉进便签,用户还得自己加分类。
+  if (!LINK_WORDS.test(raw) && !bareDomainLead(raw)) return null
   // 取分类:分类:xxx / 放到「xxx」/ 放进 xxx 分组
   let group = ''
   const gm = /(?:分类|分组|组)[:：\s]*[「"']?([^」"'\s,，。；]{1,24})/.exec(raw)
@@ -296,6 +337,7 @@ export function parseLink(text, now = new Date()) {
   // 用途说明留进备注:「这站不错,可以用来查资料」→ note=查资料
   const note = raw
     .replace(/https?:\/\/[^\s,，、;；"'<>)\]]+/gi, ' ')
+    .replace(/(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/gi, ' ')
     .replace(/(?:分类|分组|组)(?:\s*[:：]?\s*[「"']?[^」"'\s,，。；]{1,24}[」"']?)?/g, ' ')
     .replace(/[「"'][^」"']{1,24}[」"']/g, ' ')
     .replace(LINK_FILLER, ' ')
@@ -367,8 +409,9 @@ export function parseCapture(raw, now = new Date()) {
     // 「这网站登录之后能干嘛」也会命中「登录」,但凭据得真有账号或密码。
     // 只有网址没有凭据 = 在说一个网站,交给下面的网页分支。
     if (password || username) {
+      const extra = pickExtraSecrets(text)
       const title = text
-        .replace(/(账号|账户|用户名|username|user|密码|口令|password|pwd|密钥|token|api key|apikey|卡号|身份证|登陆|登录)(\s*[:：=]?\s*[^\s,，;；、|]+)?/gi, '')
+        .replace(/(账号|账户|用户名|username|user|密码|口令|password|pwd|密钥|token|api key|apikey|卡号|身份证|登陆|登录|备用码|备份码|恢复码|救援码|二次验证码|两步验证码|动态验证码|totp|2fa)(\s*[:：=]?\s*[^\s,，;；、|]+)?/gi, '')
         .replace(/(网址|链接|地址)\s*[:：]?\s*\S*/gi, '')
         .replace(/(请|帮我|麻烦|把|存一下|存起来|保存|记一下|记下|记)/g, '')
         .replace(/^[,，。；:：\-—\s]+|[,，。；!！~～\s]+$/g, '')
@@ -380,12 +423,23 @@ export function parseCapture(raw, now = new Date()) {
       let cleaned = String(title || '').replace(/https?:\/\/\S+/gi, '')
       // 密码/账号的值会残留在标题里(「密码是 abc」→「的 abc」),先摘掉
       for (const v of [password, username]) if (v) cleaned = cleaned.split(v).join(' ')
+      if (extra) cleaned = cleaned.split(extra.value).join(' ')
       cleaned = cleaned
         .replace(/^[\s的是为和了给把,，。；:：\-—]+/, '')
         .replace(/[。!！~～\s]+$/g, '')
         .replace(/\s{2,}/g, ' ')
         .trim()
-      return { kind: 'secret', title: (cleaned.length >= 2 ? cleaned : host || fallback).slice(0, 40), username, password, url, note: text }
+      return {
+        kind: 'secret',
+        title: (cleaned.length >= 2 ? cleaned : host || fallback).slice(0, 40),
+        username,
+        password,
+        url,
+        // 额外凭据(备用码/恢复码):当作保险库字段存,别混进标题
+        fields: extra ? { [extra.name]: extra.value } : undefined,
+        extra,
+        note: text,
+      }
     }
   }
 
@@ -397,9 +451,11 @@ export function parseCapture(raw, now = new Date()) {
   const hasClock = !!clock
   const hasDate = !!rel || !!when.date || !!when.monthly || when.weekdays.length > 0
   const scheduled = hasClock || hasDate
+  // 「每月 15 号还信用卡」这种话里不会出现「提醒」两个字,但「每月几号」本身就是排期。
+  // 以前只认钟点/相对时间,于是它被降级成便签(口语里「几号」远比「几点」常见)。
   // 只要给了明确钟点(「明天下午四点喂猫粮」),就按提醒处理;
   // 不再要求句子里必须有「提醒/记得」——用户说「帮我记一下 + 时间」就是在排提醒。
-  if (scheduled && (wantsReminder || hasClock || rel)) {
+  if (scheduled && (wantsReminder || hasClock || rel || when.monthly)) {
     const stripped = text
       .replace(/(凌晨|早上|早晨|上午|中午|下午|傍晚|晚上)?\s*(\d{1,2}|[一二两三四五六七八九十]{1,3})\s*[:：点时]\s*(半|一刻|三刻|\d{1,2})?/g, '')
       .replace(/提前\s*(\d{1,4}|半|[一两二三四五六七八九十]{1,3})\s*个?\s*(分钟|分|小时|钟头)/g, '')
@@ -443,7 +499,12 @@ export function describeCapture(parsed) {
     return '已整理成 ' + parsed.sites.length + ' 条每日打卡提醒:' + parsed.sites.map((s) => s.title.replace(' 打卡', '')).join('、')
   }
   if (parsed.kind === 'secret') {
-    const bits = [parsed.username && '账号 ' + parsed.username, parsed.password && '密码已加密', parsed.url && '网址已存'].filter(Boolean)
+    const bits = [
+      parsed.username && '账号 ' + parsed.username,
+      parsed.password && '密码已加密',
+      parsed.fields && parsed.fields['备用码'] && '备用码已加密',
+      parsed.url && '网址已存',
+    ].filter(Boolean)
     return '已进保险库:' + parsed.title + (bits.length ? '(' + bits.join(' · ') + ')' : '')
   }
   if (parsed.kind === 'link') {

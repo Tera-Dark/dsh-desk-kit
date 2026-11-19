@@ -479,10 +479,8 @@
        const move = c && c.id && !c.deduped ? { kind: c.kind, id: c.id } : null
        showReply(r.reply || '已保存', undo, move, captureToast(r))
        setFocus(null)
-       if (r.parsed && r.parsed.kind === 'link') { setDir('left'); setPage('links'); setSeq((s) => s + 1) }
-       else if (r.parsed && r.parsed.kind === 'secret') { setDir('left'); setPage('vault'); setSeq((s) => s + 1) }
-       else if (r.parsed && r.parsed.kind === 'note') { setDir('left'); setPage('notes'); setSeq((s) => s + 1) }
-       else setPage('home')
+       // 存完**不切页**:连记三件事的人不用每存一条就点一次「首页」。
+       // 想去那类里看,回执上有「去看看」按钮(goPage)。
      }, [showReply])
 
      const onCaptureFail = useCallback(() => {
@@ -560,8 +558,10 @@
              h('div', { key: 't', className: '__dk_titlewrap' }, [
                h('div', { key: 'tt', className: '__dk_title' }, [
                  TITLES[page] || '随手台',
-                 h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: '重要等级:' + lv.name }, [
-                   h('i', { key: 'i' }), lv.code + ' ' + lv.name,
+                 // 只显示中文档位名:「L3 备查」对头一天用的人只是三个字 + 一个数字要他去猜。
+                 // 代号留在 tooltip 里,想深究的人一样查得到。
+                 h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: lv.code + ' · ' + lv.name + ':' + (lv.hint || '') }, [
+                   h('i', { key: 'i' }), lv.name,
                  ]),
                ]),
                // 标题下面一条轻量状态:日期 + 待办,不用切到首页也知道今天有没有事
@@ -592,7 +592,7 @@
                intake(files)
              },
            }, [
-             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: (t) => showReply(t) }),
+             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: (t) => showReply(t), onGo: goTo }),
              err ? h(ErrorBar, { key: 'err', text: err, onRetry: load }) : null,
              // key 带 seq:切页整块重建,滑屏动画才会重放
              h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page __dk_page--' + dir },
