@@ -24,6 +24,7 @@
     "LICENSE",
     "docs",
     "CHANGELOG.md",
+    "domains",
     "src",
     "test"
   ],
