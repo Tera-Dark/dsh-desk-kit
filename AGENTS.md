@@ -32,5 +32,5 @@ npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址�
 
 ## 当前状态
 
-- 版本 1.24.0，27 个 Agent 工具。界面基调(极简单色)见 `docs/DESIGN.md`，改样式前先读。
+- 版本 1.25.0，27 个 Agent 工具。界面基调(极简单色)见 `docs/DESIGN.md`，改样式前先读。
 - 已知待办：store 按域拆分、动作表收敛、历史视觉层清理、空 catch 收敛（见 `docs/ARCHITECTURE.md`）。
