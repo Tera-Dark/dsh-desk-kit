@@ -4,9 +4,48 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync, readdirSync } fro
 import { randomBytes } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DeskStore, localYmd, occurrenceOf, parseClock } from './store.js'
+import { DeskStore, attentionScore, localYmd, occurrenceOf, parseClock } from './store.js'
 
 const fresh = () => new DeskStore(mkdtempSync(join(tmpdir(), 'desk-kit-')))
+
+test('常用度:只看权重,不看标题 —— 用过 > 刚建 > 很久没碰过', () => {
+  const day = 86400000
+  const now = Date.now()
+  const old = { text: '很久以前的资料', createdAt: now - 90 * day, updatedAt: now - 90 * day }
+  const fresh = { text: '刚记的', createdAt: now, updatedAt: now }
+  const used = { text: '上周记的,这几天翻过三次', createdAt: now - 7 * day, updatedAt: now - 7 * day, views: 3, lastViewedAt: now }
+  assert.ok(attentionScore(used, now) > attentionScore(fresh, now), '用过的要压过刚建的')
+  assert.ok(attentionScore(fresh, now) > attentionScore(old, now), '刚建的压过很久没碰的')
+  // 常用度是饱和的:看 200 遍不该把别的永远按住
+  const hoarder = { createdAt: now - 90 * day, updatedAt: now - 90 * day, views: 200, lastViewedAt: now - 30 * day }
+  assert.ok(attentionScore(hoarder, now) < 1.2, '长期高次数的上限要封住')
+})
+
+test('便签排序:置顶第一,其次常用,再按新的在前', () => {
+  const s = fresh()
+  const day = 86400000
+  const now = Date.now()
+  const a = s.addNote({ text: '买牛奶' })
+  const b = s.addNote({ text: '常看的那条' })
+  const c = s.addNote({ text: '刚记的' })
+  for (const n of s.data.notes) {
+    if (n.id === a.id) { n.createdAt = now - 90 * day; n.updatedAt = n.createdAt }
+    if (n.id === b.id) { n.createdAt = now - 7 * day; n.updatedAt = n.createdAt }
+  }
+  s.touchNote(b.id)
+  const order = s.listNotes().map((n) => n.id)
+  assert.equal(order[0], b.id, '看过的排最前')
+  assert.equal(order[1], c.id, '刚记的第二')
+  assert.equal(order[2], a.id, '很久没碰的沉底')
+  s.updateNote(a.id, { pinned: true })
+  assert.equal(s.listNotes()[0].id, a.id, '置顶永远压过权重')
+  // 看过一次只加计数,不动内容时间(排序理由和「改过」分开)
+  const before = s.data.notes.find((n) => n.id === b.id).updatedAt
+  s.touchNote(b.id)
+  const after = s.data.notes.find((n) => n.id === b.id)
+  assert.equal(after.views, 2)
+  assert.equal(after.updatedAt, before)
+})
 
 test('便签:增改查删 + 置顶排序', () => {
   const s = fresh()

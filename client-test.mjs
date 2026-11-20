@@ -93,6 +93,20 @@ test('首页极简:今天 + 最近记的,不再有分类列表', () => {
   assert.ok(!html.includes('__dk_navrow'), '分类列表应交给底栏')
 })
 
+test('首页「最近记的」按新建时间,不跟着服务端的常用排序走', () => {
+  const now = Date.now()
+  // 服务端按常用度排:老的那条在最前。首页这一栏的标题是「最近记的」,要按时间重排。
+  const st = {
+    ...state,
+    notes: [
+      { id: 'n-old', text: '三个月前的老笔记', tags: [], pinned: false, archived: false, createdAt: now - 90 * 86400000, updatedAt: now, views: 9, lastViewedAt: now },
+      { id: 'n-new', text: '今天刚记的', tags: [], pinned: false, archived: false, createdAt: now, updatedAt: now, views: 0, lastViewedAt: 0 },
+    ],
+  }
+  const html = renderToString(h(T.Home, { state: st, run, onLink: () => {} }))
+  assert.ok(html.indexOf('今天刚记的') < html.indexOf('三个月前的老笔记'), '新的排前面')
+})
+
 test('提醒页仍可手动新增/编辑', () => {
   const html = renderToString(h(T.RemindersPage, { state, run }))
   assert.ok(html.includes('新提醒'))

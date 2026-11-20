@@ -99,8 +99,10 @@
      const doneCount = todays.filter((r) => r.done).length
      const activeNotes = (state.notes || []).filter((n) => !n.archived
        && !((n.deletedAt || 0) > 0) && !((n.completedAt || 0) > 0) && n.shelf !== 'long')
-     const latest = activeNotes.slice(0, 3)
-     // 常去:置顶优先,其余按最近打开 —— 首页直接点,不用先进「网页」页
+     // 「最近记的」就是最近记的:服务端按常用度排过序,这里按新建时间重新取前三条,
+     // 不然标签说「最近」、列表却是「最常用」。
+     const latest = activeNotes.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 3)
+     // 常去:置顶优先,其余按「用过几次 × 多久没碰」—— 首页直接点,不用先进「网页」页
      const quick = (state.links || []).slice(0, 8)
 
      const row = (r, withCheck) => h('div', { key: r.id, className: '__dk_row' + (r.done ? ' __dk_done' : '') + (r.status === 'pending' && !r.done ? ' __dk_row--act' : '') }, [

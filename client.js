@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.24.0'
+   const VERSION = '1.25.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -1733,8 +1733,10 @@ window.__ModuleLoader__.load({
      const doneCount = todays.filter((r) => r.done).length
      const activeNotes = (state.notes || []).filter((n) => !n.archived
        && !((n.deletedAt || 0) > 0) && !((n.completedAt || 0) > 0) && n.shelf !== 'long')
-     const latest = activeNotes.slice(0, 3)
-     // 常去:置顶优先,其余按最近打开 —— 首页直接点,不用先进「网页」页
+     // 「最近记的」就是最近记的:服务端按常用度排过序,这里按新建时间重新取前三条,
+     // 不然标签说「最近」、列表却是「最常用」。
+     const latest = activeNotes.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 3)
+     // 常去:置顶优先,其余按「用过几次 × 多久没碰」—— 首页直接点,不用先进「网页」页
      const quick = (state.links || []).slice(0, 8)
 
      const row = (r, withCheck) => h('div', { key: r.id, className: '__dk_row' + (r.done ? ' __dk_done' : '') + (r.status === 'pending' && !r.done ? ' __dk_row--act' : '') }, [
@@ -2230,8 +2232,12 @@ window.__ModuleLoader__.load({
      }
      const cancelEdit = async () => {
        const loose = editNew.slice()
+       const seenId = editing
        setEditing(''); setEditText(''); setEditFiles([]); setEditRemoved([]); setEditNew([])
        for (const id of loose) { try { await run('file.delete', { id }) } catch { /* 同上 */ } }
+       // 打开看过就算「用过一次」,下次它排前面。保存走 update(本身有 updatedAt),
+       // 取消才需要单独记一笔。
+       if (seenId) { try { await run('note.touch', { id: seenId }) } catch { /* 记不上不影响 */ } }
      }
      const saveEdit = async (n) => {
        const ids = editFiles.map((f) => f.id)
@@ -2400,7 +2406,7 @@ window.__ModuleLoader__.load({
              h('div', { key: 'act', className: '__dk_iact __dk_iact--bar' }, [
                h('button', {
                  key: 'cp', className: '__dk_mini', title: '复制', 'aria-label': '复制',
-                 onClick: () => { if (copy(n.text)) say('已复制到剪贴板') },
+                 onClick: () => { if (copy(n.text)) { say('已复制到剪贴板'); run('note.touch', { id: n.id }) } },
                }, h(Ico, { name: 'copy', size: 14 })),
                ...actions,
              ]),

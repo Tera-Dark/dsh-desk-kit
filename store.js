@@ -193,6 +193,10 @@ function normalizeNote(raw, now) {
     deletedAt: asInt(raw.deletedAt),
     createdAt: asInt(raw.createdAt, now),
     updatedAt: asInt(raw.updatedAt, now),
+    // 常用度:看过/改过几次、最后一次是什么时候。老数据没有这两个字段就是 0,
+    // 排序时按「新建 + 更新时间」兜底,不需要迁移。
+    views: Math.max(0, asInt(raw.views)),
+    lastViewedAt: asInt(raw.lastViewedAt),
   }
 }
 
@@ -362,6 +366,57 @@ export function occurrenceOf(reminder, now = new Date()) {
  * 就永远等到当天才提醒 —— 提前量形同虚设。这里补上"向前找":
  *   annual/lunar 最多找 400 天,weekdays 最多找 7 天,date 只看当天。
  */
+const DAY_MS = 86400000
+
+/** 半衰:多少天后权重剩一半。新东西衰减快(新鲜感过了就该让位),常用度衰减慢。 */
+const HALF_FRESH_DAYS = 3
+const HALF_USED_DAYS = 10
+
+const decay = (at, now, halfDays) => {
+  const t = Number(at) || 0
+  if (!t) return 0
+  const days = Math.max(0, (now - t) / DAY_MS)
+  return Math.pow(0.5, days / halfDays)
+}
+
+/**
+ * 一条记录的「注意力权重」:谁该排在前面。
+ *
+ * 三件事叠加,各自都想得明白:
+ * 1. **新鲜**:刚建的、一次都没碰过的东西给 0.12(3 天半衰)。新东西本来就已经靠
+ *    「新近」拿到高分,这一项只是让「刚存的」压过「很久没碰过的」,不该压过「刚点开过的」——
+ *    所以它比「用过一次」的加成小。
+ * 2. **新近**:最后一次被用到(看过 / 打开过 / 改过)有多近(10 天半衰)。
+ * 3. **常用**:用过几次,对数饱和 —— 第 1 次就有明显加成,第 15 次之后不再涨,
+ *    免得一条看了 200 遍的老记录永远压着别的。
+ *
+ * 置顶不在这里算:置顶是「我说了算」,永远在权重之上。
+ */
+export function attentionScore(x, now = Date.now()) {
+  if (!x) return 0
+  const created = Number(x.createdAt) || 0
+  const used = Math.max(
+    Number(x.lastViewedAt) || 0,
+    Number(x.lastOpenedAt) || 0,
+    Number(x.updatedAt) || 0,
+    created,
+  )
+  const count = Math.max(Number(x.views) || 0, Number(x.hits) || 0)
+  const fresh = count ? 0 : 0.12 * decay(created, now, HALF_FRESH_DAYS)
+  const recent = 0.5 * decay(used, now, HALF_USED_DAYS)
+  const often = 0.6 * Math.min(1, Math.log2(1 + count) / 4)
+  return fresh + recent + often
+}
+
+/** 排序:置顶 → 权重 → 时间倒序(同分时 newest first,顺序才稳定)。 */
+function byAttention(a, b, now) {
+  const pin = (Number(b.pinned) - Number(a.pinned))
+  if (pin) return pin
+  const d = attentionScore(b, now) - attentionScore(a, now)
+  if (Math.abs(d) > 1e-9) return d
+  return (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+}
+
 export function nextOccurrence(reminder, now = new Date()) {
   const clock = parseClock(reminder.time)
   if (!clock) return null
@@ -721,7 +776,8 @@ export class DeskStore {
       // 用 String 兜底:手改过的 data.json 里可能有缺 text 的旧记录,
       // 一处 throw 会让整个搜索/快照永久报错。
       .filter((n) => !q || String(n.text || '').toLowerCase().includes(q) || (n.tags || []).join(' ').toLowerCase().includes(q))
-      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt)
+      // 置顶 → 常用/新近 → 时间。搜索结果也走这一套:常查的那几条本来就该在上面。
+      .sort((a, b) => byAttention(a, b, Date.now()))
   }
 
   /** 三个分类的条数,给界面显示小红点/角标用。 */
@@ -1354,6 +1410,16 @@ export class DeskStore {
     return { id: x.id, hits: x.hits, lastOpenedAt: x.lastOpenedAt }
   }
 
+  /** 看过一次便签:只记「看过」,不动 updatedAt —— 看不是改,别把排序时间戳搅乱。 */
+  touchNote(id) {
+    const n = this.data.notes.find((x) => x.id === id)
+    if (!n) return null
+    n.views = (n.views || 0) + 1
+    n.lastViewedAt = Date.now()
+    this.save()
+    return { id: n.id, views: n.views, lastViewedAt: n.lastViewedAt }
+  }
+
   deleteLink(id) {
     const x = this.data.links.find((l) => l.id === id)
     if (!x) throw new Error('找不到网页 ' + id)
@@ -1395,9 +1461,7 @@ export class DeskStore {
 
   /** 活跃网页:置顶 → 最近打开 → 新收的在前。 */
   listLinks(view = 'all') {
-    const sort = (a, b) => (Number(b.pinned) - Number(a.pinned))
-      || ((b.lastOpenedAt || 0) - (a.lastOpenedAt || 0))
-      || ((b.createdAt || 0) - (a.createdAt || 0))
+    const sort = (a, b) => byAttention(a, b, Date.now())
     if (view === 'trash') {
       return this.data.links.filter((l) => (l.deletedAt || 0) > 0).sort((a, b) => b.deletedAt - a.deletedAt)
     }

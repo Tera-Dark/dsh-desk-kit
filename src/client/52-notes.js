@@ -137,8 +137,12 @@
      }
      const cancelEdit = async () => {
        const loose = editNew.slice()
+       const seenId = editing
        setEditing(''); setEditText(''); setEditFiles([]); setEditRemoved([]); setEditNew([])
        for (const id of loose) { try { await run('file.delete', { id }) } catch { /* 同上 */ } }
+       // 打开看过就算「用过一次」,下次它排前面。保存走 update(本身有 updatedAt),
+       // 取消才需要单独记一笔。
+       if (seenId) { try { await run('note.touch', { id: seenId }) } catch { /* 记不上不影响 */ } }
      }
      const saveEdit = async (n) => {
        const ids = editFiles.map((f) => f.id)
@@ -307,7 +311,7 @@
              h('div', { key: 'act', className: '__dk_iact __dk_iact--bar' }, [
                h('button', {
                  key: 'cp', className: '__dk_mini', title: '复制', 'aria-label': '复制',
-                 onClick: () => { if (copy(n.text)) say('已复制到剪贴板') },
+                 onClick: () => { if (copy(n.text)) { say('已复制到剪贴板'); run('note.touch', { id: n.id }) } },
                }, h(Ico, { name: 'copy', size: 14 })),
                ...actions,
              ]),

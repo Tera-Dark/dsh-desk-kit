@@ -635,6 +635,7 @@ async function act(ctx, s, action, payload) {
     // 统一查找(面板里搜的是本地快照,这个给工具和「搜索兜底」用)
     case 'search.all': return s.searchAll(payload.query, { includeTrash: !!payload.includeTrash, deepVault: !!payload.deepVault })
     case 'file.attach': return s.attachFiles(String(payload.kind || 'note'), String(payload.ownerId || ''), payload.ids || [])
+    case 'note.touch': return s.touchNote(String(payload.id || ''))   // 只记「看过」,不改内容
     case 'note.update': return s.updateNote(payload.id, payload)
     case 'note.delete': return s.deleteNote(payload.id)      // 软删:进垃圾箱
     case 'note.restore': return s.restoreNote(payload.id)    // 从垃圾箱恢复
