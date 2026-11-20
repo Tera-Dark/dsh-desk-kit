@@ -179,4 +179,17 @@ export const notes = {
       trash: notes.filter((n) => (n.deletedAt || 0) > 0).length,
     }
   },
+
+  /**
+   * 记一次「看/用了」:只动 views 与 lastViewedAt(排序用),
+   * 不动 updatedAt —— 看不是改。
+   */
+  touchNote(id) {
+    const n = this.data.notes.find((x) => x.id === id)
+    if (!n) return null
+    n.views = (n.views || 0) + 1
+    n.lastViewedAt = Date.now()
+    this.save()
+    return { id: n.id, views: n.views, lastViewedAt: n.lastViewedAt }
+  }
 }
