@@ -161,6 +161,18 @@ const asInt = (v, fallback = 0) => {
 const asClamp = (v, min, max, fallback) => Math.max(min, Math.min(max, asInt(v, fallback)))
 const asList = (v) => (Array.isArray(v) ? v.map(String).filter(Boolean) : [])
 const asId = (v) => (typeof v === 'string' ? v.trim().slice(0, 120) : '')
+/**
+ * 这次的点是不是早于「登记这条提醒」本身:早于它的点不该被说成「你错过了」。
+ * 只在「问的时间已过登记时间」时成立 —— 拿一个早于登记的模拟时间去查(测试、补算)
+ * 时按原样回答,免得把「未来」问成「过去」。
+ */
+function beforeCreated(r, occ, nowMs) {
+  if (!occ) return false
+  const created = Number(r && r.createdAt) || 0
+  if (!created || nowMs < created) return false
+  return occ.getTime() < created - 5 * 60000
+}
+
 const clockText = (c) => String(c.h).padStart(2, '0') + ':' + String(c.m).padStart(2, '0')
 
 function normalizeNote(raw, now) {
@@ -788,17 +800,17 @@ export class DeskStore {
       this.save()
       return { ...same, deduped: true }
     }
-    // 新登记的重复提醒,如果今天这次的点已经过去了一阵,别立刻在右下角报「你错过了」。
-    // 下午三点登记「每天早上 7:50 吃药」,要的是从明早开始,不是被告知今天已经错过。
-    // 只超过 5 分钟以上才算「过去的点」:刚刚到点的(hh:mm 截到分)照常响。
-    // 一次性提醒(明说了日期)不动:那本来就是用户指定的那一天。
+    // 新登记的重复提醒,如果今天这次的点在你登记之前就已经过去,别立刻说「你错过了」——
+    // 下午三点登记「每天早上 7:50 吃药」,要的是从明早开始。
+    //
+    // 判断基准是「这次的点 vs 登记时间」,不写死某个日期:
+    // 写 silencedDates 会把「今天」固化下来,测试和跨时区补算都按别的 now 查一次就错位;
+    // 用 createdAt 推导,任何时候拿任意 now 来问都得到同一个答案。
+    // 只超过 5 分钟以上才算「过去」:刚刚到点的那次照常响。一次性(明说了日期)不动。
     if (!reminder.date) {
       const todayAt = occurrenceOf(reminder, new Date(now))
       const dueFrom = todayAt ? todayAt.getTime() - (reminder.leadMin || 0) * 60000 : 0
-      if (todayAt && dueFrom <= now - 5 * 60000) {
-        reminder.silencedDates.push(localYmd(new Date(now)))
-        reminder.startTomorrow = true
-      }
+      if (todayAt && dueFrom <= now - 5 * 60000) reminder.startTomorrow = true
     }
     this.data.reminders.push(reminder)
     this.save()
@@ -956,6 +968,8 @@ export class DeskStore {
         let status = 'idle'
         if (!r.active) status = 'paused'
         else if (done) status = 'done'
+        // 登记之前就已经过去的点:今天不吵,理由挂在 startTomorrow 上给界面用。
+        else if (occ && localYmd(occ) === today && beforeCreated(r, occ, now.getTime())) status = 'silenced'
         else if (occ && localYmd(occ) === today && (r.silencedDates || []).includes(today)) status = 'silenced'
         else if (!occ) status = r.date && r.date < today ? 'expired' : 'no-next'
         else if (now.getTime() >= occ.getTime() - (r.leadMin || 0) * 60000) status = 'pending'
@@ -964,6 +978,7 @@ export class DeskStore {
           ...r,
           today,
           dueDate,
+          startTomorrow: beforeCreated(r, occ, now.getTime()),
           done: done || doneToday,
           occurrenceAt: occ ? occ.getTime() : null,
           status,
@@ -998,6 +1013,8 @@ export class DeskStore {
       // 「知道了」= 今天这条不再提。之前 ack 只标记那条 alert,tick 20 分钟后又造一条新的,
       // 按钮写着「不再提醒」却在弹 —— 现在按日期记在提醒上。
       if ((r.silencedDates || []).includes(today)) continue
+      // 这次的点早于登记时间(超过 5 分钟宽限):本来就不存在,不补「错过」。
+      if (!r.date && beforeCreated(r, occ, nowMs)) continue
       const dueFrom = occ.getTime() - (r.leadMin || 0) * 60000
       if (nowMs < dueFrom) continue
       if (r.snoozeUntil && nowMs < r.snoozeUntil) continue

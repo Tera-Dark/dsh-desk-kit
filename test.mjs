@@ -1037,7 +1037,7 @@ test('重复提醒登记时今天的点已过:从明天开始,不立刻报「错
   const past = String(pastH).padStart(2, '0') + ':00'
   const r = s.addReminder({ title: '吃药', time: past })
   assert.equal(r.startTomorrow, true, '要标记从明天开始')
-  assert.ok(r.silencedDates.includes(localYmd(now)), '今天这一天静音')
+  assert.deepEqual(r.silencedDates, [], '不写死日期:静音是从 createdAt 推出来的')
   assert.equal(s.tick(now.getTime()), 0, '不该立刻造一张「错过的提醒」')
   const row = s.todayView(now).find((x) => x.id === r.id)
   assert.equal(row.status, 'silenced')
