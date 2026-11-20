@@ -21,6 +21,36 @@ test('常用度:只看权重,不看标题 —— 用过 > 刚建 > 很久没碰�
   assert.ok(attentionScore(hoarder, now) < 1.2, '长期高次数的上限要封住')
 })
 
+test('常用度:单调性成立 —— 越近越高、次数越多越高、封顶 1.5', () => {
+  const day = 86400000
+  const now = new Date('2026-11-20T12:00:00').getTime()
+  // ① 时间越近分越高(没人碰过的那批,只有「新鲜 + 新近」两项)
+  let prev = -1
+  for (const age of [365, 90, 30, 7, 1, 0]) {
+    const score = attentionScore({ createdAt: now - age * day }, now)
+    assert.ok(score > prev, age + ' 天前建的不该压过更近的')
+    prev = score
+  }
+  // ② 同样新近,次数越多分越高(对数饱和:15 次以后不再涨,所以只断言不降)
+  prev = -1
+  for (let count = 0; count <= 60; count++) {
+    const score = attentionScore({ createdAt: now, updatedAt: now, views: count }, now)
+    if (count <= 15) assert.ok(score > prev, '第 ' + count + ' 次使用该有加成')
+    else assert.equal(Math.round(score * 1e6), Math.round(prev * 1e6), '15 次以后饱和')
+    prev = score
+  }
+  // ③ 任意组合都不越界,且封顶 1.5
+  for (const age of [0, 1, 3, 10, 100, 5000]) {
+    for (const count of [0, 1, 4, 15, 200]) {
+      const score = attentionScore({
+        createdAt: now - age * day, updatedAt: now - age * day,
+        views: count, lastViewedAt: now - age * day,
+      }, now)
+      assert.ok(score >= 0 && score <= 1.5, '分数要在 0~1.5:' + score)
+    }
+  }
+})
+
 test('便签排序:置顶第一,其次常用,再按新的在前', () => {
   const s = fresh()
   const day = 86400000
