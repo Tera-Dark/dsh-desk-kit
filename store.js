@@ -18,6 +18,8 @@ import { isRealDate, localYmd, parseClock, beforeCreated, occurrenceOf, nextOccu
 import { byAttention } from './rank.js'
 import { notes, inferShelf } from './domains/notes.js'
 import { reminders } from './domains/reminders.js'
+import { links, normalizeUrl, normalizeGroup, normalizeCollection } from './domains/links.js'
+import { vault } from './domains/vault.js'
 
 // 导出面不变:test.mjs 直接从 store.js 拿这四个来验时间计算,调用方不用改。
 export { isRealDate, localYmd, parseClock, occurrenceOf, nextOccurrence } from './time.js'
@@ -329,7 +331,7 @@ export function titleFromText(text, url, fallback = '') {
   return t.slice(0, 80)
 }
 
-function readJson(file, fallback) {
+export function readJson(file, fallback) {
   try {
     const raw = readFileSync(file, 'utf8')
     return JSON.parse(raw)
@@ -347,7 +349,7 @@ function readJson(file, fallback) {
   }
 }
 
-function writeJson(file, value) {
+export function writeJson(file, value) {
   mkdirSync(dirname(file), { recursive: true })
   const tmp = file + '.tmp-' + process.pid + '-' + randomBytes(2).toString('hex')
   writeFileSync(tmp, JSON.stringify(value, null, 2))
@@ -442,97 +444,6 @@ export class DeskStore {
       this._stamp = stamp
     }
     return this
-  }
-
-  // ---------------- 网页收藏 ----------------
-
-  /** 网址归一化:没写协议补 https://,顺手把跟踪参数和末尾斜杠去掉。 */
-  static normalizeUrl(input) {
-    let u = String(input || '').trim()
-    if (!u) throw new Error('网址不能为空')
-    if (!/^https?:\/\//i.test(u)) {
-      if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+([/?#]|$)/i.test(u)) throw new Error('网址看起来不对:' + u)
-      u = 'https://' + u
-    }
-    let url
-    try { url = new URL(u) } catch { throw new Error('网址看起来不对:' + u) }
-    // 网址里带 user:pass 会明文躺进 data.json,书签也用不上,直接丢掉
-    if (url.username || url.password) { url.username = ''; url.password = '' }
-    // www 和不带 www 视为同一个站点(同一个页面存两遍的常见来源)
-    if (url.hostname.startsWith('www.')) url.hostname = url.hostname.slice(4)
-    // 常见的分享跟踪参数留着没用,反而让同一条链接存两遍
-    for (const k of [...url.searchParams.keys()]) {
-      if (/^(utm_|spm$|from$|share_|ref$|fbclid$|gclid$)/i.test(k)) url.searchParams.delete(k)
-    }
-    let out = url.toString()
-    if (out.endsWith('/') && !url.search && !url.hash) out = out.slice(0, -1)
-    return out.slice(0, 2000)
-  }
-
-  /** 分类名归一化:去掉首尾空白和符号,空 = 未分类。 */
-  static normalizeGroup(input) {
-    return String(input || '').trim().replace(/^[#\s]+/, '').replace(/\s+/g, ' ').slice(0, 24)
-  }
-
-  /** 保险库合集名:只做轻量清洗,不强迫用户拆字段。 */
-  static normalizeCollection(input) {
-    return String(input || '').trim().replace(/^[#\s]+/, '').replace(/\s+/g, ' ').slice(0, 32)
-  }
-
-  /** 网页:一条一条存的常用入口(手机桌面那种格子)。 */
-  addLink(input = {}) {
-    const url = DeskStore.normalizeUrl(input.url)
-    const now = Date.now()
-    const title = String(input.title || '').trim().slice(0, 80) || hostOf(url)
-    const link = {
-      id: uid('w-'),
-      title,
-      url,
-      group: DeskStore.normalizeGroup(input.group),
-      icon: String(input.icon || '').trim().slice(0, 400),
-      note: String(input.note || '').slice(0, 2000),
-      pinned: !!input.pinned,
-      hits: 0,
-      lastOpenedAt: 0,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: 0,
-    }
-    // 同一条链接不存两遍:已经有了就把它顶回前面(顺手补上分类/图标)
-    const same = this.data.links.find((x) => !((x.deletedAt || 0) > 0) && x.url === url)
-    if (same) {
-      if (link.group && !same.group) same.group = link.group
-      if (link.icon && !same.icon) same.icon = link.icon
-      if (input.title && !same.title) same.title = link.title
-      // 同一条链接又补了一句用途:别把备注丢了,也别把旧的一句顶掉
-      if (link.note && !same.note) same.note = link.note
-      else if (link.note && !same.note.includes(link.note) && same.note.length < 200) same.note = (same.note + ' · ' + link.note).slice(0, 2000)
-      same.updatedAt = now
-      this.save()
-      return { ...same, deduped: true }
-    }
-    this.data.links.unshift(link)
-    this.save()
-    return link
-  }
-
-  updateLink(id, patch = {}) {
-    const x = this.data.links.find((l) => l.id === id)
-    if (!x) throw new Error('找不到网页 ' + id)
-    if (typeof patch.title === 'string' && patch.title.trim()) x.title = patch.title.trim().slice(0, 80)
-    if (typeof patch.url === 'string') {
-      const url = DeskStore.normalizeUrl(patch.url)
-      const clash = this.data.links.find((l) => l.id !== id && !((l.deletedAt || 0) > 0) && l.url === url)
-      if (clash) throw new Error('这个网址已经收过了:' + clash.title)
-      x.url = url
-    }
-    if (patch.group !== undefined) x.group = DeskStore.normalizeGroup(patch.group)
-    if (typeof patch.icon === 'string') x.icon = patch.icon.trim().slice(0, 400)
-    if (typeof patch.note === 'string') x.note = patch.note.slice(0, 2000)
-    if (typeof patch.pinned === 'boolean') x.pinned = patch.pinned
-    x.updatedAt = Date.now()
-    this.save()
-    return x
   }
 
   // ---------------- 转存:分错了自己挪 ----------------
@@ -1315,267 +1226,6 @@ export class DeskStore {
       .map((f) => ({ ...f }))
   }
 
-  // ---------------- 保险库 ----------------
-
-  vaultRaw() {
-    const v = readJson(this.vaultFile, null)
-    if (!v || v.v !== 1) {
-      const fresh = { v: 1, kdf: { alg: 'scrypt', salt: randomBytes(16).toString('base64') }, entries: [] }
-      writeJson(this.vaultFile, fresh)
-      return fresh
-    }
-    if (!Array.isArray(v.entries)) v.entries = []
-    return v
-  }
-
-  masterKey() {
-    let secret = ''
-    try {
-      secret = readFileSync(this.keyFile, 'utf8').trim()
-    } catch {
-      secret = ''
-    }
-    if (!secret) {
-      secret = randomBytes(48).toString('hex')
-      mkdirSync(this.root, { recursive: true })
-      writeFileSync(this.keyFile, secret, { mode: 0o600 })
-      try { chmodSync(this.keyFile, 0o600) } catch { }
-    }
-    const vault = this.vaultRaw()
-    const salt = vault.kdf.salt
-    // 缓存:scrypt 一次 ~80ms,贴几张图就卡;但密钥材料换了必须重算(换机/被清掉)
-    if (this._mk && this._mkSalt === salt && this._mkSecret === secret) return this._mk
-    const key = scryptSync(secret, Buffer.from(salt, 'base64'), 32)
-    this._mk = key
-    this._mkSalt = salt
-    this._mkSecret = secret
-    return key
-  }
-
-  encryptPayload(payload) {
-    const key = this.masterKey()
-    const iv = randomBytes(12)
-    const cipher = createCipheriv('aes-256-gcm', key, iv)
-    const data = Buffer.concat([cipher.update(JSON.stringify(payload), 'utf8'), cipher.final()])
-    return { iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: data.toString('base64') }
-  }
-
-  decryptPayload(entry, key) {
-    const k = key || this.masterKey()
-    const decipher = createDecipheriv('aes-256-gcm', k, Buffer.from(entry.iv, 'base64'))
-    decipher.setAuthTag(Buffer.from(entry.tag, 'base64'))
-    const out = Buffer.concat([decipher.update(Buffer.from(entry.data, 'base64')), decipher.final()])
-    return JSON.parse(out.toString('utf8'))
-  }
-
-  /** 同一合集里下一个排序号;老数据没有 order 时从 1 开始。 */
-  nextSecretOrder(collection, exceptId = '') {
-    const target = DeskStore.normalizeCollection(collection)
-    let max = 0
-    for (const e of this.vaultRaw().entries) {
-      if (exceptId && e.id === exceptId) continue
-      if (DeskStore.normalizeCollection(e.collection) !== target) continue
-      const n = Number(e.order)
-      if (Number.isFinite(n) && n > max) max = n
-    }
-    return max + 1
-  }
-
-  addSecret(input = {}) {
-    const title = String(input.title || '').trim()
-    if (!title) throw new Error('条目标题不能为空')
-    const fields = {}
-    if (input.fields && typeof input.fields === 'object') {
-      for (const [k, v] of Object.entries(input.fields)) {
-        const key = String(k).trim()
-        if (!key) continue
-        const val = String(v ?? '')
-        if (val) fields[key] = val.slice(0, 8000)
-      }
-    }
-    for (const [k, v] of [['用户名', input.username], ['密码', input.password], ['网址', input.url]]) {
-      if (v) fields[k] = String(v).slice(0, 8000)
-    }
-    // 自由正文:整段存,不拆字段(用户说"正常需求很复杂")
-    const body = String(input.body || '').trim()
-    if (body && !Object.keys(fields).length) fields['内容'] = body.slice(0, 8000)
-    const fileIds = this.pickFileIds(input.files)
-    const noteText = String(input.note || '').slice(0, 4000)
-    // 只有附件、或只有一段说明,也算一条(一张截图 + 标题就是很多人的记法);
-    // 转存进来的条目往往就是「标题 + 说明」,不能在这里被拦下
-    if (!Object.keys(fields).length && !fileIds.length && !noteText.trim()) throw new Error('至少要有一点内容')
-    const vault = this.vaultRaw()
-    const now = Date.now()
-    const blob = this.encryptPayload({ fields, note: String(input.note || '').slice(0, 4000), files: fileIds })
-    const collection = DeskStore.normalizeCollection(input.collection)
-    const entry = {
-      id: uid('s-'),
-      title: title.slice(0, 120),
-      tags: Array.isArray(input.tags) ? input.tags.map(String).filter(Boolean).slice(0, 12) : [],
-      collection,
-      // 同一合集内按 order 升序;新条目先放末尾,用户可拖动重排
-      order: this.nextSecretOrder(collection),
-      createdAt: now,
-      updatedAt: now,
-      ...blob,
-    }
-    vault.entries.unshift(entry)
-    writeJson(this.vaultFile, vault)
-    // 附件在写密文成功之后才加密搬迁:先建后改,失败也不丢原件
-    for (const id of fileIds) {
-      try { this.setFileSecret(id, true); this.attachFiles('secret', entry.id, [id]) } catch { /* 搬不动就留在外面,数据还在 */ }
-    }
-    return { id: entry.id, title: entry.title, tags: entry.tags, collection: entry.collection, createdAt: now }
-  }
-
-  listSecrets() {
-    return this.vaultRaw().entries.map((e) => ({
-      id: e.id, title: e.title, tags: e.tags || [],
-      collection: DeskStore.normalizeCollection(e.collection),
-      order: Number.isFinite(Number(e.order)) ? Number(e.order) : 0,
-      createdAt: e.createdAt, updatedAt: e.updatedAt,
-      fieldCount: 0,
-    }))
-  }
-
-  findSecret(query) {
-    const q = String(query || '').trim().toLowerCase()
-    const entries = this.vaultRaw().entries
-    if (!q) return null
-    return entries.find((e) => e.id === query) || entries.find((e) => e.title.toLowerCase() === q) || entries.find((e) => e.title.toLowerCase().includes(q))
-  }
-
-  getSecret(query) {
-    const entry = this.findSecret(query)
-    if (!entry) return null
-    const payload = this.decryptPayload(entry)
-    return {
-      id: entry.id, title: entry.title, tags: entry.tags || [],
-      collection: DeskStore.normalizeCollection(entry.collection),
-      order: Number.isFinite(Number(entry.order)) ? Number(entry.order) : 0,
-      createdAt: entry.createdAt, updatedAt: entry.updatedAt,
-      fields: payload.fields || {}, note: payload.note || '',
-      // 只给元信息;原件走 /desk-kit-api/files/<id>(读的时候才解密)
-      files: (Array.isArray(payload.files) ? payload.files : [])
-        .map((fid) => (this.data.files || []).find((f) => f.id === fid))
-        .filter(Boolean)
-        .map((f) => ({ ...f })),
-    }
-  }
-
-  deleteSecret(query) {
-    const entry = this.findSecret(query)
-    if (!entry) throw new Error('找不到条目 ' + query)
-    let fileIds = []
-    try { fileIds = this.decryptPayload(entry).files || [] } catch { /* 解不开就按记录里的归属清 */ }
-    const vault = this.vaultRaw()
-    vault.entries = vault.entries.filter((e) => e.id !== entry.id)
-    writeJson(this.vaultFile, vault)
-    // 只删「还挂在这条名下」的附件:转存时已经搬到别处的不算,不能跟着一起清
-    const owned = (this.data.files || [])
-      .filter((f) => (f.kind === 'secret' && f.ownerId === entry.id) || (!f.kind && fileIds.includes(f.id)))
-      .map((f) => f.id)
-    this.dropFiles([...new Set(owned)])
-    return { deleted: entry.id, title: entry.title }
-  }
-
-  updateSecret(query, patch = {}) {
-    // 注意:必须在同一个 vault 对象里找条目并就地改 —— findSecret() 会重新读盘,
-    // 改到的副本写不回去(踩过一次:更新成功但读回还是旧值)。
-    const vault = this.vaultRaw()
-    const q = String(query || '').trim().toLowerCase()
-    const entry = vault.entries.find((e) => e.id === query)
-      || vault.entries.find((e) => e.title.toLowerCase() === q)
-      || vault.entries.find((e) => e.title.toLowerCase().includes(q))
-    if (!entry) throw new Error('找不到条目 ' + query)
-    const current = this.decryptPayload(entry)
-    const fields = { ...(current.fields || {}) }
-    if (patch.fields && typeof patch.fields === 'object') {
-      for (const [k, v] of Object.entries(patch.fields)) {
-        if (v === null || v === '') delete fields[String(k)]
-        else fields[String(k)] = String(v).slice(0, 8000)
-      }
-    }
-    // 编辑正文:整段替换字段(自由正文条目编辑后仍是一条「内容」)
-    if (typeof patch.body === 'string') {
-      const body = patch.body.trim()
-      if (!body) throw new Error('内容不能为空')
-      for (const k of Object.keys(fields)) delete fields[k]
-      fields['内容'] = body.slice(0, 8000)
-    }
-    if (patch.title) entry.title = String(patch.title).slice(0, 120)
-    if (Array.isArray(patch.tags)) entry.tags = patch.tags.map(String).filter(Boolean).slice(0, 12)
-    if (patch.collection !== undefined) {
-      const next = DeskStore.normalizeCollection(patch.collection)
-      if (next !== DeskStore.normalizeCollection(entry.collection)) {
-        entry.collection = next
-        entry.order = this.nextSecretOrder(next, entry.id)
-      }
-    }
-    if (patch.order !== undefined && Number.isFinite(Number(patch.order))) entry.order = Number(patch.order)
-    const note = typeof patch.note === 'string' ? patch.note.slice(0, 4000) : current.note || ''
-    let fileIds = Array.isArray(current.files) ? current.files.slice() : []
-    if (patch.files !== undefined) fileIds = this.pickFileIds(patch.files)
-    Object.assign(entry, this.encryptPayload({ fields, note, files: fileIds }))
-    entry.updatedAt = Date.now()
-    writeJson(this.vaultFile, vault)
-    // 加进来的加密、被移出去的还回明文;两边都失败也只是留在原状态,不会丢
-    const before = new Set(Array.isArray(current.files) ? current.files : [])
-    for (const id of fileIds) {
-      try { this.setFileSecret(id, true); this.attachFiles('secret', entry.id, [id]) } catch { }
-    }
-    for (const id of before) if (!fileIds.includes(id)) { try { this.setFileSecret(id, false) } catch { } }
-    return { id: entry.id, title: entry.title }
-  }
-
-  /**
-   * 合集内拖动排序:只接受当前合集里真实存在的 id,按传入顺序重编号。
-   * 不跨合集搬家(搬家请走 updateSecret 的 collection),避免拖一下改错归属。
-   */
-  reorderSecrets(collection, ids) {
-    const target = DeskStore.normalizeCollection(collection)
-    const vault = this.vaultRaw()
-    const wanted = Array.isArray(ids) ? ids.map(String) : []
-    const seen = new Set()
-    for (const id of wanted) {
-      if (!id || seen.has(id)) throw new Error('排序列表里有重复或空 id')
-      seen.add(id)
-    }
-    const byId = new Map(vault.entries.map((e) => [e.id, e]))
-    for (const id of wanted) {
-      const entry = byId.get(id)
-      if (!entry) throw new Error('排序列表里有不存在的条目:' + id)
-      if (DeskStore.normalizeCollection(entry.collection) !== target) {
-        throw new Error('不能把别的合集拖进来排序:' + entry.title)
-      }
-    }
-    // 传入的 id 先按新顺序占 0..n-1;没传到的同合集条目接在后面,
-    // 保持原有相对顺序,避免「只排了一部分」时出现重复 order。
-    let next = 0
-    for (const id of wanted) byId.get(id).order = next++
-    const rest = vault.entries
-      .filter((e) => DeskStore.normalizeCollection(e.collection) === target && !seen.has(e.id))
-      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
-    for (const e of rest) e.order = next++
-    writeJson(this.vaultFile, vault)
-    return { collection: target, count: wanted.length }
-  }
-
-  /** 整库导出(给「备份」按钮用)。vault 是密文,key 不在这里,要单独拷。 */
-  exportAll(now = new Date()) {
-    let vault = null
-    try { vault = readJson(this.vaultFile, null) } catch { vault = null }
-    return {
-      kind: 'dsh-desk-kit-backup',
-      version: 1,
-      exportedAt: now.toISOString(),
-      data: this.data,
-      vault,
-      // 附件原件不在这个 JSON 里:要完整备份得连 blobs/ 目录一起拷
-      note: 'vault.json 是密文,要还原保险库还需要 ~/.dsh/desk-kit/vault.key;附件原件在 blobs/ 目录,备份时要一起拷',
-    }
-  }
-
   // ---------------- 汇总 ----------------
 
   snapshot(now = new Date()) {
@@ -1615,12 +1265,29 @@ export class DeskStore {
       root: this.root,
     }
   }
+
+  /** 整库导出(给「备份」按钮用)。vault 是密文,key 不在这里,要单独拷。 */
+  exportAll(now = new Date()) {
+    let vault = null
+    try { vault = readJson(this.vaultFile, null) } catch { vault = null }
+    return {
+      kind: 'dsh-desk-kit-backup',
+      version: 1,
+      exportedAt: now.toISOString(),
+      data: this.data,
+      vault,
+      // 附件原件不在这个 JSON 里:要完整备份得连 blobs/ 目录一起拷
+      note: 'vault.json 是密文,要还原保险库还需要 ~/.dsh/desk-kit/vault.key;附件原件在 blobs/ 目录,备份时要一起拷',
+    }
+  }
 }
 
 // ---------------- 域方法挂载 ----------------
 // 用 mixin 而不是重写:方法还是那些方法,this.data / this.save() 一个字没变,
 // 只是搬家到 domains/ 下,store.js 只剩装配和持久化。
-Object.assign(DeskStore.prototype, notes, reminders)
+Object.assign(DeskStore.prototype, notes, reminders, links, vault)
 // 静态分拣规则:DeskStore.inferShelf 保持不变,域模块上也留一份同名引用。
 DeskStore.inferShelf = inferShelf
 notes.inferShelf = inferShelf
+// 静态规则:名字集合与拆分前一致(normalizeUrl / normalizeGroup / normalizeCollection)
+Object.assign(DeskStore, { normalizeUrl, normalizeGroup, normalizeCollection })
