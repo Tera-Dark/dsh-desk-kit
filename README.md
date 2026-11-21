@@ -9,8 +9,11 @@
 dsh plugin --profile desktop add github:Tera-Dark/dsh-desk-kit
 ```
 
----
+| 浅色面板 | 深色面板 |
+|---|---|
+| ![浅色](docs/screenshots/panel-light.png) | ![深色](docs/screenshots/panel-dark.png) |
 
+---
 ## 30 秒上手
 
 装完重启 DSH,从这几个地方打开(有哪个用哪个):
