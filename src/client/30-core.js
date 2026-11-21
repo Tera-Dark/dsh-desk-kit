@@ -28,7 +28,40 @@
 
    // 上一次快照的 ETag:内容没变时服务端回 304(不传那 1MB 的 JSON)
    let lastEtag = ''
-   let lastState = null
+
+   /**
+    * 上次的快照留在 localStorage 里。
+    * 为什么:打开标签页时要等「请求 → 解析 → React 首帧」才有内容,
+    * 本地服务再快也是一次往返;先把上次的样子画出来,再在后台对一次,
+    * 观感上就是「立刻打开」。只存快照(便签标题/提醒/网页),不存保险库明文。
+    */
+   const SNAP_KEY = 'dsh-desk-kit/snapshot-v1'
+   const SNAP_TTL = 7 * 24 * 3600 * 1000
+   const SNAP_MAX = 1500000
+   function readSnapCache() {
+     try {
+       if (typeof localStorage === 'undefined') return null
+       const raw = localStorage.getItem(SNAP_KEY)
+       if (!raw) return null
+       const box = JSON.parse(raw)
+       if (!box || !box.at || !box.state) return null
+       if (Date.now() - box.at > SNAP_TTL) { localStorage.removeItem(SNAP_KEY); return null }
+       return box.state
+     } catch { return null }
+   }
+   function writeSnapCache(state) {
+     try {
+       if (typeof localStorage === 'undefined' || !state) return
+       const raw = JSON.stringify({ at: Date.now(), state })
+       if (raw.length > SNAP_MAX) { localStorage.removeItem(SNAP_KEY); return }
+       localStorage.setItem(SNAP_KEY, raw)
+     } catch { /* 隐私模式/配额满:没有缓存也能用 */ }
+   }
+
+   // 有缓存就先当上一份:304 时各处直接用它,不会出现「空一下再回来」
+   let lastState = readSnapCache()
+   // 同一时刻只发一个 GET:打开页面时侧栏和提醒坞会各要一次,以前就是两份全量快照
+   let pendingGet = null
 
    // fetch 在原生的 "Failed to fetch" 里不会说人话;统一换成能照着做的提示。
    function netError(e) {
@@ -44,7 +77,13 @@
     * 顺手记住上一份 state:同一面板里多处并发调用(浮标角标 + 当前页)时,
     * 拿到 304 的那一处能直接用上一份,不必再发一次请求。
     */
-   async function apiGet() {
+   function apiGet() {
+     if (pendingGet) return pendingGet
+     pendingGet = apiGetOnce().finally(() => { pendingGet = null })
+     return pendingGet
+   }
+
+   async function apiGetOnce() {
      const headers = lastEtag ? { ...HEAD, 'if-none-match': lastEtag } : HEAD
      let res
      try { res = await fetch(API, { cache: 'no-store', headers }) } catch (e) { throw netError(e) }
@@ -54,6 +93,7 @@
      const tag = res.headers && res.headers.get ? res.headers.get('etag') : ''
      if (tag) lastEtag = tag
      lastState = body.state
+     writeSnapCache(body.state)
      return body.state
    }
 
@@ -72,7 +112,7 @@
      // 写操作也带 ETag / 新快照:记下来,下一次轮询就能 304,不用再拉一遍刚拿到的数据。
      const tag = res.headers && res.headers.get ? res.headers.get('etag') : ''
      if (tag) lastEtag = tag
-     if (body.state) lastState = body.state
+     if (body.state) { lastState = body.state; writeSnapCache(body.state) }
      return body
    }
 
@@ -242,7 +282,7 @@
      if (!file) return null
      return h('div', { className: '__dk_light', onClick: onClose }, [
        isImage(file)
-         ? h('img', { key: 'i', className: '__dk_lightimg', src: fileUrl(file.id), alt: file.name, onClick: (e) => e.stopPropagation() })
+         ? h('img', { key: 'i', className: '__dk_lightimg', src: fileUrl(file.id), alt: file.name, loading: 'lazy', decoding: 'async', onClick: (e) => e.stopPropagation() })
          : h('div', { key: 't', className: '__dk_lightfile', onClick: (e) => e.stopPropagation() }, [
            h('div', { key: 'e', className: '__dk_fext' }, extOf(file.name)),
            h('div', { key: 'n', className: '__dk_note' }, file.name + ' · ' + fmtSize(file.size)),

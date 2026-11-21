@@ -44,6 +44,9 @@
      const img = isImageIcon(custom) ? custom : ''
      const emoji = custom && !img ? custom : ''
      const showFav = !custom && favicons
+     // 图标要么是图,要么是首字 —— 之前两者同时渲染,字母就压在 favicon 下面。
+     const [iconFailed, setIconFailed] = useState(false)
+     const src = iconFailed ? '' : (img || (showFav ? 'https://icons.duckduckgo.com/ip3/' + linkHost(l.url) + '.ico' : ''))
      return h('div', { className: '__dk_tile', title: l.url },
        h('div', { key: 'w', className: '__dk_appbtn' }, [
          h('button', {
@@ -53,12 +56,13 @@
            onClick: () => openLink(run, l, notify),
            title: l.title + ' · ' + l.url,
          }, [
-           h('span', { key: 'c', className: '__dk_appchar', style: custom ? { fontSize: '22px' } : null }, emoji || linkInitial(l)),
-           showFav ? h('img', {
-             key: 'f', className: '__dk_appimg', src: 'https://icons.duckduckgo.com/ip3/' + linkHost(l.url) + '.ico', alt: '',
-             onError: (e) => { e.currentTarget.style.display = 'none' },
-           }) : null,
-           img ? h('img', { key: 'i', className: '__dk_appimg', src: img, alt: '' }) : null,
+           src
+             ? h('img', {
+               key: 'f', className: '__dk_appimg', src, alt: '',
+               loading: 'lazy', decoding: 'async',
+               onError: () => setIconFailed(true),
+             })
+             : h('span', { key: 'c', className: '__dk_appchar', style: (custom || emoji) ? { fontSize: '22px' } : null }, emoji || linkInitial(l)),
            l.pinned ? h('span', { key: 'p', className: '__dk_apppin' }, '★') : null,
          ]),
          h('div', { key: 'act', className: '__dk_appact' }, [

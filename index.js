@@ -16,6 +16,7 @@ import { DeskStore, localYmd } from './store.js'
 import { localDefineTool } from './tool.js'
 import { parseCapture, describeCapture, parseLeadMin, cleanTitle } from './capture.js'
 import { downloadImage, imageNameFrom } from './paste.js'
+import { recentErrors, recordError } from './errors.js'
 
 /** 版本号只从 package.json 读:不在代码里再写一份,发版时不会三处对不齐。 */
 const PLUGIN_VERSION = (() => {
@@ -687,6 +688,8 @@ async function act(ctx, s, action, payload) {
       if (!found) throw new Error('找不到条目')
       return found
     }
+    // 最近几条失败:只读,给设置页的「诊断」用;不进快照、不落盘
+    case 'errors.recent': return { errors: recentErrors(Number(payload.limit) || 5) }
     case 'settings.update': {
       // 只在真的有字段变化时写盘:空 patch(以前用来「顺手拉快照」)不再白写一次
       if (applySettings(s, payload)) s.save()
@@ -713,6 +716,7 @@ export function apply(ctx) {
   ctx.effect(() => {
     const tick = () => {
       try { s.tick() } catch (error) {
+        recordError('tick', error)
         try { ctx.logger && ctx.logger.error && ctx.logger.error('[desk-kit] tick 失败: ' + String(error && error.message)) } catch { }
       }
     }
@@ -1223,6 +1227,8 @@ export function apply(ctx) {
       // 另一个 DSH 实例刚写过盘:先把内存换成磁盘上的,别拿旧数据整份覆盖。
       // 放在围栏之后:被拒的请求不该触发磁盘读取。
       try { s.refresh() } catch (error) { /* 读不到就按内存里的继续 */ }
+      // 出错了要能说清是哪一步:GET 记路径,POST 记 action
+      let failing = method + ' ' + url.pathname
       try {
         // 模型目录:给设置页的「识图模型」下拉用(只读,只认 GET)
         if (method === 'GET' && url.pathname === ROUTE + '/models') {
@@ -1332,6 +1338,7 @@ export function apply(ctx) {
         if (method === 'POST') {
           const body = await readBody(req)
           const action = String(body.action || '')
+          failing = action || 'POST ' + url.pathname
           const s2 = s
           s2.tick()
           const result = await act(ctx, s2, action, body.payload || {})
@@ -1345,6 +1352,8 @@ export function apply(ctx) {
         }
         json(res, 405, { ok: false, error: 'method not allowed' })
       } catch (error) {
+        // 记一条给设置页的「最近失败」:只留动作名和脱敏后的原因,不收请求体
+        recordError(failing, error)
         // 请求体超限是 413,不是 400:客户端/用户能据此判断该减小请求,而不是以为参数写错了
         const tooBig = !!(error && error.code === 'E_TOO_BIG')
         json(res, tooBig ? 413 : 400, { ok: false, error: String((error && error.message) || error) })

@@ -5,7 +5,7 @@
 > 注：本文是当时的记录，行数与工具数会随版本变化；当前口径以 README 和 `package.json` 为准（现为 27 个 Agent 工具）。
 > 手机深链、快搜、录入提示、保险库合集、粘贴图片与便签图片编辑见 [CHANGELOG 1.22.0](../CHANGELOG.md)；
 > 录入后的去向（不跳页 + 「去看看」）、只写日期也算提醒、裸域名算网页见 [CHANGELOG 1.23.0](../CHANGELOG.md)；
-> 界面基调（极简单色、token 与规矩）见 [DESIGN.md](DESIGN.md)。
+> 界面基调（「玻璃与留白」、token 与规矩、审计门）见 [DESIGN.md](DESIGN.md)；产品事实（用户、目的、边界）见 [PRODUCT.md](../PRODUCT.md)。
 
 ## 一、判断依据（设计理念来源）
 
@@ -50,6 +50,10 @@
 客户端（受宿主 loader 约束，必须单文件产物）
   client.js     ① 设计 token 与样式 ② 纯逻辑 ③ 视图组件 ④ 插件入口 apply
 ```
+
+**首屏不等请求**：上次快照写进 `localStorage`（7 天过期），挂载时先用它画一帧，再在后台对一次；
+同一时刻的 GET 合并成一个（侧栏与提醒坞各要一次时不会拉两份全量）。服务端仍是 ETag + 304，
+内容没变就只回状态码。
 
 **客户端为什么还是一个文件**：宿主用 `window.__ModuleLoader__.load({ factory })` 加载客户端产物，`factory` 只能 `require` 宿主提供的包（react 等），不能 require 兄弟文件；已装插件（dsh-mnemon、dsh-pet）都是预打包成单文件的。要真正拆模块得引入 bundler，那是新增维护成本，本轮不做。
 

@@ -42,7 +42,8 @@
    }
 
    function SidebarPage({ visible, bridge }) {
-     const [state, setState] = useState(null)
+     // 先用上次的快照画一帧,再在后台对一次;失败也不会退回空白
+     const [state, setState] = useState(() => readSnapCache())
      const [err, setErr] = useState('')
      const [page, setPage] = useState('home')
      const [seq, setSeq] = useState(0)
@@ -161,7 +162,6 @@
      }
 
      const due = dueCount(state)
-     const lv = LEVELS[page] || LEVELS.home
      const alerts = (state.alerts || []).filter(() => !(state.settings && state.settings.muted))
      const body = (() => {
        // notify 由 SidebarPage 注入(这里没有自己的 showReply)
@@ -182,10 +182,7 @@
 
      return h('div', { className: '__dk_sp' }, [
        h('div', { key: 'head', className: '__dk_sphead' }, [
-         h('div', { key: 't', className: '__dk_sptitle' }, [
-           '随手台',
-           h('span', { key: 'l', className: '__dk_lvl', style: { color: lv.color }, title: lv.code + ' · ' + lv.name + ':' + (lv.hint || '') }, [h('i', { key: 'i' }), lv.name]),
-         ]),
+         h('div', { key: 't', className: '__dk_sptitle' }, '随手台'),
          h('div', { key: 'v', className: '__dk_note', title: 'Ctrl/Cmd+Shift+K 也能直接跳到这里' },
            fmtDay(state.today) + (due ? ' · ' + due + ' 项待办' : ' · 暂无待办')),
        ]),
