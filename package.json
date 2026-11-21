@@ -23,6 +23,7 @@
     "search.js",
     "maintenance.js",
     "snapshot.js",
+    "errors.js",
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
