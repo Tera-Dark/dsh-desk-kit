@@ -163,6 +163,11 @@ export const files = {
     return (this.data.files || []).filter((f) => f.kind === kind && f.ownerId === ownerId).map((f) => ({ ...f }))
   },
 
+  /** 旧名字:保留给老调用方,等价于 filesFor —— 方法名是公开面,不随重构消失。 */
+  filesOfAny(kind, id) {
+    return this.filesFor(kind, id)
+  },
+
   /**
    * 清孤儿:宿主已经不在了的附件、以及上传完就没人认领的(超过 1 天)。
    * 在 apply 时和每次 tick 里跑一次,成本 O(附件数)。

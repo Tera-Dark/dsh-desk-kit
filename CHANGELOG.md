@@ -22,7 +22,7 @@
 | `snapshot.js` | 浏览器轮询的那份只读视图 |
 
 方法仍用 mixin 挂回 `DeskStore.prototype`,调用方、工具 schema、HTTP 动作一行没改。
-顺手删掉没在用的 `filesOfAny` 与 `INLINE_IMAGE`。
+顺手删掉没在用的 `INLINE_IMAGE`;`filesOfAny` 虽然当下没人调,但它是公开方法名,保留成 `filesFor` 的别名。
 
 ### 一并修掉
 
