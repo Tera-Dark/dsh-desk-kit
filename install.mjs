@@ -8,15 +8,25 @@
  * 两种方式都能用:插件对 '@deepseek-ai/dsh-tools' 的导入有本地兜底,
  * 所以就算以后被 pnpm 改回符号链接也不会再启动失败。
  */
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative, sep } from 'node:path'
 
 const here = new URL('.', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1').replace(/\/+$/, '')
 const profileDir = join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'profiles', 'desktop')
 const target = join(profileDir, 'node_modules', 'dsh-desk-kit')
 const mode = process.argv.includes('--link') ? 'link' : 'copy'
-const files = ['index.js', 'client.js', 'store.js', 'tool.js', 'capture.js', 'lunar.js', 'package.json', 'cordis.patch.yml', 'README.md']
+
+// 复制安装要带上整包:domains/ 与根模块都是运行时代码,少一个就启动失败。
+// 只排除开发期文件(node_modules / 测试 / CI / 构建脚本 / 安装器自身)。
+const DEV_DIRS = new Set(['node_modules', '.git', '.github', 'test', 'scripts'])
+const DEV_FILE_RE = /^(harness|install|verify-[^/]+|test|client-test)\.mjs$|\.test\.mjs$/
+const keep = (src) => {
+  const rel = relative(here, src)
+  if (!rel) return true
+  if (DEV_DIRS.has(rel.split(sep)[0])) return false
+  return !DEV_FILE_RE.test(rel)
+}
 
 mkdirSync(join(profileDir, 'node_modules'), { recursive: true })
 try { if (lstatSync(target)) rmSync(target, { recursive: true, force: true }) } catch { }
@@ -25,9 +35,8 @@ if (mode === 'link') {
   symlinkSync(here, target, 'junction')
   console.log('junction ->', here)
 } else {
-  mkdirSync(target, { recursive: true })
-  for (const f of files) copyFileSync(join(here, f), join(target, f))
-  console.log('copied', files.length, 'files ->', target)
+  cpSync(here, target, { recursive: true, filter: keep })
+  console.log('copied ->', target)
 }
 
 // 1) profile package.json: dependencies + bundles

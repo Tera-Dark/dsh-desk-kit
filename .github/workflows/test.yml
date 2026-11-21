@@ -23,9 +23,7 @@ jobs:
 
       - name: 语法
         run: |
-          node --check index.js
-          node --check client.js
-          node --check store.js
+          for f in *.js domains/*.js; do node --check "$f"; done
 
       # 客户端渲染测试要 react;平时从 DSH profile 取,CI 上没有 profile
       - name: 装宿主 react

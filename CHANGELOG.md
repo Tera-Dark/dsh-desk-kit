@@ -4,6 +4,40 @@
 
 每个版本的「为什么」和「验收」都写在下面,功能和用法看 [README](README.md)。
 
+## 1.26.0 · 服务端拆完:store.js 896 → 255 行
+
+### 为什么
+
+`store.js` 一个类里塞着持久化、导入导出、全库搜索、清理和快照五件事;
+上一轮已经把便签/提醒/网页/附件/保险库搬进 `domains/`,剩下五件一直没搬完。
+
+### 拆成什么样
+
+| 文件 | 装什么 |
+|---|---|
+| `store.js` | 数据模型、`loadData/save/refresh`、JSON 读写、公共小工具;只做装配 |
+| `backup.js` | 导入归一化 + `importBackup` / `exportAll` |
+| `search.js` | 中英别名 + `searchAll` |
+| `maintenance.js` | 垃圾箱到期表、磁盘用量、`sweepTrash`、`humanBytes` |
+| `snapshot.js` | 浏览器轮询的那份只读视图 |
+
+方法仍用 mixin 挂回 `DeskStore.prototype`,调用方、工具 schema、HTTP 动作一行没改。
+顺手删掉没在用的 `filesOfAny` 与 `INLINE_IMAGE`。
+
+### 一并修掉
+
+- `install.mjs` 的复制安装原来只拷 9 个根文件,`domains/` 拆出去后按这种方式装会缺文件。
+  改成整包复制并排除开发期文件;复制与 junction 两种装法都实测能起。
+- 新增 `surface.test.mjs`:断言拆分后 10 个方法仍在原型上、快照字段齐全、四个模块能单独 import。
+  「抽文件抽到一半」以后会先在这里失败,而不是启动时 TypeError。
+- 版本号会内嵌进客户端产物,已跑 `npm run build` 重新生成 `client.js`。
+
+### 验证
+
+- `npm test` 全绿(含新增 3 条结构断言),`npm run test:host`、`npm run test:installed` 通过;
+- 复制安装实测:临时 `DSH_HOME` 装好后 `store.js` 能独立 import 并读写;
+- `npm run build:check` 一致(客户端只改了内嵌版本号)。
+
 ## 1.25.0 · 看得清、找得到:字号上档 + 常用的自动靠前
 
 ### 字号

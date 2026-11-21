@@ -36,11 +36,16 @@
 
 ```
 服务端（ESM，可自由拆分）
-  index.js      组合根：只做装配 —— 建 store、挂路由、挂工具、挂定时器
-  store.js      领域与持久化（下一步按域拆：notes / reminders / alerts / vault / persist）
-  capture.js    一句话分拣（本地规则 + AI 兜底）
-  tool.js       工具 schema 适配
-  lunar.js      农历换算
+  index.js        组合根：只做装配 —— 建 store、挂路由、挂工具、挂定时器
+  store.js        数据模型 + 持久化（loadData/save/refresh）+ JSON 读写 + 公共工具
+  domains/        便签 / 提醒 / 网页 / 附件 / 保险库（按域，mixin 挂回 DeskStore）
+  backup.js       导入归一化 + importBackup / exportAll
+  search.js       中英别名 + searchAll
+  maintenance.js  垃圾箱到期表 / 磁盘用量 / sweepTrash / humanBytes
+  snapshot.js     浏览器轮询的只读视图
+  capture.js      一句话分拣（本地规则 + AI 兜底）
+  tool.js         工具 schema 适配
+  lunar.js        农历换算
 
 客户端（受宿主 loader 约束，必须单文件产物）
   client.js     ① 设计 token 与样式 ② 纯逻辑 ③ 视图组件 ④ 插件入口 apply
@@ -90,7 +95,7 @@ node harness.mjs       # ALL HOST TESTS PASSED（真起 HTTP + 桩 ctx，跑 23 
 
 ## 六、还没做（按收益排序）
 
-1. **store.js 按域拆分**（现约 2.2k 行）：持久化 / 便签 / 提醒 / 告警 / 保险库仍在同一个类。拆完每个域能单独测。
+1. ~~**store.js 按域拆分**~~ —— 1.26.0 完成：store.js 255 行，便签/提醒/网页/附件/保险库在 `domains/`，导入/搜索/清理/快照各一个根模块。
 2. **`act()` 的 switch 收敛成动作表**：现在同一件事有「工具」和「HTTP action」两个入口，逻辑各写一遍。
 3. **抽公共 presenter**：client.js 已按页拆成 18 个源文件、样式已收成 token；浮标壳与侧栏壳仍各自渲染 header/等级/提醒。
 4. **剩余源码字符串断言**逐步换成行为断言。
@@ -157,3 +162,21 @@ data.json files[] { id, name, mime, size, w, h, secret, kind, ownerId, createdAt
 `npm test` 会先跑 `build:check`,产物与源码不一致就直接失败;
 CI 里也有同一步。拆分当时的验收标准是「拼回去与拆分前逐字节相同」——
 纯搬运,一个字节的逻辑都没动。
+
+## 1.26.0 · store.js 拆完(2026-11-21)
+
+| 文件 | 行数 | 内容 |
+|---|---|---|
+| `store.js` | 255 | 数据模型 + `loadData/save/refresh` + JSON 读写 + 公共工具 |
+| `backup.js` | 315 | 导入归一化 + `importBackup` / `exportAll` |
+| `search.js` | 128 | 中英别名 + `searchAll` |
+| `maintenance.js` | 185 | 到期表 / 用量 / `sweepTrash` / `humanBytes` |
+| `snapshot.js` | 47 | 浏览器轮询的只读视图 |
+
+仍然用 `Object.assign(DeskStore.prototype, …)` 挂回，`this.data` / `this.save()` 不变，
+所以 `index.js`、27 个工具、HTTP 动作、`test.mjs` 都不需要改。
+`surface.test.mjs` 是这次断档留下的护栏：断言方法形状、快照字段、四个模块可单独 import。
+
+**断档记录**：2026-11-21 的一次自动重构只完成了 `snapshot.js` 的搬运，
+却从 `store.js` 删掉了 12 个方法（含 `loadData/save`，构造时直接 TypeError），
+`snapshot.js` 还少了收尾大括号。恢复 `store.js` 后按上表重做，全部测试通过。

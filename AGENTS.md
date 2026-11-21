@@ -15,13 +15,13 @@ npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址�
 ## 技术栈
 
 - Node.js >= 20.18，ESM，零运行时依赖。
-- 服务端：`index.js` 组合根 + 同源 HTTP API；`store.js` 持久化与领域逻辑。
+- 服务端：`index.js` 组合根 + 同源 HTTP API；`store.js` 持久化与数据模型；领域方法在 `domains/`，导入/搜索/清理/快照各一个根模块（mixin 挂回 `DeskStore`）。
 - 客户端：React 18（宿主提供），源码在 `src/client/*.js`，拼接成单文件 `client.js`。
 
 ## 目录与约定
 
 - `index.js`：装配 store、HTTP 路由、27 个工具、定时器；不要在这里塞领域逻辑。
-- `store.js`：数据模型、持久化、保险库、清理、快照。
+- `store.js`：数据模型、`loadData/save/refresh`、JSON 读写；`backup.js` / `search.js` / `maintenance.js` / `snapshot.js` 各管一摊。
 - `capture.js` / `lunar.js` / `tool.js`：一句话分拣、农历、工具 schema。
 - `paste.js`：粘贴网页图片时的公网地址校验、下载与大小限制。
 - `src/client/`：按文件名顺序拼成 `client.js`；**改这里，再 `npm run build`**。
@@ -32,5 +32,5 @@ npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址�
 
 ## 当前状态
 
-- 版本 1.25.0，27 个 Agent 工具。界面基调(极简单色)见 `docs/DESIGN.md`，改样式前先读。
-- 已知待办：store 按域拆分、动作表收敛、历史视觉层清理、空 catch 收敛（见 `docs/ARCHITECTURE.md`）。
+- 版本 1.26.0，27 个 Agent 工具。界面基调(极简单色)见 `docs/DESIGN.md`，改样式前先读。
+- 已知待办：动作表收敛、历史视觉层清理、空 catch 收敛（见 `docs/ARCHITECTURE.md`）。
