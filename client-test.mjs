@@ -998,6 +998,20 @@ test('转存:回执下能改分类,网页格子显示备注', () => {
     assert.ok(!targets.some(([to]) => to === from), from + ' 不该转给自己')
   }
 })
+test('网页页:大卡片 + 三行简介 + 一键复制', () => {
+  const l = { id: 'w1', title: 'awwwards', url: 'https://www.awwwards.com', note: '看不完的优秀网站集合,找灵感用,每周刷一次', group: '', icon: '', pinned: false }
+  const st = { ...state, links: [l], linkGroups: { groups: [], ungrouped: 1 }, linkCounts: { active: 1, trash: 0 }, trashedLinks: [] }
+  const html = renderToString(h(T.LinksPage, { state: st, run, notify: () => {} }))
+  assert.ok(html.includes('__dk_grid--links'), '网页页要有自己的大卡片网格')
+  assert.ok(html.includes('__dk_tile--card'), '单个网页要用卡片排')
+  assert.ok(html.includes('__dk_cardhost'), '卡片上要显示域名')
+  assert.ok(html.includes('复制链接'), '卡片上要有一键复制')
+  assert.ok(html.includes(l.note), '简介原文要整句在,不能被截成一个字')
+  // 没写简介也要占住三行版面,不能塌成一行
+  const empty = renderToString(h(T.LinksPage, { state: { ...st, links: [{ ...l, note: '' }] }, run, notify: () => {} }))
+  assert.ok(empty.includes('__dk_appnote--empty'), '空简介要有占位样式')
+})
+
 
 test('附件:格子/大图/剪贴板识别', () => {
   const png = { id: 'f1', name: '截图 1.png', mime: 'image/png', size: 2048, w: 800, h: 600 }

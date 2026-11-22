@@ -38,8 +38,65 @@
      }
    }
 
-   /** 一个格子。 */
-   function LinkTile({ l, run, onEdit, notify, favicons }) {
+   /**
+    * 复制链接:一键到手,自己去别处粘。
+    * 非 https / 文档没焦点时 navigator.clipboard 会拒绝,所以留一条选中复制的退路。
+    */
+   async function copyLinkUrl(l, notify) {
+     const text = String(l.url || '')
+     const said = (ok) => {
+       if (notify) notify(ok ? '链接已复制:' + linkHost(text) : '复制被拦了,手动选一下:' + text)
+     }
+     try {
+       await navigator.clipboard.writeText(text)
+       said(true)
+       return
+     } catch { /* 落到下面的兜底 */ }
+     try {
+       const ta = document.createElement('textarea')
+       ta.value = text
+       ta.setAttribute('readonly', '')
+       ta.style.position = 'fixed'
+       ta.style.top = '-1000px'
+       ta.style.opacity = '0'
+       document.body.appendChild(ta)
+       ta.select()
+       const ok = document.execCommand('copy')
+       document.body.removeChild(ta)
+       said(!!ok)
+     } catch {
+       said(false)
+     }
+   }
+
+   /** 卡片右上角的小按钮组:复制 / 编辑 / 删除。 */
+   function linkActions(l, run, onEdit, notify, size) {
+     return h('div', { key: 'act', className: '__dk_appact' }, [
+       h('button', {
+         key: 'c', className: '__dk_mini', title: '复制链接', 'aria-label': '复制链接',
+         onClick: () => copyLinkUrl(l, notify),
+       }, h(Ico, { name: 'copy', size })),
+       h('button', {
+         key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑',
+         onClick: () => onEdit(l),
+       }, h(Ico, { name: 'edit', size })),
+       h('button', {
+         key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
+         onClick: async () => {
+           await run('link.delete', { id: l.id })
+           if (notify) notify('已移入垃圾箱', { action: 'link.restore', payload: { id: l.id } })
+         },
+       }, h(Ico, { name: 'x', size })),
+     ])
+   }
+
+   /**
+    * 一个网页。
+    * compact(首页「常去」):一个图标 + 名字,占地方小。
+    * card(网页页):图标 / 标题 / 域名一行,底下固定留三行简介的版面 ——
+    *   收藏网页是为了记住「它是干嘛的」,简介不够看就等于没存。
+    */
+   function LinkTile({ l, run, onEdit, notify, favicons, card }) {
      const custom = String(l.icon || '').trim()
      const img = isImageIcon(custom) ? custom : ''
      const emoji = custom && !img ? custom : ''
@@ -47,41 +104,47 @@
      // 图标要么是图,要么是首字 —— 之前两者同时渲染,字母就压在 favicon 下面。
      const [iconFailed, setIconFailed] = useState(false)
      const src = iconFailed ? '' : (img || (showFav ? 'https://icons.duckduckgo.com/ip3/' + linkHost(l.url) + '.ico' : ''))
-     return h('div', { className: '__dk_tile', title: l.url },
-       h('div', { key: 'w', className: '__dk_appbtn' }, [
-         h('button', {
-           key: 'b', className: '__dk_app',
-           // 单色:不再按域名取色,格子一律纸底墨字,靠描边和名字区分
-           style: null,
-           onClick: () => openLink(run, l, notify),
-           title: l.title + ' · ' + l.url,
-         }, [
-           src
-             ? h('img', {
-               key: 'f', className: '__dk_appimg', src, alt: '',
-               loading: 'lazy', decoding: 'async',
-               onError: () => setIconFailed(true),
-             })
-             : h('span', { key: 'c', className: '__dk_appchar', style: (custom || emoji) ? { fontSize: '22px' } : null }, emoji || linkInitial(l)),
-           l.pinned ? h('span', { key: 'p', className: '__dk_apppin' }, '★') : null,
-         ]),
-         h('div', { key: 'act', className: '__dk_appact' }, [
-           h('button', {
-             key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑',
-             onClick: () => onEdit(l),
-           }, h(Ico, { name: 'edit', size: 11 })),
-           h('button', {
-             key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
-             onClick: async () => {
-               await run('link.delete', { id: l.id })
-               if (notify) notify('已移入垃圾箱', { action: 'link.restore', payload: { id: l.id } })
-             },
-           }, h(Ico, { name: 'x', size: 11 })),
+     const icon = h('button', {
+       key: 'b', className: '__dk_app',
+       // 单色:不再按域名取色,格子一律纸底墨字,靠描边和名字区分
+       style: null,
+       onClick: () => openLink(run, l, notify),
+       title: '打开 ' + l.url,
+       'aria-label': '打开 ' + l.title,
+     }, [
+       src
+         ? h('img', {
+           key: 'f', className: '__dk_appimg', src, alt: '',
+           loading: 'lazy', decoding: 'async',
+           onError: () => setIconFailed(true),
+         })
+         : h('span', { key: 'c', className: '__dk_appchar', style: (custom || emoji) ? { fontSize: '22px' } : null }, emoji || linkInitial(l)),
+       l.pinned ? h('span', { key: 'p', className: '__dk_apppin' }, '★') : null,
+     ])
+
+     if (!card) {
+       return h('div', { className: '__dk_tile', title: l.url },
+         h('div', { key: 'w', className: '__dk_appbtn' }, [icon, linkActions(l, run, onEdit, notify, 11)]),
+         h('div', { key: 'n', className: '__dk_appname' }, l.title),
+         l.note ? h('div', { key: 'nt', className: '__dk_appnote', title: l.note }, l.note) : null,
+       )
+     }
+
+     const note = String(l.note || '').trim()
+     return h('div', { key: l.id, className: '__dk_tile __dk_tile--card', title: l.url },
+       h('div', { key: 'top', className: '__dk_cardtop' }, [
+         icon,
+         h('div', { key: 'tx', className: '__dk_cardtext' }, [
+           h('div', { key: 'n', className: '__dk_appname', title: '打开 ' + l.url, onClick: () => openLink(run, l, notify) }, l.title),
+           h('div', { key: 'u', className: '__dk_cardhost', title: l.url }, linkHost(l.url)),
          ]),
        ]),
-       h('div', { key: 'n', className: '__dk_appname' }, l.title),
-       // 一句备注:「查资料用」「公司后台」—— 比标题更能提醒自己为什么收它
-       l.note ? h('div', { key: 'nt', className: '__dk_appnote', title: l.note }, l.note) : null,
+       h('div', {
+         key: 'nt',
+         className: '__dk_appnote' + (note ? '' : ' __dk_appnote--empty'),
+         title: note || '',
+       }, note || '还没写简介 —— 点编辑补一句,以后一眼就知道这站干嘛用'),
+       linkActions(l, run, onEdit, notify, 12),
      )
    }
 
@@ -173,10 +236,10 @@
              key: 'i', className: '__dk_input', placeholder: '图标(可选:一个 emoji,或图片地址)',
              value: form.icon, onChange: (e) => setForm((f) => ({ ...f, icon: e.target.value })),
            }),
-           h('input', {
-             key: 'nt', className: '__dk_input', placeholder: '备注(可选:这站用来干什么)',
+           h('textarea', {
+             key: 'nt', className: '__dk_input __dk_textarea', rows: 3,
+             placeholder: '简介(可选,两三行:这站用来干什么、什么时候会想起它)。卡片上留三行位置',
              value: form.note || '', onChange: (e) => setForm((f) => ({ ...f, note: e.target.value })),
-             onKeyDown: (e) => { if (e.key === 'Enter') { e.preventDefault(); save() } },
            }),
            h('div', { key: 'pin', className: '__dk_groupchips', style: { padding: '2px 0 0' } }, [
              h('button', {
@@ -202,8 +265,8 @@
        ]),
 
        shown.length
-         ? h('div', { key: 'grid', className: '__dk_grid' }, shown.map((l) => h(LinkTile, {
-           key: l.id, l, run, notify, favicons, onEdit: startEdit,
+         ? h('div', { key: 'grid', className: '__dk_grid __dk_grid--links' }, shown.map((l) => h(LinkTile, {
+           key: l.id, l, run, notify, favicons, onEdit: startEdit, card: true,
          })))
          : h('div', { key: 'e', className: '__dk_empty' }, [
            h('div', { key: 't', className: '__dk_emptytitle' }, links.length ? '这个分类还是空的' : '还没有收藏网页'),

@@ -802,5 +802,22 @@
      '@media (prefers-reduced-motion: reduce){.__dk_sp *,.__dk_panel *,.__dk_dock *,.__dk_toast *{animation:none!important;transition:none!important}}',
      '.__dk_note,.__dk_hint,.__dk_gtip,.__dk_qhint,.__dk_cardkbd,.__dk_ameta,.__dk_qfm,.__dk_showbtn{font-size:13px}',
      '.__dk_vaultlock,.__dk_trashkind,.__dk_fname{font-size:12px}',
+     // 网页页:大卡片。图标 + 标题一行,下面固定留出三行简介的版面 ——
+     // 收藏网页是为了记住「它是干嘛的」,排一墙小方块反而想不起来;
+     // 宁可卡片大一点、留白多一点,也不要把简介压成一个字。
+     '.__dk_grid--links{grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:14px;padding:10px 2px 20px;align-items:stretch}',
+     '.__dk_tile--card{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:16px 16px 14px;border:1px solid var(--dk-rule);border-radius:var(--dk-r-card);background:var(--dk-surface);transition:border-color var(--dk-dur-hover) var(--dk-ease-snappy),box-shadow var(--dk-dur-hover) var(--dk-ease-snappy)}',
+     '.__dk_tile--card:hover{border-color:var(--dk-rule-2);box-shadow:var(--dk-shadow-sm)}',
+     '.__dk_cardtop{display:flex;align-items:center;gap:12px;min-width:0}',
+     '.__dk_tile--card .__dk_app{flex:none;width:48px;height:48px;border-radius:13px}',
+     '.__dk_cardtext{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}',
+     '.__dk_tile--card .__dk_appname{display:block;max-width:none;text-align:left;font-size:14.5px;font-weight:600;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal;cursor:pointer}',
+     '.__dk_tile--card .__dk_appname:hover{color:var(--dk-accent)}',
+     '.__dk_cardhost{font-size:11.5px;line-height:1.4;color:var(--dk-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+     '.__dk_tile--card .__dk_appnote{max-width:none;text-align:left;font-size:12.5px;line-height:1.62;white-space:normal;overflow:hidden;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;min-height:calc(1.62em * 3);margin:0}',
+     '.__dk_appnote--empty{opacity:.45}',
+     '.__dk_tile--card .__dk_appact{position:static;display:flex;justify-content:flex-end;gap:4px;opacity:.5;margin-top:-4px}',
+     '.__dk_tile--card:hover .__dk_appact,.__dk_tile--card:focus-within .__dk_appact{opacity:1}',
+     '.__dk_textarea{min-height:76px;resize:vertical;line-height:1.6;font-family:inherit;padding:9px 11px}',
      '@media (max-width:420px){.__dk_tabbar{padding-left:6px;padding-right:6px;gap:0}.__dk_sphead{padding:16px 16px 4px}.__dk_sptitle{font-size:22px}.__dk_spnav{margin:8px 16px 0}.__dk_spbody{padding:14px 16px 24px}.__dk_body{padding:0 14px 10px}}',
    ].join('\n')

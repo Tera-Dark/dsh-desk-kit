@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.29.0'
+   const VERSION = '1.30.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -969,6 +969,23 @@ window.__ModuleLoader__.load({
      '@media (prefers-reduced-motion: reduce){.__dk_sp *,.__dk_panel *,.__dk_dock *,.__dk_toast *{animation:none!important;transition:none!important}}',
      '.__dk_note,.__dk_hint,.__dk_gtip,.__dk_qhint,.__dk_cardkbd,.__dk_ameta,.__dk_qfm,.__dk_showbtn{font-size:13px}',
      '.__dk_vaultlock,.__dk_trashkind,.__dk_fname{font-size:12px}',
+     // 网页页:大卡片。图标 + 标题一行,下面固定留出三行简介的版面 ——
+     // 收藏网页是为了记住「它是干嘛的」,排一墙小方块反而想不起来;
+     // 宁可卡片大一点、留白多一点,也不要把简介压成一个字。
+     '.__dk_grid--links{grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:14px;padding:10px 2px 20px;align-items:stretch}',
+     '.__dk_tile--card{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:16px 16px 14px;border:1px solid var(--dk-rule);border-radius:var(--dk-r-card);background:var(--dk-surface);transition:border-color var(--dk-dur-hover) var(--dk-ease-snappy),box-shadow var(--dk-dur-hover) var(--dk-ease-snappy)}',
+     '.__dk_tile--card:hover{border-color:var(--dk-rule-2);box-shadow:var(--dk-shadow-sm)}',
+     '.__dk_cardtop{display:flex;align-items:center;gap:12px;min-width:0}',
+     '.__dk_tile--card .__dk_app{flex:none;width:48px;height:48px;border-radius:13px}',
+     '.__dk_cardtext{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}',
+     '.__dk_tile--card .__dk_appname{display:block;max-width:none;text-align:left;font-size:14.5px;font-weight:600;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal;cursor:pointer}',
+     '.__dk_tile--card .__dk_appname:hover{color:var(--dk-accent)}',
+     '.__dk_cardhost{font-size:11.5px;line-height:1.4;color:var(--dk-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+     '.__dk_tile--card .__dk_appnote{max-width:none;text-align:left;font-size:12.5px;line-height:1.62;white-space:normal;overflow:hidden;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;min-height:calc(1.62em * 3);margin:0}',
+     '.__dk_appnote--empty{opacity:.45}',
+     '.__dk_tile--card .__dk_appact{position:static;display:flex;justify-content:flex-end;gap:4px;opacity:.5;margin-top:-4px}',
+     '.__dk_tile--card:hover .__dk_appact,.__dk_tile--card:focus-within .__dk_appact{opacity:1}',
+     '.__dk_textarea{min-height:76px;resize:vertical;line-height:1.6;font-family:inherit;padding:9px 11px}',
      '@media (max-width:420px){.__dk_tabbar{padding-left:6px;padding-right:6px;gap:0}.__dk_sphead{padding:16px 16px 4px}.__dk_sptitle{font-size:22px}.__dk_spnav{margin:8px 16px 0}.__dk_spbody{padding:14px 16px 24px}.__dk_body{padding:0 14px 10px}}',
    ].join('\n')
 
@@ -2787,8 +2804,65 @@ window.__ModuleLoader__.load({
      }
    }
 
-   /** 一个格子。 */
-   function LinkTile({ l, run, onEdit, notify, favicons }) {
+   /**
+    * 复制链接:一键到手,自己去别处粘。
+    * 非 https / 文档没焦点时 navigator.clipboard 会拒绝,所以留一条选中复制的退路。
+    */
+   async function copyLinkUrl(l, notify) {
+     const text = String(l.url || '')
+     const said = (ok) => {
+       if (notify) notify(ok ? '链接已复制:' + linkHost(text) : '复制被拦了,手动选一下:' + text)
+     }
+     try {
+       await navigator.clipboard.writeText(text)
+       said(true)
+       return
+     } catch { /* 落到下面的兜底 */ }
+     try {
+       const ta = document.createElement('textarea')
+       ta.value = text
+       ta.setAttribute('readonly', '')
+       ta.style.position = 'fixed'
+       ta.style.top = '-1000px'
+       ta.style.opacity = '0'
+       document.body.appendChild(ta)
+       ta.select()
+       const ok = document.execCommand('copy')
+       document.body.removeChild(ta)
+       said(!!ok)
+     } catch {
+       said(false)
+     }
+   }
+
+   /** 卡片右上角的小按钮组:复制 / 编辑 / 删除。 */
+   function linkActions(l, run, onEdit, notify, size) {
+     return h('div', { key: 'act', className: '__dk_appact' }, [
+       h('button', {
+         key: 'c', className: '__dk_mini', title: '复制链接', 'aria-label': '复制链接',
+         onClick: () => copyLinkUrl(l, notify),
+       }, h(Ico, { name: 'copy', size })),
+       h('button', {
+         key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑',
+         onClick: () => onEdit(l),
+       }, h(Ico, { name: 'edit', size })),
+       h('button', {
+         key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
+         onClick: async () => {
+           await run('link.delete', { id: l.id })
+           if (notify) notify('已移入垃圾箱', { action: 'link.restore', payload: { id: l.id } })
+         },
+       }, h(Ico, { name: 'x', size })),
+     ])
+   }
+
+   /**
+    * 一个网页。
+    * compact(首页「常去」):一个图标 + 名字,占地方小。
+    * card(网页页):图标 / 标题 / 域名一行,底下固定留三行简介的版面 ——
+    *   收藏网页是为了记住「它是干嘛的」,简介不够看就等于没存。
+    */
+   function LinkTile({ l, run, onEdit, notify, favicons, card }) {
      const custom = String(l.icon || '').trim()
      const img = isImageIcon(custom) ? custom : ''
      const emoji = custom && !img ? custom : ''
@@ -2796,41 +2870,47 @@ window.__ModuleLoader__.load({
      // 图标要么是图,要么是首字 —— 之前两者同时渲染,字母就压在 favicon 下面。
      const [iconFailed, setIconFailed] = useState(false)
      const src = iconFailed ? '' : (img || (showFav ? 'https://icons.duckduckgo.com/ip3/' + linkHost(l.url) + '.ico' : ''))
-     return h('div', { className: '__dk_tile', title: l.url },
-       h('div', { key: 'w', className: '__dk_appbtn' }, [
-         h('button', {
-           key: 'b', className: '__dk_app',
-           // 单色:不再按域名取色,格子一律纸底墨字,靠描边和名字区分
-           style: null,
-           onClick: () => openLink(run, l, notify),
-           title: l.title + ' · ' + l.url,
-         }, [
-           src
-             ? h('img', {
-               key: 'f', className: '__dk_appimg', src, alt: '',
-               loading: 'lazy', decoding: 'async',
-               onError: () => setIconFailed(true),
-             })
-             : h('span', { key: 'c', className: '__dk_appchar', style: (custom || emoji) ? { fontSize: '22px' } : null }, emoji || linkInitial(l)),
-           l.pinned ? h('span', { key: 'p', className: '__dk_apppin' }, '★') : null,
-         ]),
-         h('div', { key: 'act', className: '__dk_appact' }, [
-           h('button', {
-             key: 'e', className: '__dk_mini', title: '编辑', 'aria-label': '编辑',
-             onClick: () => onEdit(l),
-           }, h(Ico, { name: 'edit', size: 11 })),
-           h('button', {
-             key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
-             onClick: async () => {
-               await run('link.delete', { id: l.id })
-               if (notify) notify('已移入垃圾箱', { action: 'link.restore', payload: { id: l.id } })
-             },
-           }, h(Ico, { name: 'x', size: 11 })),
+     const icon = h('button', {
+       key: 'b', className: '__dk_app',
+       // 单色:不再按域名取色,格子一律纸底墨字,靠描边和名字区分
+       style: null,
+       onClick: () => openLink(run, l, notify),
+       title: '打开 ' + l.url,
+       'aria-label': '打开 ' + l.title,
+     }, [
+       src
+         ? h('img', {
+           key: 'f', className: '__dk_appimg', src, alt: '',
+           loading: 'lazy', decoding: 'async',
+           onError: () => setIconFailed(true),
+         })
+         : h('span', { key: 'c', className: '__dk_appchar', style: (custom || emoji) ? { fontSize: '22px' } : null }, emoji || linkInitial(l)),
+       l.pinned ? h('span', { key: 'p', className: '__dk_apppin' }, '★') : null,
+     ])
+
+     if (!card) {
+       return h('div', { className: '__dk_tile', title: l.url },
+         h('div', { key: 'w', className: '__dk_appbtn' }, [icon, linkActions(l, run, onEdit, notify, 11)]),
+         h('div', { key: 'n', className: '__dk_appname' }, l.title),
+         l.note ? h('div', { key: 'nt', className: '__dk_appnote', title: l.note }, l.note) : null,
+       )
+     }
+
+     const note = String(l.note || '').trim()
+     return h('div', { key: l.id, className: '__dk_tile __dk_tile--card', title: l.url },
+       h('div', { key: 'top', className: '__dk_cardtop' }, [
+         icon,
+         h('div', { key: 'tx', className: '__dk_cardtext' }, [
+           h('div', { key: 'n', className: '__dk_appname', title: '打开 ' + l.url, onClick: () => openLink(run, l, notify) }, l.title),
+           h('div', { key: 'u', className: '__dk_cardhost', title: l.url }, linkHost(l.url)),
          ]),
        ]),
-       h('div', { key: 'n', className: '__dk_appname' }, l.title),
-       // 一句备注:「查资料用」「公司后台」—— 比标题更能提醒自己为什么收它
-       l.note ? h('div', { key: 'nt', className: '__dk_appnote', title: l.note }, l.note) : null,
+       h('div', {
+         key: 'nt',
+         className: '__dk_appnote' + (note ? '' : ' __dk_appnote--empty'),
+         title: note || '',
+       }, note || '还没写简介 —— 点编辑补一句,以后一眼就知道这站干嘛用'),
+       linkActions(l, run, onEdit, notify, 12),
      )
    }
 
@@ -2922,10 +3002,10 @@ window.__ModuleLoader__.load({
              key: 'i', className: '__dk_input', placeholder: '图标(可选:一个 emoji,或图片地址)',
              value: form.icon, onChange: (e) => setForm((f) => ({ ...f, icon: e.target.value })),
            }),
-           h('input', {
-             key: 'nt', className: '__dk_input', placeholder: '备注(可选:这站用来干什么)',
+           h('textarea', {
+             key: 'nt', className: '__dk_input __dk_textarea', rows: 3,
+             placeholder: '简介(可选,两三行:这站用来干什么、什么时候会想起它)。卡片上留三行位置',
              value: form.note || '', onChange: (e) => setForm((f) => ({ ...f, note: e.target.value })),
-             onKeyDown: (e) => { if (e.key === 'Enter') { e.preventDefault(); save() } },
            }),
            h('div', { key: 'pin', className: '__dk_groupchips', style: { padding: '2px 0 0' } }, [
              h('button', {
@@ -2951,8 +3031,8 @@ window.__ModuleLoader__.load({
        ]),
 
        shown.length
-         ? h('div', { key: 'grid', className: '__dk_grid' }, shown.map((l) => h(LinkTile, {
-           key: l.id, l, run, notify, favicons, onEdit: startEdit,
+         ? h('div', { key: 'grid', className: '__dk_grid __dk_grid--links' }, shown.map((l) => h(LinkTile, {
+           key: l.id, l, run, notify, favicons, onEdit: startEdit, card: true,
          })))
          : h('div', { key: 'e', className: '__dk_empty' }, [
            h('div', { key: 't', className: '__dk_emptytitle' }, links.length ? '这个分类还是空的' : '还没有收藏网页'),
