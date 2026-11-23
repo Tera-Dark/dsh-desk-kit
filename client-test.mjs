@@ -1013,11 +1013,25 @@ test('网页页:大卡片 + 三行简介 + 一键复制', () => {
 })
 
 test('写操作:失败不许报成功', () => {
+
   // run() 出错时返回 null,原因由面板顶部 ErrorBar 报;页面必须自己判断有没有存上
   assert.equal(T.writeOk({ ok: true, state: {} }), true)
   assert.equal(T.writeOk(null), false, '请求失败时 run 返回 null,不能被当成已保存')
   assert.equal(T.writeOk({ ok: false, error: '磁盘满了' }), false)
   assert.equal(T.writeOk(undefined), false)
+})
+
+test('搜索命中要高亮:看得出为什么被搜出来', () => {
+  const one = renderToString(h('div', null, T.highlight('GitHub 上找灵感', 'hub')))
+  assert.ok(one.includes('<mark') && one.includes('__dk_mark'), '命中词要用 mark 包起来')
+  assert.ok(one.includes('Git') && one.includes(' 上找灵感'), '没命中的部分原样保留')
+  // 没有关键词 / 没有命中:原样返回,别塞空 mark
+  assert.equal(T.highlight('abc', ''), 'abc')
+  assert.equal(T.highlight('abc', 'zzz'), 'abc')
+  // 大小写不敏感,且不吞掉原文大小写
+  const two = renderToString(h('div', null, T.highlight('Figma 文件', 'fig')))
+  assert.ok(two.includes('fig') || two.includes('Fig'), '小写查询要能命中大写原文')
+  assert.equal(String(two).replace(/<[^>]+>/g, ''), 'Figma 文件', '高亮不能改写原文')
 })
 
 

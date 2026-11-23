@@ -220,7 +220,7 @@
          h('span', { key: 'h', className: '__dk_hint' }, links.length + ' 个 · ' + groups.length + ' 个分类'),
        ]),
 
-       form ? h('div', { key: 'form', className: '__dk_form' }, [
+       form ? h('div', { key: 'form', className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setForm(null) } }, }, [
          h('div', { key: 'g', className: '__dk_group' }, [
            h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, form.id ? '编辑网页' : '收藏一个网页'), h('span', { key: 'b' }, '点一下就能跳')]),
            h('input', {

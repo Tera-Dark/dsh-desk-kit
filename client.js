@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.31.1'
+   const VERSION = '1.32.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -987,6 +987,7 @@ window.__ModuleLoader__.load({
      '.__dk_tile--card:hover .__dk_appact,.__dk_tile--card:focus-within .__dk_appact{opacity:1}',
      '.__dk_textarea{min-height:76px;resize:vertical;line-height:1.6;font-family:inherit;padding:9px 11px}',
      '.__dk_aerr{font-size:12px;line-height:1.5;color:var(--dk-danger);padding:2px 2px 0}',
+     '.__dk_mark{background:color-mix(in srgb,var(--dk-accent) 24%,transparent);color:inherit;border-radius:3px;padding:0 1px}',
      '@media (max-width:420px){.__dk_tabbar{padding-left:6px;padding-right:6px;gap:0}.__dk_sphead{padding:16px 16px 4px}.__dk_sptitle{font-size:22px}.__dk_spnav{margin:8px 16px 0}.__dk_spbody{padding:14px 16px 24px}.__dk_body{padding:0 14px 10px}}',
    ].join('\n')
 
@@ -1113,6 +1114,31 @@ window.__ModuleLoader__.load({
     * 必须先问这里 —— 否则连失败也会弹「已保存」、把草稿清掉。
     */
    function writeOk(body) { return !!(body && body.ok !== false) }
+
+   /**
+    * 把命中的关键词包成 <mark>:列表里一眼看出「这条为什么被搜出来」。
+    * 用 React 元素拼,不用 innerHTML —— 搜索词来自输入框,拼 HTML 等于开了个 XSS 的口子。
+    */
+   function highlight(text, query) {
+     const raw = String(text == null ? '' : text)
+     const q = String(query || '').trim()
+     if (!q || !raw) return raw
+     const hay = raw.toLowerCase()
+     const needle = q.toLowerCase()
+     const out = []
+     let at = 0
+     let i = hay.indexOf(needle)
+     let guard = 0
+     while (i >= 0 && guard++ < 50) {
+       if (i > at) out.push(raw.slice(at, i))
+       out.push(h('mark', { key: 'm' + i, className: '__dk_mark' }, raw.slice(i, i + needle.length)))
+       at = i + needle.length
+       i = hay.indexOf(needle, at)
+     }
+     if (!out.length) return raw
+     if (at < raw.length) out.push(raw.slice(at))
+     return out
+   }
    /**
     * 复制敏感内容:30 秒后如果剪贴板里还是它,就清掉。
     * Windows 的剪贴板历史会一直留着复制的密码,这一步至少不让它躺在最上面。
@@ -1828,7 +1854,7 @@ window.__ModuleLoader__.load({
          }, [
            h('span', { key: 'k', className: '__dk_qfkind' }, KIND[hit.kind] || hit.kind),
            h('span', { key: 'm', className: '__dk_qfmain' }, [
-             h('span', { key: 't', className: '__dk_qft' }, hit.kind === 'note' && hit.snippet ? hit.snippet : hit.title),
+             h('span', { key: 't', className: '__dk_qft' }, highlight(hit.kind === 'note' && hit.snippet ? hit.snippet : hit.title, q)),
              h('span', { key: 'w', className: '__dk_qfm' }, KIND[hit.kind] + ' · ' + hit.where),
            ]),
            h('span', { key: 'go', className: '__dk_qfgo' }, hit.kind === 'secret' ? '确认' : '打开'),
@@ -2024,7 +2050,7 @@ window.__ModuleLoader__.load({
      const leadNum = Number(lead) || 0
 
      // 表单分三块:什么时候 → 什么时候提醒我 → 链接。一块一问,不用在一堆输入框里找。
-     return h('div', { className: '__dk_form' }, [
+     return h('div', { className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel() } }, }, [
        h('div', { key: 'g1', className: '__dk_group' }, [
          h('div', { key: 'h', className: '__dk_grouph' }, [
            h('span', { key: 'a' }, title || '新提醒'),
@@ -2399,6 +2425,7 @@ window.__ModuleLoader__.load({
        try { await run('file.delete', { id: file.id }) } catch { /* 清不掉也不影响 */ }
      }
 
+     const cancelAdd = () => { setOpenAdd(false); for (const f of draftFiles) dropDraftFile(f) }
      const add = async () => {
        const text = draft.trim()
        if (!text && !draftFiles.length) return
@@ -2440,7 +2467,7 @@ window.__ModuleLoader__.load({
      }
 
      /** 一条便签。mode: daily | long | done | trash */
-     const row = (n, mode) => {
+     const row = (n, mode, mark) => {
        const isLong = mode === 'long'
        const open = expanded === n.id
        const firstLine = String(n.text || '').split('\n')[0]
@@ -2478,7 +2505,7 @@ window.__ModuleLoader__.load({
        return h('div', { key: n.id, className: '__dk_item' + (isLong ? ' __dk_item--ref' : '') }, [
          editing === n.id
            ? h('div', {
-             key: 'edit', className: '__dk_form __dk_editform',
+             key: 'edit', className: '__dk_form __dk_editform', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); cancelEdit() } }, 
              onPaste: (e) => {
                const src = clipboardImage(e.clipboardData)
                if (!src) return
@@ -2540,7 +2567,7 @@ window.__ModuleLoader__.load({
                onClick: isLong ? () => setExpanded(open ? '' : n.id) : null,
                style: isLong ? { cursor: 'pointer' } : null,
                title: isLong && !open ? '点一下展开全文' : null,
-             }, previewText) : null,
+             }, mark ? highlight(previewText, mark) : previewText) : null,
              filesOf(n).length
                ? h(FileGrid, { key: 'fg', files: filesOf(n), onOpen: (f) => setViewing(f) })
                : null,
@@ -2635,7 +2662,7 @@ window.__ModuleLoader__.load({
          }, [h(Ico, { key: 'i', name: 'copy', size: 13 }), ' 复制']),
        ]),
        openAdd ? h('div', {
-         key: 'form', className: '__dk_form',
+         key: 'form', className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); cancelAdd() } }, 
          // 表单里粘贴/拖文件:先挂在草稿上(你还想写两句),保存时一起落库
          onPaste: (e) => {
            const src = clipboardImage(e.clipboardData)
@@ -2681,14 +2708,14 @@ window.__ModuleLoader__.load({
            : null,
          h('div', { key: 'r', className: '__dk_frow' }, [
            h('button', { key: 's', className: '__dk_btn p', disabled: busySave || (!draft.trim() && !draftFiles.length), onClick: add }, busySave ? '保存中…' : '保存'),
-           h('button', { key: 'c', className: '__dk_btn', onClick: () => { setOpenAdd(false); for (const f of draftFiles) dropDraftFile(f) } }, '取消'),
+           h('button', { key: 'c', className: '__dk_btn', onClick: cancelAdd }, '取消'),
          ]),
        ]) : null,
 
        // 搜索:平铺结果(便签 + 提醒标题 + 保险库标题)
        kw
          ? (searched.length
-           ? searched.map((n) => row(n, n.shelf === 'long' && !n.archived ? 'long' : 'daily'))
+           ? searched.map((n) => row(n, n.shelf === 'long' && !n.archived ? 'long' : 'daily', kw))
            : (found && found.total
              ? null
              : h('div', { key: 'e', className: '__dk_empty' }, [
@@ -3014,7 +3041,7 @@ window.__ModuleLoader__.load({
          h('span', { key: 'h', className: '__dk_hint' }, links.length + ' 个 · ' + groups.length + ' 个分类'),
        ]),
 
-       form ? h('div', { key: 'form', className: '__dk_form' }, [
+       form ? h('div', { key: 'form', className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setForm(null) } }, }, [
          h('div', { key: 'g', className: '__dk_group' }, [
            h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, form.id ? '编辑网页' : '收藏一个网页'), h('span', { key: 'b' }, '点一下就能跳')]),
            h('input', {
@@ -3333,7 +3360,7 @@ window.__ModuleLoader__.load({
        h('div', { key: 'hint', className: '__dk_hint __dk_vaultsort' }, dragEnabled
          ? '拖动手柄上下排序;手机上可用 ↑↓ 按钮'
          : collection ? '清空搜索后可拖拽排序' : '选一个合集后可拖拽排序'),
-       editing ? h('div', { key: 'edit', className: '__dk_form' }, [
+       editing ? h('div', { key: 'edit', className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setEditing(null) } }, }, [
          h('div', { key: 'g', className: '__dk_group' }, [
            h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '编辑条目'), h('span', { key: 'b' }, '保存后重新加密')]),
            h('input', {
@@ -3375,7 +3402,7 @@ window.__ModuleLoader__.load({
          ]),
        ]) : null,
        openAdd ? h('div', {
-         key: 'form', className: '__dk_form',
+         key: 'form', className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpenAdd(false) } }, 
          // 保险库里也能直接粘贴截图:截完图 Ctrl+V 就挂在新条目上
          onPaste: (e) => {
            const src = clipboardImage(e.clipboardData)
@@ -3657,7 +3684,8 @@ window.__ModuleLoader__.load({
      const keep = info ? info.trashKeepDays : (state.trashKeepDays || 0)
      const trash = (state.trash || [])
      const setKeep = async (days) => {
-       await run('settings.update', { trashKeepDays: days })
+       const body = await run('settings.update', { trashKeepDays: days })
+       if (!writeOk(body)) { setMsg('没设上,保留天数还是原来的'); return }
        setMsg(days > 0 ? '垃圾箱保留 ' + days + ' 天' : '不再自动清垃圾箱')
        load()
      }
@@ -5021,7 +5049,7 @@ window.__ModuleLoader__.load({
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
-     playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar, writeOk,
+     playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar, writeOk, highlight,
      searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES, CAPTURE_EVENT, handleDeepLink,
    }
    return module.exports

@@ -163,6 +163,7 @@
        try { await run('file.delete', { id: file.id }) } catch { /* 清不掉也不影响 */ }
      }
 
+     const cancelAdd = () => { setOpenAdd(false); for (const f of draftFiles) dropDraftFile(f) }
      const add = async () => {
        const text = draft.trim()
        if (!text && !draftFiles.length) return
@@ -204,7 +205,7 @@
      }
 
      /** 一条便签。mode: daily | long | done | trash */
-     const row = (n, mode) => {
+     const row = (n, mode, mark) => {
        const isLong = mode === 'long'
        const open = expanded === n.id
        const firstLine = String(n.text || '').split('\n')[0]
@@ -242,7 +243,7 @@
        return h('div', { key: n.id, className: '__dk_item' + (isLong ? ' __dk_item--ref' : '') }, [
          editing === n.id
            ? h('div', {
-             key: 'edit', className: '__dk_form __dk_editform',
+             key: 'edit', className: '__dk_form __dk_editform', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); cancelEdit() } }, 
              onPaste: (e) => {
                const src = clipboardImage(e.clipboardData)
                if (!src) return
@@ -304,7 +305,7 @@
                onClick: isLong ? () => setExpanded(open ? '' : n.id) : null,
                style: isLong ? { cursor: 'pointer' } : null,
                title: isLong && !open ? '点一下展开全文' : null,
-             }, previewText) : null,
+             }, mark ? highlight(previewText, mark) : previewText) : null,
              filesOf(n).length
                ? h(FileGrid, { key: 'fg', files: filesOf(n), onOpen: (f) => setViewing(f) })
                : null,
@@ -399,7 +400,7 @@
          }, [h(Ico, { key: 'i', name: 'copy', size: 13 }), ' 复制']),
        ]),
        openAdd ? h('div', {
-         key: 'form', className: '__dk_form',
+         key: 'form', className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); cancelAdd() } }, 
          // 表单里粘贴/拖文件:先挂在草稿上(你还想写两句),保存时一起落库
          onPaste: (e) => {
            const src = clipboardImage(e.clipboardData)
@@ -445,14 +446,14 @@
            : null,
          h('div', { key: 'r', className: '__dk_frow' }, [
            h('button', { key: 's', className: '__dk_btn p', disabled: busySave || (!draft.trim() && !draftFiles.length), onClick: add }, busySave ? '保存中…' : '保存'),
-           h('button', { key: 'c', className: '__dk_btn', onClick: () => { setOpenAdd(false); for (const f of draftFiles) dropDraftFile(f) } }, '取消'),
+           h('button', { key: 'c', className: '__dk_btn', onClick: cancelAdd }, '取消'),
          ]),
        ]) : null,
 
        // 搜索:平铺结果(便签 + 提醒标题 + 保险库标题)
        kw
          ? (searched.length
-           ? searched.map((n) => row(n, n.shelf === 'long' && !n.archived ? 'long' : 'daily'))
+           ? searched.map((n) => row(n, n.shelf === 'long' && !n.archived ? 'long' : 'daily', kw))
            : (found && found.total
              ? null
              : h('div', { key: 'e', className: '__dk_empty' }, [

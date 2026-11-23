@@ -61,7 +61,7 @@
      const leadNum = Number(lead) || 0
 
      // 表单分三块:什么时候 → 什么时候提醒我 → 链接。一块一问,不用在一堆输入框里找。
-     return h('div', { className: '__dk_form' }, [
+     return h('div', { className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel() } }, }, [
        h('div', { key: 'g1', className: '__dk_group' }, [
          h('div', { key: 'h', className: '__dk_grouph' }, [
            h('span', { key: 'a' }, title || '新提醒'),

@@ -62,7 +62,7 @@
          }, [
            h('span', { key: 'k', className: '__dk_qfkind' }, KIND[hit.kind] || hit.kind),
            h('span', { key: 'm', className: '__dk_qfmain' }, [
-             h('span', { key: 't', className: '__dk_qft' }, hit.kind === 'note' && hit.snippet ? hit.snippet : hit.title),
+             h('span', { key: 't', className: '__dk_qft' }, highlight(hit.kind === 'note' && hit.snippet ? hit.snippet : hit.title, q)),
              h('span', { key: 'w', className: '__dk_qfm' }, KIND[hit.kind] + ' · ' + hit.where),
            ]),
            h('span', { key: 'go', className: '__dk_qfgo' }, hit.kind === 'secret' ? '确认' : '打开'),

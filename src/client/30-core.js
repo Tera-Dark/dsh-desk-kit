@@ -122,6 +122,31 @@
     * 必须先问这里 —— 否则连失败也会弹「已保存」、把草稿清掉。
     */
    function writeOk(body) { return !!(body && body.ok !== false) }
+
+   /**
+    * 把命中的关键词包成 <mark>:列表里一眼看出「这条为什么被搜出来」。
+    * 用 React 元素拼,不用 innerHTML —— 搜索词来自输入框,拼 HTML 等于开了个 XSS 的口子。
+    */
+   function highlight(text, query) {
+     const raw = String(text == null ? '' : text)
+     const q = String(query || '').trim()
+     if (!q || !raw) return raw
+     const hay = raw.toLowerCase()
+     const needle = q.toLowerCase()
+     const out = []
+     let at = 0
+     let i = hay.indexOf(needle)
+     let guard = 0
+     while (i >= 0 && guard++ < 50) {
+       if (i > at) out.push(raw.slice(at, i))
+       out.push(h('mark', { key: 'm' + i, className: '__dk_mark' }, raw.slice(i, i + needle.length)))
+       at = i + needle.length
+       i = hay.indexOf(needle, at)
+     }
+     if (!out.length) return raw
+     if (at < raw.length) out.push(raw.slice(at))
+     return out
+   }
    /**
     * 复制敏感内容:30 秒后如果剪贴板里还是它,就清掉。
     * Windows 的剪贴板历史会一直留着复制的密码,这一步至少不让它躺在最上面。

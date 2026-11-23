@@ -248,7 +248,7 @@
        h('div', { key: 'hint', className: '__dk_hint __dk_vaultsort' }, dragEnabled
          ? '拖动手柄上下排序;手机上可用 ↑↓ 按钮'
          : collection ? '清空搜索后可拖拽排序' : '选一个合集后可拖拽排序'),
-       editing ? h('div', { key: 'edit', className: '__dk_form' }, [
+       editing ? h('div', { key: 'edit', className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setEditing(null) } }, }, [
          h('div', { key: 'g', className: '__dk_group' }, [
            h('div', { key: 'h', className: '__dk_grouph' }, [h('span', { key: 'a' }, '编辑条目'), h('span', { key: 'b' }, '保存后重新加密')]),
            h('input', {
@@ -290,7 +290,7 @@
          ]),
        ]) : null,
        openAdd ? h('div', {
-         key: 'form', className: '__dk_form',
+         key: 'form', className: '__dk_form', onKeyDown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpenAdd(false) } }, 
          // 保险库里也能直接粘贴截图:截完图 Ctrl+V 就挂在新条目上
          onPaste: (e) => {
            const src = clipboardImage(e.clipboardData)

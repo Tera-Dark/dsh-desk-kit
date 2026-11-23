@@ -122,7 +122,8 @@
      const keep = info ? info.trashKeepDays : (state.trashKeepDays || 0)
      const trash = (state.trash || [])
      const setKeep = async (days) => {
-       await run('settings.update', { trashKeepDays: days })
+       const body = await run('settings.update', { trashKeepDays: days })
+       if (!writeOk(body)) { setMsg('没设上,保留天数还是原来的'); return }
        setMsg(days > 0 ? '垃圾箱保留 ' + days + ' 天' : '不再自动清垃圾箱')
        load()
      }
