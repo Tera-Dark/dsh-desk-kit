@@ -123,11 +123,9 @@ export const links = {
     if (!NAMES[from]) throw new Error('不认识的分类:' + from)
     if (!NAMES[target]) throw new Error('不认识的分类:' + target)
     if (from === target) throw new Error('它已经在' + NAMES[from] + '里了')
-    const src = this.findAny(from, id)
-    if (!src) throw new Error('找不到这条' + NAMES[from])
 
     // 同一条记录只转一次:连点几下转存按钮,第二下开始直接复用上一次的结果。
-    // 源条目转走后只是进垃圾箱,不拦的话每点一下都会再建一条,变成重复录入。
+    // 先查台账再找源条目:保险库转走后源条目是真删,后查就只剩「找不到」了。
     const moveKey = from + ':' + id
     const moves = this.data.moves || (this.data.moves = {})
     const prior = moves[moveKey]
@@ -137,6 +135,11 @@ export const links = {
       // 目标后来被删了:清掉旧账,允许重新转一次。
       delete moves[moveKey]
     }
+
+    const src = this.findAny(from, id)
+    if (!src) throw new Error('找不到这条' + NAMES[from])
+    // 已经在垃圾箱里的别再转:那是重复录入的另一个入口(应当先恢复)。
+    if ((src.deletedAt || 0) > 0) throw new Error('这条已经在垃圾箱里了,先恢复再转')
 
     let title = ''
     let url = ''

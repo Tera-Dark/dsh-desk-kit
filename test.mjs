@@ -721,6 +721,18 @@ test('转存:连点几下只算一次,不会重复录入', () => {
   assert.equal(other.duplicate, true)
   assert.equal(other.item.id, first.item.id)
   assert.equal(s.listSecrets().length, 0)
+
+  // 保险库转走后源条目是真删,重复点击也要能认出「已经转过」
+  const sec = s.addSecret({ title: '某站', body: 'example.org 是个工具站' })
+  const secFirst = s.convertItem('secret', sec.id, 'note')
+  const secAgain = s.convertItem('secret', sec.id, 'note')
+  assert.equal(secAgain.duplicate, true, '保险库重复转存也要认出来')
+  assert.equal(secAgain.item.id, secFirst.item.id)
+
+  // 已经在垃圾箱里的条目不许再转,否则又是一个重复录入入口
+  const trashed = s.addNote({ text: '已经被删掉的便签' })
+  s.deleteNote(trashed.id)
+  assert.throws(() => s.convertItem('note', trashed.id, 'link'), /垃圾箱/)
 })
 
 test('两个实例同时改:refresh 能看见对方写的,不会整份覆盖', () => {

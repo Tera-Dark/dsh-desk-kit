@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.32.1'
+   const VERSION = '1.32.2'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -4045,7 +4045,8 @@ window.__ModuleLoader__.load({
      // 先 ack 再 snooze:ack 会把当天记成静音,snooze 要把静音解除 —— 顺序反了就永远不响
      const snooze = async (minutes) => {
        setErr('')
-       await run('alert.ack', { id: a.id })
+       const acked = await run('alert.ack', { id: a.id })
+       if (!writeOk(acked)) { setErr('没设上,卡片没能关掉,再点一次'); return }
        const body = await run('reminder.snooze', { id: a.refId, minutes })
        // ack 已经把今天静音了;稍后要是没设上,这条今天就再也不会响 —— 必须说清楚
        if (!writeOk(body)) setErr('稍后没设上,今天这条已被静音,到「提醒」里改时间')
@@ -4071,7 +4072,9 @@ window.__ModuleLoader__.load({
              const done = await run('reminder.checkin', { id: a.refId, date: a.dueDate })
              // 打卡没成功就别 ack:否则提醒没完成、卡片也没了,等于把这件事吞掉
              if (!writeOk(done)) { setErr('没打卡成功,再点一次'); return }
-             await run('alert.ack', { id: a.id })
+             const acked = await run('alert.ack', { id: a.id })
+             // 卡打上了但提示没关掉:至少说清楚,别让人以为这次点击没发生
+             if (!writeOk(acked)) setErr('已打卡,但提示没关掉,再点一次')
            },
          }, '完成'),
          h('button', {
@@ -4512,7 +4515,9 @@ window.__ModuleLoader__.load({
      const onLink = useCallback(async (r) => {
        const v = window.prompt('粘贴要打开的网址(留空可清除)', r.url || '')
        if (v === null) return
-       await run('reminder.update', { id: r.id, url: String(v).trim() })
+       const body = await run('reminder.update', { id: r.id, url: String(v).trim() })
+       // 没写进去就别报「已绑定」:回执说假话,人下次还会以为点过了
+       if (!writeOk(body)) { showReply('没绑上,再点一次', null, null, { tone: 'err' }); return }
        showReply(String(v).trim() ? '已绑定打开链接' : '已清除链接')
      }, [run, showReply])
 
@@ -4766,7 +4771,9 @@ window.__ModuleLoader__.load({
      const onLink = useCallback(async (r) => {
        const v = window.prompt('粘贴要打开的网址(留空可清除)', r.url || '')
        if (v === null) return
-       await run('reminder.update', { id: r.id, url: String(v).trim() })
+       const body = await run('reminder.update', { id: r.id, url: String(v).trim() })
+       // 没写进去就别报「已绑定」:回执说假话,人下次还会以为点过了
+       if (!writeOk(body)) { showReply('没绑上,再点一次', null, null, { tone: 'err' }); return }
        showReply(String(v).trim() ? '已绑定打开链接' : '已清除链接')
      }, [run, showReply])
 

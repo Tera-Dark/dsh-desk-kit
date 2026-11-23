@@ -1029,6 +1029,11 @@ test('写操作:失败不许报成功', () => {
   assert.equal(T.writeOk(null), false, '请求失败时 run 返回 null,不能被当成已保存')
   assert.equal(T.writeOk({ ok: false, error: '磁盘满了' }), false)
   assert.equal(T.writeOk(undefined), false)
+
+  // 同类回归:绑定链接、提醒卡片 ack 也必须先判结果(以前失败照样报成功/静默半成功)
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes("if (!writeOk(body)) { showReply('没绑上,再点一次'"), '绑定链接失败不能报「已绑定」')
+  assert.ok(src.includes("const acked = await run('alert.ack'"), '提醒卡片的 ack 要判结果')
 })
 
 test('搜索命中要高亮:看得出为什么被搜出来', () => {

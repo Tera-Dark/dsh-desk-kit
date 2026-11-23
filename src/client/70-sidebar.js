@@ -137,7 +137,9 @@
      const onLink = useCallback(async (r) => {
        const v = window.prompt('粘贴要打开的网址(留空可清除)', r.url || '')
        if (v === null) return
-       await run('reminder.update', { id: r.id, url: String(v).trim() })
+       const body = await run('reminder.update', { id: r.id, url: String(v).trim() })
+       // 没写进去就别报「已绑定」:回执说假话,人下次还会以为点过了
+       if (!writeOk(body)) { showReply('没绑上,再点一次', null, null, { tone: 'err' }); return }
        showReply(String(v).trim() ? '已绑定打开链接' : '已清除链接')
      }, [run, showReply])
 
