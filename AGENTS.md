@@ -6,7 +6,8 @@
 ## 怎么跑
 
 ```bash
-npm test             # 单元 + 渲染 + 入口 + AI 分类 + 所有权
+npm test             # 文档一致性 + 单元 + 渲染 + 入口 + AI 分类 + 所有权
+npm run check:docs   # 只查文档:版本号/链接/必备文件/测试文件清单
 npm run test:host    # 真起 HTTP + 桩 ctx，跑 27 个工具
 npm run test:installed
 npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址）
@@ -32,6 +33,6 @@ npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址�
 
 ## 当前状态
 
-- 版本 1.29.0，27 个 Agent 工具。
+- 版本 1.32.0，27 个 Agent 工具。
 - 设计语言：Utility（工具）模式，「一块浮在桌面上的玻璃」——四档 Vibrancy + 实体面 + 内凹，一个元素只取一种；60-30-10 色彩预算；同心圆角（内层 = 外层 − 内距）；石墨做动作、系统蓝做选中、系统红只报失败；静态元数据只用纯文本 + `·`。详见 `docs/DESIGN.md`，改完跑它的「审计门」。
 - 已知待办：动作表收敛、历史视觉层清理、空 catch 收敛（见 `docs/ARCHITECTURE.md`）；与 `docs/DESIGN.md` 的新规矩冲突的视觉残留见该文「落在哪」一节的迁移方向。

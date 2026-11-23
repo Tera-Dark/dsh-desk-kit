@@ -28,6 +28,13 @@
 - `npm test`:host 72 / 分类 14 / 农历 4 / paste 4 / client **71** / 结构 3,全绿。
 - 新增用例「搜索命中要高亮」:命中词被 `<mark class="__dk_mark">` 包住、无关键词/无命中时原样返回、大小写不敏感且不改写原文(断言剥标签后的文本等于原文)。
 
+### 顺手加的文档门禁
+
+版本号在 `package.json` / `README.md` / `AGENTS.md` 各写一遍,这轮又发现两处停在 1.29.0。
+新增 `scripts/check-docs.mjs`(挂进 `npm test` 与 `npm run check:docs`),检查四件事:
+三处版本一致、`docs/` 四个必备文件在、Markdown 本地链接不悬空、`*.test.mjs` 都已纳入 `test` 脚本。
+纯文件检查,毫秒级,不联网。
+
 ## 1.31.1 · 提醒卡片不再吞掉失败;粘贴图片补上 DNS 绕行防护
 
 ### 为什么

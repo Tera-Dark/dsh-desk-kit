@@ -218,7 +218,8 @@ https://你的DSH地址/?dk=capture&text=记一下周末修耳机
 ## 开发自测
 
 ```bash
-npm test            # 存储 / 分拣 / 农历 / 客户端渲染 / 归属 / AI 分类 / 入口
+npm test            # 文档一致性 / 存储 / 分拣 / 农历 / 粘贴图片 / 客户端渲染 / 归属 / AI 分类 / 入口
+npm run check:docs  # 只查文档:版本号三处一致、docs 齐全、本地链接不断、测试文件都已纳入 test
 npm run test:host   # 桩掉 webServer,真起 HTTP:API、27 个工具、附件、转存、清理、导入
 npm run test:installed  # 按装好的样子加载一遍
 npm run test:ui     # 真浏览器里点一遍:粘贴截图 → 缩略图 → 大图 → Esc → 搜索 → 提醒 Enter → 深链录入 → 分类提示自动消失
