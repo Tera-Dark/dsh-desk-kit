@@ -83,7 +83,8 @@
        h('button', {
          key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
          onClick: async () => {
-           await run('link.delete', { id: l.id })
+           const body = await run('link.delete', { id: l.id })
+           if (!writeOk(body)) { if (notify) notify('没删掉,这个网页还在'); return }
            if (notify) notify('已移入垃圾箱', { action: 'link.restore', payload: { id: l.id } })
          },
        }, h(Ico, { name: 'x', size })),
@@ -155,6 +156,7 @@
      const ungrouped = (state.linkGroups && state.linkGroups.ungrouped) || 0
      const [group, setGroup] = useState('')          // '' = 全部
      const [view, setView] = useState('all')         // all | trash
+     const [busySave, setBusySave] = useState(false)  // 保存中:按钮换字,挡住连点两个「新网页」
      const [form, setForm] = useState(null)          // { id?, title, url, group, icon }
      const say = (text, undo) => { if (notify) notify(text, undo) }
      const favicons = !!(state.settings && state.settings.linkFavicons)
@@ -169,10 +171,15 @@
        const url = String(f.url || '').trim()
        if (!url) { say('先填个网址'); return }
        const payload = { title, url, group: f.group || '', icon: f.icon || '', note: f.note || '', pinned: !!f.pinned }
-       const body = f.id
-         ? await run('link.update', { id: f.id, ...payload })
-         : await run('link.add', payload)
-       if (!body || body.ok === false) return
+       setBusySave(true)
+       let body = null
+       try {
+         body = f.id
+           ? await run('link.update', { id: f.id, ...payload })
+           : await run('link.add', payload)
+       } finally { setBusySave(false) }
+       // 没存上就把表单留着:关掉等于让用户重填一遍网址和简介
+       if (!writeOk(body)) { say('没存上,表单还留着,再点一次保存'); return }
        const deduped = body.result && body.result.deduped
        setForm(null)
        if (f.id) say('已保存')
@@ -250,7 +257,7 @@
            form.id ? h(MoveChips, { key: 'mv', kind: 'link', id: form.id, run, notify: (t) => { setForm(null); say(t) } }) : null,
          ]),
          h('div', { key: 'r', className: '__dk_frow' }, [
-           h('button', { key: 's', className: '__dk_btn p', disabled: !String(form.url || '').trim(), onClick: save }, '保存'),
+           h('button', { key: 's', className: '__dk_btn p', disabled: busySave || !String(form.url || '').trim(), onClick: save }, busySave ? '保存中…' : '保存'),
            h('button', { key: 'c', className: '__dk_btn', onClick: () => setForm(null) }, '取消'),
          ]),
        ]) : null,

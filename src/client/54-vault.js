@@ -31,6 +31,7 @@
    function VaultPage({ state, run, notify, focus }) {
      const [moving, setMoving] = useState('')
      const [openAdd, setOpenAdd] = useState(false)
+     const [busySave, setBusySave] = useState(false)   // 加密写盘也是异步的:给个「保存中…」,别连点两次
      const [title, setTitle] = useState('')
      const [body, setBody] = useState('')
      const [addCollection, setAddCollection] = useState('')
@@ -73,13 +74,18 @@
      // 不逼用户拆字段:想怎么记就怎么记,整段加密
      const add = async () => {
        if (!title.trim() && !draftFiles.length) return
-       await run('secret.add', {
-         title: title.trim() || '未命名条目', body,
-         collection: addCollection.trim(),
-         files: draftFiles.map((f) => f.id),
-       })
-       setTitle(''); setBody(''); setAddCollection(''); setDraftFiles([]); setOpenAdd(false)
-       say('已加密保存')
+       setBusySave(true)
+       try {
+         const body = await run('secret.add', {
+           title: title.trim() || '未命名条目', body,
+           collection: addCollection.trim(),
+           files: draftFiles.map((f) => f.id),
+         })
+         // 加密写盘失败时别清空表单:内容只在输入框里,清掉就找不回来了
+         if (!writeOk(body)) { say('没存上,内容还在这里,再点一次加密保存'); return }
+         setTitle(''); setBody(''); setAddCollection(''); setDraftFiles([]); setOpenAdd(false)
+         say('已加密保存')
+       } finally { setBusySave(false) }
      }
      const attachMetas = (metas) => {
        if (!metas || !metas.length) return
@@ -266,16 +272,20 @@
          ]),
          h('div', { key: 'r', className: '__dk_frow' }, [
            h('button', {
-             key: 's', className: '__dk_btn p', disabled: !editing.title.trim() || !String(editing.body || '').trim(),
+             key: 's', className: '__dk_btn p', disabled: busySave || !editing.title.trim() || !String(editing.body || '').trim(),
              onClick: async () => {
-               await run('secret.update', {
-                 query: editing.id, title: editing.title.trim(), body: editing.body,
-                 collection: String(editing.collection || '').trim(),
-               })
-               setEditing(null)
-               say('已更新并重新加密')
+               setBusySave(true)
+               try {
+                 const body = await run('secret.update', {
+                   query: editing.id, title: editing.title.trim(), body: editing.body,
+                   collection: String(editing.collection || '').trim(),
+                 })
+                 if (!writeOk(body)) { say('没存上,内容还在编辑框里,再点一次保存'); return }
+                 setEditing(null)
+                 say('已更新并重新加密')
+               } finally { setBusySave(false) }
              },
-           }, '保存'),
+           }, busySave ? '保存中…' : '保存'),
            h('button', { key: 'c', className: '__dk_btn', onClick: () => setEditing(null) }, '取消'),
          ]),
        ]) : null,
@@ -332,7 +342,7 @@
            ])
            : null,
          h('div', { key: 'r', className: '__dk_frow' }, [
-           h('button', { key: 's', className: '__dk_btn p', disabled: !title.trim() && !draftFiles.length, onClick: add }, '加密保存'),
+           h('button', { key: 's', className: '__dk_btn p', disabled: busySave || (!title.trim() && !draftFiles.length), onClick: add }, busySave ? '加密中…' : '加密保存'),
            h('button', { key: 'c', className: '__dk_btn', onClick: () => setOpenAdd(false) }, '取消'),
          ]),
        ]) : null,
@@ -402,7 +412,10 @@
                  onClick: async () => {
                    // 保险库不进垃圾箱,所以这里必须确认
                    if (!window.confirm('删除「' + s.title + '」?加密内容一起删,不可恢复')) return
-                   await run('secret.delete', { query: s.id })
+                   const body = await run('secret.delete', { query: s.id })
+                   // 这条不进垃圾箱,删没删必须给个准话
+                   if (!writeOk(body)) { say('没删掉,条目还在,再试一次'); return }
+                   say('已删除')
                  },
                }, h(Ico, { name: 'x', size: 14 })),
              ]),

@@ -18,6 +18,7 @@
      const [moveId, setMoveId] = useState('')      // 哪一条正在挑分类
      const [draftFiles, setDraftFiles] = useState([])   // 还没保存的附件(已上传,拿到 id)
      const [busyFile, setBusyFile] = useState(false)
+     const [busySave, setBusySave] = useState(false)   // 保存中:按钮换成「保存中…」,顺带挡住连点
      const [viewing, setViewing] = useState(null)  // 正在看的大图
      const [deep, setDeep] = useState({ kw: '', hits: [], done: false })
      const [deepBusy, setDeepBusy] = useState(false)
@@ -147,13 +148,14 @@
      const saveEdit = async (n) => {
        const ids = editFiles.map((f) => f.id)
        if (!editText.trim() && !ids.length) { say('便签不能为空:写一句,或至少留一张图'); return }
+       setBusySave(true)
        try {
-         await run('note.update', { id: n.id, text: editText, files: ids, removeFiles: editRemoved })
+         const body = await run('note.update', { id: n.id, text: editText, files: ids, removeFiles: editRemoved })
+         // 没存上就留在编辑器里:关掉编辑器等于把人写的东西弄丢了
+         if (!writeOk(body)) { say('没存上,内容还在,再点一次保存'); return }
          setEditing(''); setEditText(''); setEditFiles([]); setEditRemoved([]); setEditNew([])
          say(editRemoved.length ? '已保存,删掉的图片也清掉了' : '已保存')
-       } catch (e) {
-         say('保存失败:' + String((e && e.message) || e))
-       }
+       } finally { setBusySave(false) }
      }
      /** 只留图片的文件草稿:保存时如果被删掉,顺手把原件也从库里清掉。 */
      const dropDraftFile = async (file) => {
@@ -164,9 +166,15 @@
      const add = async () => {
        const text = draft.trim()
        if (!text && !draftFiles.length) return
-       await run('note.add', { text, tags: tags.split(/[\s,，]+/).filter(Boolean), files: draftFiles.map((f) => f.id) })
-       setDraft(''); setTags(''); setDraftFiles([]); setOpenAdd(false)
-       say(draftFiles.length ? '已存进便签(带 ' + draftFiles.length + ' 个附件)' : '已存进便签')
+       const count = draftFiles.length
+       setBusySave(true)
+       try {
+         const body = await run('note.add', { text, tags: tags.split(/[s,，]+/).filter(Boolean), files: draftFiles.map((f) => f.id) })
+         // 存失败时草稿一个字都不能清:清掉等于把人写的东西弄丢了
+         if (!writeOk(body)) { say('没存上,草稿还留着,再点一次保存'); return }
+         setDraft(''); setTags(''); setDraftFiles([]); setOpenAdd(false)
+         say(count ? '已存进便签(带 ' + count + ' 个附件)' : '已存进便签')
+       } finally { setBusySave(false) }
      }
 
      /** 读系统剪贴板:有图就贴成附件,只有文字就填进草稿。 */
@@ -213,7 +221,8 @@
          actions.push(h('button', {
            key: 'ck', className: '__dk_mini', title: n.completedAt ? '取消完成' : '标记完成', 'aria-label': n.completedAt ? '取消完成' : '标记完成',
            onClick: async () => {
-             await run('note.complete', { id: n.id, done: !n.completedAt })
+             const body = await run('note.complete', { id: n.id, done: !n.completedAt })
+             if (!writeOk(body)) { say('没成功,再点一次'); return }
              // 手滑点错也要能一键回去
              if (!n.completedAt) say('已标记完成', { action: 'note.complete', payload: { id: n.id, done: false } })
            },
@@ -224,7 +233,8 @@
          actions.push(h('button', {
            key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
            onClick: async () => {
-             await run('note.delete', { id: n.id })
+             const body = await run('note.delete', { id: n.id })
+             if (!writeOk(body)) { say('没删掉,这条还在,再试一次'); return }
              say('已移入垃圾箱', { action: 'note.restore', payload: { id: n.id } })
            },
          }, h(Ico, { name: 'trash', size: 14 })))
@@ -281,9 +291,9 @@
              h('div', { key: 'r', className: '__dk_frow __dk_editacts' }, [
                h('button', {
                  key: 's', className: '__dk_btn p',
-                 disabled: !editText.trim() && !editFiles.length,
+                 disabled: busySave || (!editText.trim() && !editFiles.length),
                  onClick: () => saveEdit(n),
-               }, '保存修改'),
+               }, busySave ? '保存中…' : '保存修改'),
                h('button', { key: 'c', className: '__dk_btn', onClick: cancelEdit }, '取消'),
              ]),
            ])
@@ -434,7 +444,7 @@
            ])
            : null,
          h('div', { key: 'r', className: '__dk_frow' }, [
-           h('button', { key: 's', className: '__dk_btn p', disabled: !draft.trim() && !draftFiles.length, onClick: add }, '保存'),
+           h('button', { key: 's', className: '__dk_btn p', disabled: busySave || (!draft.trim() && !draftFiles.length), onClick: add }, busySave ? '保存中…' : '保存'),
            h('button', { key: 'c', className: '__dk_btn', onClick: () => { setOpenAdd(false); for (const f of draftFiles) dropDraftFile(f) } }, '取消'),
          ]),
        ]) : null,

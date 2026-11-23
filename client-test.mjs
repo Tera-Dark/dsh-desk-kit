@@ -1012,6 +1012,14 @@ test('网页页:大卡片 + 三行简介 + 一键复制', () => {
   assert.ok(empty.includes('__dk_appnote--empty'), '空简介要有占位样式')
 })
 
+test('写操作:失败不许报成功', () => {
+  // run() 出错时返回 null,原因由面板顶部 ErrorBar 报;页面必须自己判断有没有存上
+  assert.equal(T.writeOk({ ok: true, state: {} }), true)
+  assert.equal(T.writeOk(null), false, '请求失败时 run 返回 null,不能被当成已保存')
+  assert.equal(T.writeOk({ ok: false, error: '磁盘满了' }), false)
+  assert.equal(T.writeOk(undefined), false)
+})
+
 
 test('附件:格子/大图/剪贴板识别', () => {
   const png = { id: 'f1', name: '截图 1.png', mime: 'image/png', size: 2048, w: 800, h: 600 }

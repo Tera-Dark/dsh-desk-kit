@@ -41,8 +41,10 @@
      const [mm, setMm] = useState(initial.lunar ? initial.lunar.month : Number((initial.annual || '01-01').split('-')[0]) || 1)
 
      const [dd, setDd] = useState(initial.lunar ? initial.lunar.day : Number((initial.annual || '01-01').split('-')[1]) || 1)
+     const [busy, setBusy] = useState(false)   // 保存中:按钮换字并挡住连点,不然会加出两条一样的提醒
 
-     const save = () => {
+     const save = async () => {
+       if (busy) return
        const payload = { title: t.trim(), time, leadMin: Number(lead) || 0, url: url.trim() }
        if (cycle === 'weekly') payload.weekdays = days
        else if (cycle === 'monthly') { payload.monthly = Math.max(1, Math.min(31, Number(mday) || 1)); payload.weekdays = [] }
@@ -51,7 +53,8 @@
        else if (cycle === 'lunar') { payload.lunar = { month: Number(mm), day: Number(dd) }; payload.weekdays = []; payload.yearly = true }
        else payload.weekdays = []
        if (initial.id) payload.id = initial.id
-       onSave(payload)
+       setBusy(true)
+       try { await onSave(payload) } finally { setBusy(false) }
      }
 
      const annual = cycle === 'solar' || cycle === 'lunar'
@@ -151,7 +154,7 @@
        ]),
 
        h('div', { key: 'f', className: '__dk_frow' }, [
-         h('button', { key: 's', className: '__dk_btn p', disabled: !t.trim() || (cycle === 'once' && !date), onClick: save }, '保存'),
+         h('button', { key: 's', className: '__dk_btn p', disabled: busy || !t.trim() || (cycle === 'once' && !date), onClick: save }, busy ? '保存中…' : '保存'),
          h('button', { key: 'c', className: '__dk_btn', onClick: onCancel }, '取消'),
        ]),
      ])
@@ -201,8 +204,11 @@
        ])
      }
      const save = async (r, patch) => {
-       if (r) await run('reminder.update', { id: r.id, ...patch })
-       else await run('reminder.add', patch)
+       const body = r
+         ? await run('reminder.update', { id: r.id, ...patch })
+         : await run('reminder.add', patch)
+       // 没存上就留着表单:关掉它,用户填的时间和周期全没了
+       if (!writeOk(body)) { say('没存上,表单还在,再点一次保存'); return }
        setEditing(''); setAdding(false)
        say(r ? '已保存修改' : '已加一条提醒')
      }
@@ -231,7 +237,9 @@
                      title: r.active === false ? '继续提醒' : '暂停提醒',
                      'aria-label': r.active === false ? '继续提醒' : '暂停提醒',
                      onClick: async () => {
-                       await run('reminder.update', { id: r.id, active: r.active === false })
+                       const body = await run('reminder.update', { id: r.id, active: r.active === false })
+                       // 状态没变就别报「已暂停」:一句空话比没有回执更让人迷惑
+                       if (!writeOk(body)) { say('没成功,再点一次'); return }
                        say(r.active === false ? '已继续提醒' : '已暂停,不再弹提醒')
                      },
                    }, h(Ico, { name: r.active === false ? 'play' : 'pause', size: 15 })),
@@ -241,7 +249,8 @@
                      key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
                      onClick: async () => {
                        // 软删,所以不用弹确认框 —— 直接给「撤销」更好用
-                       await run('reminder.delete', { id: r.id })
+                       const body = await run('reminder.delete', { id: r.id })
+                       if (!writeOk(body)) { say('没删掉,这条还在,再试一次'); return }
                        say('已移入垃圾箱', { action: 'reminder.restore', payload: { id: r.id } })
                      },
                    }, h(Ico, { name: 'trash', size: 15 })),

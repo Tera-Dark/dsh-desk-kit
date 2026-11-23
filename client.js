@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.30.0'
+   const VERSION = '1.31.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -1107,6 +1107,12 @@ window.__ModuleLoader__.load({
    }
 
    /**
+    * 写操作的统一口径。
+    * run() 出错时返回 null(原因由面板顶部的 ErrorBar 报),所以「有没有存上」
+    * 必须先问这里 —— 否则连失败也会弹「已保存」、把草稿清掉。
+    */
+   function writeOk(body) { return !!(body && body.ok !== false) }
+   /**
     * 复制敏感内容:30 秒后如果剪贴板里还是它,就清掉。
     * Windows 的剪贴板历史会一直留着复制的密码,这一步至少不让它躺在最上面。
     */
@@ -1995,8 +2001,10 @@ window.__ModuleLoader__.load({
      const [mm, setMm] = useState(initial.lunar ? initial.lunar.month : Number((initial.annual || '01-01').split('-')[0]) || 1)
 
      const [dd, setDd] = useState(initial.lunar ? initial.lunar.day : Number((initial.annual || '01-01').split('-')[1]) || 1)
+     const [busy, setBusy] = useState(false)   // 保存中:按钮换字并挡住连点,不然会加出两条一样的提醒
 
-     const save = () => {
+     const save = async () => {
+       if (busy) return
        const payload = { title: t.trim(), time, leadMin: Number(lead) || 0, url: url.trim() }
        if (cycle === 'weekly') payload.weekdays = days
        else if (cycle === 'monthly') { payload.monthly = Math.max(1, Math.min(31, Number(mday) || 1)); payload.weekdays = [] }
@@ -2005,7 +2013,8 @@ window.__ModuleLoader__.load({
        else if (cycle === 'lunar') { payload.lunar = { month: Number(mm), day: Number(dd) }; payload.weekdays = []; payload.yearly = true }
        else payload.weekdays = []
        if (initial.id) payload.id = initial.id
-       onSave(payload)
+       setBusy(true)
+       try { await onSave(payload) } finally { setBusy(false) }
      }
 
      const annual = cycle === 'solar' || cycle === 'lunar'
@@ -2105,7 +2114,7 @@ window.__ModuleLoader__.load({
        ]),
 
        h('div', { key: 'f', className: '__dk_frow' }, [
-         h('button', { key: 's', className: '__dk_btn p', disabled: !t.trim() || (cycle === 'once' && !date), onClick: save }, '保存'),
+         h('button', { key: 's', className: '__dk_btn p', disabled: busy || !t.trim() || (cycle === 'once' && !date), onClick: save }, busy ? '保存中…' : '保存'),
          h('button', { key: 'c', className: '__dk_btn', onClick: onCancel }, '取消'),
        ]),
      ])
@@ -2155,8 +2164,11 @@ window.__ModuleLoader__.load({
        ])
      }
      const save = async (r, patch) => {
-       if (r) await run('reminder.update', { id: r.id, ...patch })
-       else await run('reminder.add', patch)
+       const body = r
+         ? await run('reminder.update', { id: r.id, ...patch })
+         : await run('reminder.add', patch)
+       // 没存上就留着表单:关掉它,用户填的时间和周期全没了
+       if (!writeOk(body)) { say('没存上,表单还在,再点一次保存'); return }
        setEditing(''); setAdding(false)
        say(r ? '已保存修改' : '已加一条提醒')
      }
@@ -2185,7 +2197,9 @@ window.__ModuleLoader__.load({
                      title: r.active === false ? '继续提醒' : '暂停提醒',
                      'aria-label': r.active === false ? '继续提醒' : '暂停提醒',
                      onClick: async () => {
-                       await run('reminder.update', { id: r.id, active: r.active === false })
+                       const body = await run('reminder.update', { id: r.id, active: r.active === false })
+                       // 状态没变就别报「已暂停」:一句空话比没有回执更让人迷惑
+                       if (!writeOk(body)) { say('没成功,再点一次'); return }
                        say(r.active === false ? '已继续提醒' : '已暂停,不再弹提醒')
                      },
                    }, h(Ico, { name: r.active === false ? 'play' : 'pause', size: 15 })),
@@ -2195,7 +2209,8 @@ window.__ModuleLoader__.load({
                      key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
                      onClick: async () => {
                        // 软删,所以不用弹确认框 —— 直接给「撤销」更好用
-                       await run('reminder.delete', { id: r.id })
+                       const body = await run('reminder.delete', { id: r.id })
+                       if (!writeOk(body)) { say('没删掉,这条还在,再试一次'); return }
                        say('已移入垃圾箱', { action: 'reminder.restore', payload: { id: r.id } })
                      },
                    }, h(Ico, { name: 'trash', size: 15 })),
@@ -2236,6 +2251,7 @@ window.__ModuleLoader__.load({
      const [moveId, setMoveId] = useState('')      // 哪一条正在挑分类
      const [draftFiles, setDraftFiles] = useState([])   // 还没保存的附件(已上传,拿到 id)
      const [busyFile, setBusyFile] = useState(false)
+     const [busySave, setBusySave] = useState(false)   // 保存中:按钮换成「保存中…」,顺带挡住连点
      const [viewing, setViewing] = useState(null)  // 正在看的大图
      const [deep, setDeep] = useState({ kw: '', hits: [], done: false })
      const [deepBusy, setDeepBusy] = useState(false)
@@ -2365,13 +2381,14 @@ window.__ModuleLoader__.load({
      const saveEdit = async (n) => {
        const ids = editFiles.map((f) => f.id)
        if (!editText.trim() && !ids.length) { say('便签不能为空:写一句,或至少留一张图'); return }
+       setBusySave(true)
        try {
-         await run('note.update', { id: n.id, text: editText, files: ids, removeFiles: editRemoved })
+         const body = await run('note.update', { id: n.id, text: editText, files: ids, removeFiles: editRemoved })
+         // 没存上就留在编辑器里:关掉编辑器等于把人写的东西弄丢了
+         if (!writeOk(body)) { say('没存上,内容还在,再点一次保存'); return }
          setEditing(''); setEditText(''); setEditFiles([]); setEditRemoved([]); setEditNew([])
          say(editRemoved.length ? '已保存,删掉的图片也清掉了' : '已保存')
-       } catch (e) {
-         say('保存失败:' + String((e && e.message) || e))
-       }
+       } finally { setBusySave(false) }
      }
      /** 只留图片的文件草稿:保存时如果被删掉,顺手把原件也从库里清掉。 */
      const dropDraftFile = async (file) => {
@@ -2382,9 +2399,15 @@ window.__ModuleLoader__.load({
      const add = async () => {
        const text = draft.trim()
        if (!text && !draftFiles.length) return
-       await run('note.add', { text, tags: tags.split(/[\s,，]+/).filter(Boolean), files: draftFiles.map((f) => f.id) })
-       setDraft(''); setTags(''); setDraftFiles([]); setOpenAdd(false)
-       say(draftFiles.length ? '已存进便签(带 ' + draftFiles.length + ' 个附件)' : '已存进便签')
+       const count = draftFiles.length
+       setBusySave(true)
+       try {
+         const body = await run('note.add', { text, tags: tags.split(/[s,，]+/).filter(Boolean), files: draftFiles.map((f) => f.id) })
+         // 存失败时草稿一个字都不能清:清掉等于把人写的东西弄丢了
+         if (!writeOk(body)) { say('没存上,草稿还留着,再点一次保存'); return }
+         setDraft(''); setTags(''); setDraftFiles([]); setOpenAdd(false)
+         say(count ? '已存进便签(带 ' + count + ' 个附件)' : '已存进便签')
+       } finally { setBusySave(false) }
      }
 
      /** 读系统剪贴板:有图就贴成附件,只有文字就填进草稿。 */
@@ -2431,7 +2454,8 @@ window.__ModuleLoader__.load({
          actions.push(h('button', {
            key: 'ck', className: '__dk_mini', title: n.completedAt ? '取消完成' : '标记完成', 'aria-label': n.completedAt ? '取消完成' : '标记完成',
            onClick: async () => {
-             await run('note.complete', { id: n.id, done: !n.completedAt })
+             const body = await run('note.complete', { id: n.id, done: !n.completedAt })
+             if (!writeOk(body)) { say('没成功,再点一次'); return }
              // 手滑点错也要能一键回去
              if (!n.completedAt) say('已标记完成', { action: 'note.complete', payload: { id: n.id, done: false } })
            },
@@ -2442,7 +2466,8 @@ window.__ModuleLoader__.load({
          actions.push(h('button', {
            key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
            onClick: async () => {
-             await run('note.delete', { id: n.id })
+             const body = await run('note.delete', { id: n.id })
+             if (!writeOk(body)) { say('没删掉,这条还在,再试一次'); return }
              say('已移入垃圾箱', { action: 'note.restore', payload: { id: n.id } })
            },
          }, h(Ico, { name: 'trash', size: 14 })))
@@ -2499,9 +2524,9 @@ window.__ModuleLoader__.load({
              h('div', { key: 'r', className: '__dk_frow __dk_editacts' }, [
                h('button', {
                  key: 's', className: '__dk_btn p',
-                 disabled: !editText.trim() && !editFiles.length,
+                 disabled: busySave || (!editText.trim() && !editFiles.length),
                  onClick: () => saveEdit(n),
-               }, '保存修改'),
+               }, busySave ? '保存中…' : '保存修改'),
                h('button', { key: 'c', className: '__dk_btn', onClick: cancelEdit }, '取消'),
              ]),
            ])
@@ -2652,7 +2677,7 @@ window.__ModuleLoader__.load({
            ])
            : null,
          h('div', { key: 'r', className: '__dk_frow' }, [
-           h('button', { key: 's', className: '__dk_btn p', disabled: !draft.trim() && !draftFiles.length, onClick: add }, '保存'),
+           h('button', { key: 's', className: '__dk_btn p', disabled: busySave || (!draft.trim() && !draftFiles.length), onClick: add }, busySave ? '保存中…' : '保存'),
            h('button', { key: 'c', className: '__dk_btn', onClick: () => { setOpenAdd(false); for (const f of draftFiles) dropDraftFile(f) } }, '取消'),
          ]),
        ]) : null,
@@ -2849,7 +2874,8 @@ window.__ModuleLoader__.load({
        h('button', {
          key: 'x', className: '__dk_mini', title: '移入垃圾箱', 'aria-label': '移入垃圾箱',
          onClick: async () => {
-           await run('link.delete', { id: l.id })
+           const body = await run('link.delete', { id: l.id })
+           if (!writeOk(body)) { if (notify) notify('没删掉,这个网页还在'); return }
            if (notify) notify('已移入垃圾箱', { action: 'link.restore', payload: { id: l.id } })
          },
        }, h(Ico, { name: 'x', size })),
@@ -2921,6 +2947,7 @@ window.__ModuleLoader__.load({
      const ungrouped = (state.linkGroups && state.linkGroups.ungrouped) || 0
      const [group, setGroup] = useState('')          // '' = 全部
      const [view, setView] = useState('all')         // all | trash
+     const [busySave, setBusySave] = useState(false)  // 保存中:按钮换字,挡住连点两个「新网页」
      const [form, setForm] = useState(null)          // { id?, title, url, group, icon }
      const say = (text, undo) => { if (notify) notify(text, undo) }
      const favicons = !!(state.settings && state.settings.linkFavicons)
@@ -2935,10 +2962,15 @@ window.__ModuleLoader__.load({
        const url = String(f.url || '').trim()
        if (!url) { say('先填个网址'); return }
        const payload = { title, url, group: f.group || '', icon: f.icon || '', note: f.note || '', pinned: !!f.pinned }
-       const body = f.id
-         ? await run('link.update', { id: f.id, ...payload })
-         : await run('link.add', payload)
-       if (!body || body.ok === false) return
+       setBusySave(true)
+       let body = null
+       try {
+         body = f.id
+           ? await run('link.update', { id: f.id, ...payload })
+           : await run('link.add', payload)
+       } finally { setBusySave(false) }
+       // 没存上就把表单留着:关掉等于让用户重填一遍网址和简介
+       if (!writeOk(body)) { say('没存上,表单还留着,再点一次保存'); return }
        const deduped = body.result && body.result.deduped
        setForm(null)
        if (f.id) say('已保存')
@@ -3016,7 +3048,7 @@ window.__ModuleLoader__.load({
            form.id ? h(MoveChips, { key: 'mv', kind: 'link', id: form.id, run, notify: (t) => { setForm(null); say(t) } }) : null,
          ]),
          h('div', { key: 'r', className: '__dk_frow' }, [
-           h('button', { key: 's', className: '__dk_btn p', disabled: !String(form.url || '').trim(), onClick: save }, '保存'),
+           h('button', { key: 's', className: '__dk_btn p', disabled: busySave || !String(form.url || '').trim(), onClick: save }, busySave ? '保存中…' : '保存'),
            h('button', { key: 'c', className: '__dk_btn', onClick: () => setForm(null) }, '取消'),
          ]),
        ]) : null,
@@ -3081,6 +3113,7 @@ window.__ModuleLoader__.load({
    function VaultPage({ state, run, notify, focus }) {
      const [moving, setMoving] = useState('')
      const [openAdd, setOpenAdd] = useState(false)
+     const [busySave, setBusySave] = useState(false)   // 加密写盘也是异步的:给个「保存中…」,别连点两次
      const [title, setTitle] = useState('')
      const [body, setBody] = useState('')
      const [addCollection, setAddCollection] = useState('')
@@ -3123,13 +3156,18 @@ window.__ModuleLoader__.load({
      // 不逼用户拆字段:想怎么记就怎么记,整段加密
      const add = async () => {
        if (!title.trim() && !draftFiles.length) return
-       await run('secret.add', {
-         title: title.trim() || '未命名条目', body,
-         collection: addCollection.trim(),
-         files: draftFiles.map((f) => f.id),
-       })
-       setTitle(''); setBody(''); setAddCollection(''); setDraftFiles([]); setOpenAdd(false)
-       say('已加密保存')
+       setBusySave(true)
+       try {
+         const body = await run('secret.add', {
+           title: title.trim() || '未命名条目', body,
+           collection: addCollection.trim(),
+           files: draftFiles.map((f) => f.id),
+         })
+         // 加密写盘失败时别清空表单:内容只在输入框里,清掉就找不回来了
+         if (!writeOk(body)) { say('没存上,内容还在这里,再点一次加密保存'); return }
+         setTitle(''); setBody(''); setAddCollection(''); setDraftFiles([]); setOpenAdd(false)
+         say('已加密保存')
+       } finally { setBusySave(false) }
      }
      const attachMetas = (metas) => {
        if (!metas || !metas.length) return
@@ -3316,16 +3354,20 @@ window.__ModuleLoader__.load({
          ]),
          h('div', { key: 'r', className: '__dk_frow' }, [
            h('button', {
-             key: 's', className: '__dk_btn p', disabled: !editing.title.trim() || !String(editing.body || '').trim(),
+             key: 's', className: '__dk_btn p', disabled: busySave || !editing.title.trim() || !String(editing.body || '').trim(),
              onClick: async () => {
-               await run('secret.update', {
-                 query: editing.id, title: editing.title.trim(), body: editing.body,
-                 collection: String(editing.collection || '').trim(),
-               })
-               setEditing(null)
-               say('已更新并重新加密')
+               setBusySave(true)
+               try {
+                 const body = await run('secret.update', {
+                   query: editing.id, title: editing.title.trim(), body: editing.body,
+                   collection: String(editing.collection || '').trim(),
+                 })
+                 if (!writeOk(body)) { say('没存上,内容还在编辑框里,再点一次保存'); return }
+                 setEditing(null)
+                 say('已更新并重新加密')
+               } finally { setBusySave(false) }
              },
-           }, '保存'),
+           }, busySave ? '保存中…' : '保存'),
            h('button', { key: 'c', className: '__dk_btn', onClick: () => setEditing(null) }, '取消'),
          ]),
        ]) : null,
@@ -3382,7 +3424,7 @@ window.__ModuleLoader__.load({
            ])
            : null,
          h('div', { key: 'r', className: '__dk_frow' }, [
-           h('button', { key: 's', className: '__dk_btn p', disabled: !title.trim() && !draftFiles.length, onClick: add }, '加密保存'),
+           h('button', { key: 's', className: '__dk_btn p', disabled: busySave || (!title.trim() && !draftFiles.length), onClick: add }, busySave ? '加密中…' : '加密保存'),
            h('button', { key: 'c', className: '__dk_btn', onClick: () => setOpenAdd(false) }, '取消'),
          ]),
        ]) : null,
@@ -3452,7 +3494,10 @@ window.__ModuleLoader__.load({
                  onClick: async () => {
                    // 保险库不进垃圾箱,所以这里必须确认
                    if (!window.confirm('删除「' + s.title + '」?加密内容一起删,不可恢复')) return
-                   await run('secret.delete', { query: s.id })
+                   const body = await run('secret.delete', { query: s.id })
+                   // 这条不进垃圾箱,删没删必须给个准话
+                   if (!writeOk(body)) { say('没删掉,条目还在,再试一次'); return }
+                   say('已删除')
                  },
                }, h(Ico, { name: 'x', size: 14 })),
              ]),
@@ -4960,7 +5005,7 @@ window.__ModuleLoader__.load({
      AlertDock, AlertCard, AlertInline, DOCK_MAX, DOCK_ROTATE_MS, dockSlice, fmtDay, alertMeta,
      clampFab, snapFab, defaultFab, viewport, FAB_SIZE, FAB_PAD, LEVELS, dueCount, requestOpen, OPEN_EVENT,
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
-     playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar,
+     playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar, writeOk,
      searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES, CAPTURE_EVENT, handleDeepLink,
    }
    return module.exports
