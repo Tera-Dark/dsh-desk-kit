@@ -28,7 +28,7 @@ npm run test:ui      # 真浏览器 E2E（需要浏览器打开提示的地址�
   样式只有一个真身：`20-style.js` 末尾的「4.0 Apple」区块 + `--dk-*` token。
 - `client.js` 是生成物，不要直接改；`npm run build:check` 和 `npm test` 会验一致性。
 - `test/`、`*.test.mjs`、`harness.mjs`：行为测试与真 HTTP 集成测试。
-- 文档口径：产品事实（用户、目的、边界）以 `PRODUCT.md` 为准；界面理念与视觉规范以 `docs/DESIGN.md` 为准（改 UI 前必读，改完跑它的「审计门」）；能力与安装以 `README.md` + `package.json` 为准；历史过程进 `CHANGELOG.md`。
+- 文档口径：产品事实（用户、目的、边界）以 `PRODUCT.md` 为准；界面理念与视觉规范以 `docs/DESIGN.md` 为准（改 UI 前必读，改完跑它的「审计门」）；能力与安装以 `README.md` + `package.json` 为准；**问题与修复的台账在 `docs/ISSUES.md`**（新问题往后加行，明确不修的写进「接受」）；历史过程进 `CHANGELOG.md`；安全边界与残余风险以 `docs/SECURITY.md` 为准。
 
 ## 当前状态
 

@@ -87,14 +87,11 @@
 ## 五、验证
 
 ```
-node --check index.js && node --check client.js
-node client-test.mjs   # 37 pass
-node test.mjs          # 15 pass
-node capture.test.mjs  # 8 pass
-node lunar.test.mjs    # 4 pass
-node ai-classify.test.mjs  # ALL PASSED
-node ownership.test.mjs    # effects=3 tools=19 routes=1，dispose 后全部收回
-node harness.mjs       # ALL HOST TESTS PASSED（真起 HTTP + 桩 ctx，跑 23 个工具）
+npm test             # 语法 + 单元 + 渲染 + 入口 + 所有权 + AI 分类（含 paste.test.mjs）
+npm run test:host    # 真起 HTTP + 桩 ctx，跑全部 27 个工具
+npm run test:installed
+
+具体条数以实际输出为准，这里不再写死数字：写死的那份总会过期。
 ```
 
 ## 六、还没做（按收益排序）
@@ -102,10 +99,11 @@ node harness.mjs       # ALL HOST TESTS PASSED（真起 HTTP + 桩 ctx，跑 23 
 1. ~~**store.js 按域拆分**~~ —— 1.26.0 完成：store.js 255 行，便签/提醒/网页/附件/保险库在 `domains/`，导入/搜索/清理/快照各一个根模块。
 2. **`act()` 的 switch 收敛成动作表**：现在同一件事有「工具」和「HTTP action」两个入口，逻辑各写一遍。
 3. **抽公共 presenter**：client.js 已按页拆成 18 个源文件、样式已收成 token；浮标壳与侧栏壳仍各自渲染 header/等级/提醒。
+   问题台账（改过什么、还剩什么）见 [ISSUES.md](ISSUES.md)。
 4. **剩余源码字符串断言**逐步换成行为断言。
 5. **历史视觉层清理**：1.x / 2.0 的视觉规则已被 3.0 单色层覆盖,合并它们是一次独立重构
    (1.24.0 起在浅色宿主上实测过,深色宿主仍需一次)。
-6. **空 catch 收敛**：还有约 20 处，按官方规则应单语句 + 写明为什么安全。
+6. **空 catch 收敛**：源码里还有约 40 处没有写明「为什么安全」，按官方规则应单语句 + 注释。
 
 ## 七、回滚
 

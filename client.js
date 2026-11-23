@@ -973,10 +973,10 @@ window.__ModuleLoader__.load({
      // 收藏网页是为了记住「它是干嘛的」,排一墙小方块反而想不起来;
      // 宁可卡片大一点、留白多一点,也不要把简介压成一个字。
      '.__dk_grid--links{grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:14px;padding:10px 2px 20px;align-items:stretch}',
-     '.__dk_tile--card{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:16px 16px 14px;border:1px solid var(--dk-rule);border-radius:var(--dk-r-card);background:var(--dk-surface);transition:border-color var(--dk-dur-hover) var(--dk-ease-snappy),box-shadow var(--dk-dur-hover) var(--dk-ease-snappy)}',
-     '.__dk_tile--card:hover{border-color:var(--dk-rule-2);box-shadow:var(--dk-shadow-sm)}',
+     '.__dk_tile--card{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px;border:1px solid var(--dk-line);border-radius:var(--dk-r-card);background:var(--dk-surface);transition:background var(--dk-dur-hover) var(--dk-ease-snappy),border-color var(--dk-dur-hover) var(--dk-ease-snappy)}',
+     '.__dk_tile--card:hover{background:var(--dk-surface-strong);border-color:var(--dk-line-2)}',
      '.__dk_cardtop{display:flex;align-items:center;gap:12px;min-width:0}',
-     '.__dk_tile--card .__dk_app{flex:none;width:48px;height:48px;border-radius:13px}',
+     '.__dk_tile--card .__dk_app{flex:none;width:48px;height:48px;border-radius:var(--dk-r-control)}',
      '.__dk_cardtext{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}',
      '.__dk_tile--card .__dk_appname{display:block;max-width:none;text-align:left;font-size:14.5px;font-weight:600;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal;cursor:pointer}',
      '.__dk_tile--card .__dk_appname:hover{color:var(--dk-accent)}',
@@ -987,7 +987,7 @@ window.__ModuleLoader__.load({
      '.__dk_tile--card:hover .__dk_appact,.__dk_tile--card:focus-within .__dk_appact{opacity:1}',
      '.__dk_textarea{min-height:76px;resize:vertical;line-height:1.6;font-family:inherit;padding:9px 11px}',
      '.__dk_aerr{font-size:12px;line-height:1.5;color:var(--dk-danger);padding:2px 2px 0}',
-     '.__dk_mark{background:color-mix(in srgb,var(--dk-accent) 24%,transparent);color:inherit;border-radius:3px;padding:0 1px}',
+     '.__dk_mark{background:color-mix(in srgb,var(--dk-accent) 24%,transparent);color:inherit;border-radius:var(--dk-r-micro);padding:0 1px}',
      '@media (max-width:420px){.__dk_tabbar{padding-left:6px;padding-right:6px;gap:0}.__dk_sphead{padding:16px 16px 4px}.__dk_sptitle{font-size:22px}.__dk_spnav{margin:8px 16px 0}.__dk_spbody{padding:14px 16px 24px}.__dk_body{padding:0 14px 10px}}',
    ].join('\n')
 
