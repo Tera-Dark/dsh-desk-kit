@@ -605,7 +605,7 @@
                intake(files)
              },
            }, [
-             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: (t) => showReply(t), onGo: goTo }),
+             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: showReply, onGo: goTo }),
              err ? h(ErrorBar, { key: 'err', text: err, onRetry: load }) : null,
              // key 带 seq:切页整块重建,滑屏动画才会重放
              h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page __dk_page--' + dir },

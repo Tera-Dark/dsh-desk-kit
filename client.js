@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.32.0'
+   const VERSION = '1.32.1'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -1714,15 +1714,23 @@ window.__ModuleLoader__.load({
     */
    function MoveChips({ kind, id, run, notify, label }) {
      const targets = MOVE_TARGETS[kind] || []
+     // 连点两下只发一次请求:第二下在飞的时候直接忽略(服务端也会按重复转存去重)。
+     const busy = useRef(false)
      if (!targets.length) return null
      return h('div', { className: '__dk_groupchips __dk_movechips' }, [
        h('span', { key: 'l', className: '__dk_hint' }, label || '转存到'),
        ...targets.map(([to, name]) => h('button', {
          key: to, className: '__dk_chip',
          onClick: async () => {
-           const body = await run('item.convert', { kind, id, to })
-           if (!body || body.ok === false) return
-           if (notify) notify((body.result && body.result.reply) || ('已转到' + name))
+           if (busy.current) return
+           busy.current = true
+           try {
+             const body = await run('item.convert', { kind, id, to })
+             if (!body || body.ok === false) return
+             const text = (body.result && body.result.reply) || ('已转到' + name)
+             // 成功必须给回执,并把「分错了?」这排按钮换掉:转都转完了,再点只会重复录入
+             if (notify) notify(text, null, null, { label: '转存成功', goPage: CAPTURE_PAGE[to] || '', tone: 'ok' })
+           } finally { busy.current = false }
          },
        }, name)),
      ])
@@ -4606,7 +4614,7 @@ window.__ModuleLoader__.load({
                intake(files)
              },
            }, [
-             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: (t) => showReply(t), onGo: goTo }),
+             h(ReplyBar, { key: 'reply', reply, run, onClear: () => showReply(''), onSay: showReply, onGo: goTo }),
              err ? h(ErrorBar, { key: 'err', text: err, onRetry: load }) : null,
              // key 带 seq:切页整块重建,滑屏动画才会重放
              h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page __dk_page--' + dir },
@@ -4786,7 +4794,7 @@ window.__ModuleLoader__.load({
      const alerts = (state.alerts || []).filter(() => !(state.settings && state.settings.muted))
      const body = (() => {
        // notify 由 SidebarPage 注入(这里没有自己的 showReply)
-       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, onFail: onCaptureFail, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
+       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, onFail: onCaptureFail, seed, onSeedUsed: () => onSeedUsed() }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
@@ -4811,7 +4819,7 @@ window.__ModuleLoader__.load({
        h('div', { key: 'body', className: '__dk_spbody' }, [
          // 提醒主视觉在右下角提醒坞;这里只留一条紧凑状态条,不重复堆卡片
          h(AlertInline, { key: 'alerts', alerts, run }),
-         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: onClearReply ? (t) => showReply(t) : null, onGo: goTo }),
+         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: notify || null, onGo: goTo }),
          err ? h(ErrorBar, { key: 'err', text: err, onRetry }) : null,
          h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page' }, h(SafePage, null, body)),
        ]),

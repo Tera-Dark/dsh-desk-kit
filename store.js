@@ -170,6 +170,8 @@ export class DeskStore {
       links: [],
       files: [],
       alerts: [],
+      // 转存台账:同一条记录重复点击转存时复用上一次的结果,不再重复创建
+      moves: {},
       settings: {
         // 定时器间隔由宿主半侧写死(TICK_MS);这里只放用户真正能改的设置。
         muted: false, sound: true,
@@ -215,6 +217,7 @@ export class DeskStore {
       links: Array.isArray(raw.links) ? raw.links : [],
       files: Array.isArray(raw.files) ? raw.files : [],
       alerts: Array.isArray(raw.alerts) ? raw.alerts : [],
+      moves: raw.moves && typeof raw.moves === 'object' && !Array.isArray(raw.moves) ? raw.moves : {},
       settings,
     }
   }

@@ -126,6 +126,18 @@ export const links = {
     const src = this.findAny(from, id)
     if (!src) throw new Error('找不到这条' + NAMES[from])
 
+    // 同一条记录只转一次:连点几下转存按钮,第二下开始直接复用上一次的结果。
+    // 源条目转走后只是进垃圾箱,不拦的话每点一下都会再建一条,变成重复录入。
+    const moveKey = from + ':' + id
+    const moves = this.data.moves || (this.data.moves = {})
+    const prior = moves[moveKey]
+    if (prior) {
+      const existing = this.findAny(prior.kind, prior.id)
+      if (existing) return { item: existing, from, to: prior.kind, merged: true, duplicate: true, files: 0 }
+      // 目标后来被删了:清掉旧账,允许重新转一次。
+      delete moves[moveKey]
+    }
+
     let title = ''
     let url = ''
     let note = ''
@@ -198,12 +210,18 @@ export const links = {
       // secret 的删除在下面统一做,这里不能提前 drop
     }
 
+    // 记下「这条转去哪了」,重复点击时据此复用,而不是再建一条。
+    if (item && item.id) {
+      moves[moveKey] = { kind: target, id: item.id, at: Date.now() }
+      this.save()
+    }
+
     if (from === 'note') { this.deleteNote(id); this.attachCarried(id, item, target) }
     else if (from === 'link') { this.deleteLink(id); this.attachCarried(id, item, target) }
     else if (from === 'reminder') { this.deleteReminder(id); this.attachCarried(id, item, target) }
     else this.deleteSecret(id)
 
-    return { item, from, to: target, merged: !!item.deduped, files: carried.length }
+    return { item, from, to: target, merged: !!item.deduped, duplicate: false, files: carried.length }
   },
 
   /**

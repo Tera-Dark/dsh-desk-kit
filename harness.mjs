@@ -378,6 +378,17 @@ assert.equal(afterMove.state.notes.filter((n) => n.id === movNote.result.id && !
 assert.ok(afterMove.state.notes.some((n) => n.id === movNote.result.id && n.deletedAt), '原便签要能找回')
 const movBack = await post('item.convert', { kind: 'link', id: mov.result.item.id, to: 'note' })
 assert.equal(movBack.ok, true)
+// 连点转存按钮只算一次:不能每点一下就在目标分类里多一条
+const dupNote = await post('note.add', { text: '重复点击测试 交水电费' })
+const dupFirst = await post('item.convert', { kind: 'note', id: dupNote.result.id, to: 'reminder' })
+assert.equal(dupFirst.ok, true)
+const beforeDup = (await get()).state.reminders.length
+const dupAgain = await post('item.convert', { kind: 'note', id: dupNote.result.id, to: 'reminder' })
+assert.equal(dupAgain.ok, true, '重复转存也要正常回执')
+assert.equal(dupAgain.result.duplicate, true, '要标记成重复转存')
+assert.equal(dupAgain.result.item.id, dupFirst.result.item.id, '要复用第一次建的那条')
+assert.ok(dupAgain.result.reply.includes('只算一次'), '回执要说清只算一次')
+assert.equal((await get()).state.reminders.length, beforeDup, '重复转存不能新增记录')
 // 工具版:按名字挪(便签没有标题字段,要能从正文里认出来)
 await post('note.add', { text: 'https://wiki2.example.com 每天看新闻' })
 const movTool = await tools.get('desk_item_move').execute({ to: 'link', title: '每天看新闻' })

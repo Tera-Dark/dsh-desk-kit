@@ -706,6 +706,23 @@ test('转存:提醒 → 便签;同分类 / 找不到 / 没网址都要报错', (
   assert.equal(s.listNotes().length, 2, '转失败不能把原条目弄丢(1 条是上面提醒转来的,1 条是它自己)')
 })
 
+test('转存:连点几下只算一次,不会重复录入', () => {
+  const s = fresh()
+  const n = s.addNote({ text: '交房租' })
+  const first = s.convertItem('note', n.id, 'reminder')
+  assert.equal(first.duplicate, false)
+  const again = s.convertItem('note', n.id, 'reminder')
+  assert.equal(again.duplicate, true, '重复转存要能被认出来')
+  assert.equal(again.item.id, first.item.id, '重复转存要复用同一条')
+  assert.equal(again.to, 'reminder')
+  assert.equal(s.data.reminders.filter((r) => !r.deletedAt).length, 1, '只能有一条提醒')
+  // 连点时换了目标也按第一次的结果算,不能又建一个保险库条目
+  const other = s.convertItem('note', n.id, 'secret')
+  assert.equal(other.duplicate, true)
+  assert.equal(other.item.id, first.item.id)
+  assert.equal(s.listSecrets().length, 0)
+})
+
 test('两个实例同时改:refresh 能看见对方写的,不会整份覆盖', () => {
   const dir = mkdtempSync(join(tmpdir(), 'desk-kit-sync-'))
   const a = new DeskStore(dir)

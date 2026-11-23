@@ -677,7 +677,8 @@ async function act(ctx, s, action, payload) {
       const r = s.convertItem(payload.kind, payload.id, payload.to)
       const NAME = { note: '便签', link: '网页', secret: '保险库', reminder: '提醒' }
       const what = r.item.title || String(r.item.text || '').slice(0, 20).trim() || '这条'
-      return { ...r, reply: '已转到' + NAME[payload.to] + ':' + what + (r.merged ? '(和已有的那条合并了)' : '') }
+      const tail = r.duplicate ? '(重复转存,只算一次)' : r.merged ? '(和已有的那条合并了)' : ''
+      return { ...r, reply: '已转到' + NAME[r.to || payload.to] + ':' + what + tail }
     }
     case 'secret.add': return s.addSecret(payload)
     case 'secret.update': return s.updateSecret(payload.query || payload.id, payload)

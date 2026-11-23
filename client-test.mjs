@@ -998,6 +998,16 @@ test('转存:回执下能改分类,网页格子显示备注', () => {
     assert.ok(!targets.some(([to]) => to === from), from + ' 不该转给自己')
   }
 })
+
+test('转存回执:侧栏用注入的 notify,不能调用作用域里没有的 showReply', () => {
+  // 回归:侧栏版曾经写了 (t) => showReply(t),而 SidebarView 里没有这个函数。
+  // 结果转存请求成功了、回执却没弹,按钮还在,于是连点几下就重复录入。
+  const src = readFileSync(join(HERE, 'client.js'), 'utf8')
+  assert.ok(src.includes('onSay: notify || null'), '侧栏回执必须接注入的 notify')
+  assert.ok(!src.includes('onSay: onClearReply ? (t) => showReply(t) : null'), '旧接线不能回来')
+  // 成功文案要说明白「转存成功」,不能只沿用「已保存」
+  assert.ok(src.includes("label: '转存成功'"), '转存成功要有明确提示')
+})
 test('网页页:大卡片 + 三行简介 + 一键复制', () => {
   const l = { id: 'w1', title: 'awwwards', url: 'https://www.awwwards.com', note: '看不完的优秀网站集合,找灵感用,每周刷一次', group: '', icon: '', pinned: false }
   const st = { ...state, links: [l], linkGroups: { groups: [], ungrouped: 1 }, linkCounts: { active: 1, trash: 0 }, trashedLinks: [] }

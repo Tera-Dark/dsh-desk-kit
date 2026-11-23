@@ -165,7 +165,7 @@
      const alerts = (state.alerts || []).filter(() => !(state.settings && state.settings.muted))
      const body = (() => {
        // notify 由 SidebarPage 注入(这里没有自己的 showReply)
-       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, onFail: onCaptureFail, seed, onSeedUsed: () => setSeed('') }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
+       if (page === 'home') return [h(CaptureBar, { key: 'cap', run, onDone: onCaptureDone, onFail: onCaptureFail, seed, onSeedUsed: () => onSeedUsed() }), h(Home, { key: 'home', state, run, onLink, onGo: goTo, notify })]
        if (page === 'reminders') return [h(RemindersPage, { key: 'r', state, run, notify })]
        if (page === 'notes') return [h(NotesPage, { key: 'n', state, run, notify, onGo: goTo, focus })]
        if (page === 'links') return [h(LinksPage, { key: 'w', state, run, notify })]
@@ -190,7 +190,7 @@
        h('div', { key: 'body', className: '__dk_spbody' }, [
          // 提醒主视觉在右下角提醒坞;这里只留一条紧凑状态条,不重复堆卡片
          h(AlertInline, { key: 'alerts', alerts, run }),
-         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: onClearReply ? (t) => showReply(t) : null, onGo: goTo }),
+         h(ReplyBar, { key: 'reply', reply, run, onClear: onClearReply, onSay: notify || null, onGo: goTo }),
          err ? h(ErrorBar, { key: 'err', text: err, onRetry }) : null,
          h('div', { key: 'page-' + page + '-' + seq, className: '__dk_page' }, h(SafePage, null, body)),
        ]),

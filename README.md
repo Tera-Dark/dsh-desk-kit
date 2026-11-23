@@ -241,5 +241,5 @@ npm run build:check  # 只看「产物是否与源码一致」,npm test 会自�
 
 ## 变更历史
 
-逐版本的「为什么 + 验收」都在 [CHANGELOG.md](CHANGELOG.md)。当前版本 **1.32.0**。
+逐版本的「为什么 + 验收」都在 [CHANGELOG.md](CHANGELOG.md)。当前版本 **1.32.1**。
 改过哪些问题、还剩哪些没修，看 [docs/ISSUES.md](docs/ISSUES.md)；界面基线与 token 约定见 [docs/DESIGN.md](docs/DESIGN.md)。

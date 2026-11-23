@@ -17,15 +17,23 @@
     */
    function MoveChips({ kind, id, run, notify, label }) {
      const targets = MOVE_TARGETS[kind] || []
+     // 连点两下只发一次请求:第二下在飞的时候直接忽略(服务端也会按重复转存去重)。
+     const busy = useRef(false)
      if (!targets.length) return null
      return h('div', { className: '__dk_groupchips __dk_movechips' }, [
        h('span', { key: 'l', className: '__dk_hint' }, label || '转存到'),
        ...targets.map(([to, name]) => h('button', {
          key: to, className: '__dk_chip',
          onClick: async () => {
-           const body = await run('item.convert', { kind, id, to })
-           if (!body || body.ok === false) return
-           if (notify) notify((body.result && body.result.reply) || ('已转到' + name))
+           if (busy.current) return
+           busy.current = true
+           try {
+             const body = await run('item.convert', { kind, id, to })
+             if (!body || body.ok === false) return
+             const text = (body.result && body.result.reply) || ('已转到' + name)
+             // 成功必须给回执,并把「分错了?」这排按钮换掉:转都转完了,再点只会重复录入
+             if (notify) notify(text, null, null, { label: '转存成功', goPage: CAPTURE_PAGE[to] || '', tone: 'ok' })
+           } finally { busy.current = false }
          },
        }, name)),
      ])
