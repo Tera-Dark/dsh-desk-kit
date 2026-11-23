@@ -819,5 +819,6 @@
      '.__dk_tile--card .__dk_appact{position:static;display:flex;justify-content:flex-end;gap:4px;opacity:.5;margin-top:-4px}',
      '.__dk_tile--card:hover .__dk_appact,.__dk_tile--card:focus-within .__dk_appact{opacity:1}',
      '.__dk_textarea{min-height:76px;resize:vertical;line-height:1.6;font-family:inherit;padding:9px 11px}',
+     '.__dk_aerr{font-size:12px;line-height:1.5;color:var(--dk-danger);padding:2px 2px 0}',
      '@media (max-width:420px){.__dk_tabbar{padding-left:6px;padding-right:6px;gap:0}.__dk_sphead{padding:16px 16px 4px}.__dk_sptitle{font-size:22px}.__dk_spnav{margin:8px 16px 0}.__dk_spbody{padding:14px 16px 24px}.__dk_body{padding:0 14px 10px}}',
    ].join('\n')

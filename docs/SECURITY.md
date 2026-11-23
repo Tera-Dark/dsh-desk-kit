@@ -65,3 +65,31 @@ blobs/      附件原件:普通附件是明文 .bin,保险库名下的是 .enc(�
 - **便签加密**:`data.json` 整库加密(搜索就得在内存里做),换来「文件被拷走也读不到」。
 
 两者都还没实现 —— 现状是「够用但别高估」,上面的表就是它的真实边界。
+
+## 2026-11-22 复查(1.31.1)
+
+这一轮把「谁能调接口 / 谁能出网 / 谁能把内容当脚本跑」三条线重新过了一遍。
+
+### 复查确认没问题的
+
+| 面 | 结论 |
+|---|---|
+| 路由鉴权 | `isLoopback` 只认 `127.0.0.1` / `::1`;`guardRequest` 同时看 `Host`(挡 DNS rebinding)、`sec-fetch-site`、`Origin`,写操作还要求自定义头 `x-desk-kit` |
+| 附件取件 | URL 里的 id 只在 `data.files` 里查表,并过 `isBlobId` 才拼路径 —— 不存在路径穿越 |
+| 附件当脚本跑 | 只有 6 种图片 MIME 内联,其余 `octet-stream` + `attachment`,附 `nosniff`、`CSP: sandbox; default-src 'none'`、`CORP: same-origin` |
+| 备份导入 | 必须带 `kind: dsh-desk-kit-backup` + `version: 1`;每类条目先过 `normalize*` 白名单重建,坏条目计数跳过;`replace` 模式先写 `data.json.before-import-*` 回滚文件,写不出就拒绝替换 |
+| 保险库加密 | AES-256-GCM,每条独立 12 字节随机 IV + authTag;密钥 = scrypt(随机 48 字节 hex 材料,随机 salt) → 32 字节;`vault.key` 0644→0600 |
+| 反射注入 | 客户端没有 `dangerouslySetInnerHTML`;网页/提醒的 url 只接受 `^https?:` 并归一化,`javascript:` 进不来 |
+| 命令执行 | 没有 `child_process` / `eval` / `new Function` |
+| 用户输入当正则 | 没有 `new RegExp(用户输入)`,不存在 ReDoS |
+| 落盘一致性 | `writeJson` 先写 `.tmp-<pid>-<rand>` 再 `rename`,崩溃不留半截;读坏文件先另存 `.corrupt-<时间>` |
+
+### 已知残余风险(接受,但要清楚)
+
+| 风险 | 说明 |
+|---|---|
+| 粘贴图片的 SSRF | 已加 DNS 解析检查,但解析与 fetch 之间仍可被换记录(TOCTOU)。彻底解决要「解析出 IP 后直连该 IP 再带 SNI」,代价与收益不成比例 |
+| fake-IP 代理会让 DNS 检查失效 | Clash/Surge 把域名全解析到 198.18/15,此时只剩字面量 IP 与主机名黑名单在挡 |
+| 同源页面/其它插件 | 任何跑在 DSH web 源里的页面(包括渲染 HTML 的插件)都满足「同源 + 能带 `x-desk-kit`」,可以直接调接口读保险库。desk-kit 无法区分「自己人」和「同源的别人」 |
+| 附件 MIME 由上传方声明 | `x-file-name` 与 `content-type` 都来自调用方;取件时的强制下载头兜住了后果 |
+| 导入条目可携带额外字段 | `normalize*` 用 `...raw` 打底再覆盖白名单字段,未知字段会跟着存进 `data.json`(不会被当作逻辑使用) |

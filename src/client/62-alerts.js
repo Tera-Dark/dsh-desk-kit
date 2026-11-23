@@ -32,10 +32,14 @@
    function AlertCard({ a, run, onOpen, quiet }) {
      const over = !!a.over
      const [menu, setMenu] = useState(false)
+     const [err, setErr] = useState('')   // 卡片自己的错:处理失败时卡片不会消失,得就近说一句
      // 先 ack 再 snooze:ack 会把当天记成静音,snooze 要把静音解除 —— 顺序反了就永远不响
      const snooze = async (minutes) => {
+       setErr('')
        await run('alert.ack', { id: a.id })
-       await run('reminder.snooze', { id: a.refId, minutes })
+       const body = await run('reminder.snooze', { id: a.refId, minutes })
+       // ack 已经把今天静音了;稍后要是没设上,这条今天就再也不会响 —— 必须说清楚
+       if (!writeOk(body)) setErr('稍后没设上,今天这条已被静音,到「提醒」里改时间')
        setMenu(false)
      }
      return h('div', { className: '__dk_alert' + (over ? '' : ' __dk_alert--calm') }, [
@@ -53,7 +57,13 @@
        h('div', { key: 'r', className: '__dk_trow' }, [
          h('button', {
            key: 'c', className: '__dk_tbtn p', title: '标记今天已完成',
-           onClick: async () => { await run('reminder.checkin', { id: a.refId, date: a.dueDate }); await run('alert.ack', { id: a.id }) },
+           onClick: async () => {
+             setErr('')
+             const done = await run('reminder.checkin', { id: a.refId, date: a.dueDate })
+             // 打卡没成功就别 ack:否则提醒没完成、卡片也没了,等于把这件事吞掉
+             if (!writeOk(done)) { setErr('没打卡成功,再点一次'); return }
+             await run('alert.ack', { id: a.id })
+           },
          }, '完成'),
          h('button', {
            key: 's', className: '__dk_tbtn', title: '晚点再提醒', onClick: () => setMenu((v) => !v),
@@ -64,6 +74,7 @@
          ? h('div', { key: 'menu', className: '__dk_chips' }, SNOOZE_CHOICES.map(([m, label]) =>
            h('button', { key: m, className: '__dk_chip', onClick: () => snooze(m) }, label)))
          : null,
+       err ? h('div', { key: 'err', className: '__dk_aerr', role: 'alert' }, err) : null,
      ])
    }
 
@@ -112,8 +123,10 @@
        rest > 0 || pages > 1
          ? h('button', {
            key: 'more', className: '__dk_dockmore', title: '把所有提醒标为已读',
-           onClick: () => {
-             run('alert.ackAll')
+           onClick: async () => {
+             const body = await run('alert.ackAll')
+             // 没标成功就别弹「全部标为已读」:回执说了假话,人就不会再看第二眼
+             if (!writeOk(body)) return
              if (onAllAck) onAllAck()
            },
          }, rest > 0 ? '还有 ' + rest + ' 条 · 全部知道了' : '全部知道了')

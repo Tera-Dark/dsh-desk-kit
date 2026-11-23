@@ -64,7 +64,9 @@
            h('button', {
              key: 'u', className: '__dk_replybtn', title: '撤销刚才那一步',
              onClick: async () => {
-               await run(undo.action, undo.payload)
+               const body = await run(undo.action, undo.payload)
+               // 撤销失败就别关回执:关掉之后人以为撤了,东西其实还在
+               if (!writeOk(body)) { if (onSay) onSay('撤销没成功,内容还在'); return }
                if (typeof undo.after === 'function') undo.after()
                if (onClear) onClear()
              },
