@@ -14,6 +14,30 @@
      return now.getFullYear() + '-' + p(now.getMonth() + 1) + '-' + p(now.getDate())
    }
 
+   /**
+    * 今天还没打开过的签到页:按时间排,同一个网址只算一次。
+    * 只认今天真有一个点的状态(pending / upcoming / silenced):
+    * paused(暂停)、expired(过期)、明天的提前提醒都不算。
+    * 点过「知道了」只是今天不再提醒,不等于签过了,所以 silenced 还留在里面。
+    */
+   function checkinLinks(state) {
+     const today = (state && state.today) || todayISO()
+     const list = ((state && state.reminders) || [])
+       .filter((r) => r && r.url && r.active !== false && !r.done
+         && (r.status === 'pending' || r.status === 'upcoming' || r.status === 'silenced')
+         && (!r.dueDate || r.dueDate <= today))
+       .sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')))
+     const seen = Object.create(null)
+     const out = []
+     for (const r of list) {
+       const url = String(r.url)
+       if (seen[url]) continue
+       seen[url] = true
+       out.push({ id: r.id, title: r.title, time: r.time, url })
+     }
+     return out
+   }
+
    /** 常用提前量:让人点一下,而不是算「4320 分钟是几天」。 */
    const LEAD_PRESETS = [
      [0, '准时'],
@@ -173,6 +197,20 @@
      // 暂停的沉到最下面:列表顺序也应该跟着「现在要不要管它」走
      const sorted = all.slice().sort((a, b) => (a.status === 'paused' ? 1 : 0) - (b.status === 'paused' ? 1 : 0))
 
+     // 今天还没打卡的签到页:够两条才出「全部打开」,一条时行内「打开」就够了
+     const links = checkinLinks(state)
+     const openAll = async () => {
+       const { opened, blocked } = openMany(links.map((l) => l.url))
+       if (!blocked.length) { say('已打开 ' + opened.length + ' 个签到页'); return }
+       // 被拦下的别假装打开了:捞进剪贴板,回执里把数量说清楚
+       let copied = false
+       try { await navigator.clipboard.writeText(blocked.join('\n')); copied = true } catch { copied = false }
+       const tail = copied ? ',链接已复制,粘到地址栏就行' : ',手动打开:' + blocked.join(' ')
+       say(opened.length
+         ? '打开了 ' + opened.length + ' 个,' + blocked.length + ' 个被浏览器拦下' + tail
+         : '一个也没打开,浏览器拦了 ' + blocked.length + ' 个' + tail)
+     }
+
      // ---- 垃圾箱视图 ----
      if (view === 'trash') {
        return h(React.Fragment, null, [
@@ -217,6 +255,16 @@
          h('button', { key: 'a', className: '__dk_btn p', onClick: () => { setAdding(true); setEditing('') } }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), ' 新提醒']),
          h('span', { key: 'h', className: '__dk_hint' }, '全部 ' + all.length + ' 条'),
        ]),
+       links.length >= 2
+         ? h('div', { key: 'allin', className: '__dk_toolbar' }, [
+           h('button', {
+             key: 'b', className: '__dk_btn',
+             title: '按时间顺序打开今天还没打卡的 ' + links.length + ' 个签到页',
+             onClick: openAll,
+           }, '全部打开'),
+           h('span', { key: 'h', className: '__dk_hint' }, '今天还有 ' + links.length + ' 个签到没打开'),
+         ])
+         : null,
        adding ? h(ReminderForm, { key: 'new', title: '新提醒', initial: {}, onSave: (v) => save(null, v), onCancel: () => setAdding(false) }) : null,
        sorted.length
          ? sorted.map((r) => h('div', { key: r.id, className: '__dk_item' + (r.status === 'expired' || r.status === 'paused' ? ' __dk_item--dim' : '') }, [

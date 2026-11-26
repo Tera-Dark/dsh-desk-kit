@@ -422,6 +422,7 @@
    exports.__test = {
      Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, captureToast, HeaderButton,
      Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO, alertHead,
+     checkinLinks,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,
      FileChip, FileGrid, Lightbox, isImage, fmtSize, extOf, filesFromDataTransfer, shotName,
@@ -432,6 +433,7 @@
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
      playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar, writeOk, highlight,
      searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES, CAPTURE_EVENT, handleDeepLink,
+     openInNewTab, openMany,
    }
    return module.exports
  },

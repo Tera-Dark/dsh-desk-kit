@@ -380,7 +380,8 @@ export const reminders = {
         }
       }
     }
-    this.data.alerts = this.data.alerts.filter((a) => a.at >= now - ALERT_KEEP_MS).slice(-300)
+    // 告警的过期清理只在 tick 里做:tick 的 now 是可以注入的(测试、补算),
+    // 这里用本机时钟会把「模拟时间」里的告警当成过期整批删掉,撤销就没得恢复了。
     void today
     this.save()
     return { acked: true, at: now }

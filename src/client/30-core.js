@@ -162,6 +162,31 @@
      return true
    }
 
+   /**
+    * 在新标签页打开一个网址,返回「到底开没开」。
+    * 不传 noopener:按规范带了 noopener,window.open 一定返回 null,
+    * 就分不清「开了」和「被拦了」(老代码把每次都当成被拦,回执说的是假话)。
+    * 开出来之后再把 opener 摘掉,效果与 noopener 一致。
+    */
+   function openInNewTab(url) {
+     let w = null
+     try { w = window.open(String(url), '_blank') } catch { w = null }
+     if (!w) return false
+     try { w.opener = null } catch { /* 已经跨源:opener 本来也用不上 */ }
+     return true
+   }
+
+   /**
+    * 一口气打开一串网址。分开报「开出去的」和「被拦下的」,
+    * 回执才能说实话;被拦的那几个还要捞回来(复制),不然就是白点。
+    */
+   function openMany(urls) {
+     const opened = []
+     const blocked = []
+     for (const url of urls) (openInNewTab(url) ? opened : blocked).push(url)
+     return { opened, blocked }
+   }
+
    /** 附件:**原件走字节流**,元信息在快照里。传完拿到 id,再挂到便签/条目上。 */
    async function uploadFile(file, name) {
      const res = await fetch(API + '/files', {

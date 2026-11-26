@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
    const LS_FAB = 'desk-kit.fab'
    const WEEK = ['日', '一', '二', '三', '四', '五', '六']
    // 构建时由 scripts/build-client.mjs 用 package.json 的版本号替换,不在源码里手写
-   const VERSION = '1.32.2'
+   const VERSION = '1.33.0'
    // 和底部导航同序:提醒 便签 [首页] 网页 保险库,设置在最右(滑动可到)
    const ORDER = ['reminders', 'notes', 'home', 'links', 'vault', 'settings']
    // 侧栏页面顶部分类条用(和浮标里的底部导航是同一批页面,只是横排)
@@ -1154,6 +1154,31 @@ window.__ModuleLoader__.load({
      return true
    }
 
+   /**
+    * 在新标签页打开一个网址,返回「到底开没开」。
+    * 不传 noopener:按规范带了 noopener,window.open 一定返回 null,
+    * 就分不清「开了」和「被拦了」(老代码把每次都当成被拦,回执说的是假话)。
+    * 开出来之后再把 opener 摘掉,效果与 noopener 一致。
+    */
+   function openInNewTab(url) {
+     let w = null
+     try { w = window.open(String(url), '_blank') } catch { w = null }
+     if (!w) return false
+     try { w.opener = null } catch { /* 已经跨源:opener 本来也用不上 */ }
+     return true
+   }
+
+   /**
+    * 一口气打开一串网址。分开报「开出去的」和「被拦下的」,
+    * 回执才能说实话;被拦的那几个还要捞回来(复制),不然就是白点。
+    */
+   function openMany(urls) {
+     const opened = []
+     const blocked = []
+     for (const url of urls) (openInNewTab(url) ? opened : blocked).push(url)
+     return { opened, blocked }
+   }
+
    /** 附件:**原件走字节流**,元信息在快照里。传完拿到 id,再挂到便签/条目上。 */
    async function uploadFile(file, name) {
      const res = await fetch(API + '/files', {
@@ -2011,6 +2036,30 @@ window.__ModuleLoader__.load({
      return now.getFullYear() + '-' + p(now.getMonth() + 1) + '-' + p(now.getDate())
    }
 
+   /**
+    * 今天还没打开过的签到页:按时间排,同一个网址只算一次。
+    * 只认今天真有一个点的状态(pending / upcoming / silenced):
+    * paused(暂停)、expired(过期)、明天的提前提醒都不算。
+    * 点过「知道了」只是今天不再提醒,不等于签过了,所以 silenced 还留在里面。
+    */
+   function checkinLinks(state) {
+     const today = (state && state.today) || todayISO()
+     const list = ((state && state.reminders) || [])
+       .filter((r) => r && r.url && r.active !== false && !r.done
+         && (r.status === 'pending' || r.status === 'upcoming' || r.status === 'silenced')
+         && (!r.dueDate || r.dueDate <= today))
+       .sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')))
+     const seen = Object.create(null)
+     const out = []
+     for (const r of list) {
+       const url = String(r.url)
+       if (seen[url]) continue
+       seen[url] = true
+       out.push({ id: r.id, title: r.title, time: r.time, url })
+     }
+     return out
+   }
+
    /** 常用提前量:让人点一下,而不是算「4320 分钟是几天」。 */
    const LEAD_PRESETS = [
      [0, '准时'],
@@ -2170,6 +2219,20 @@ window.__ModuleLoader__.load({
      // 暂停的沉到最下面:列表顺序也应该跟着「现在要不要管它」走
      const sorted = all.slice().sort((a, b) => (a.status === 'paused' ? 1 : 0) - (b.status === 'paused' ? 1 : 0))
 
+     // 今天还没打卡的签到页:够两条才出「全部打开」,一条时行内「打开」就够了
+     const links = checkinLinks(state)
+     const openAll = async () => {
+       const { opened, blocked } = openMany(links.map((l) => l.url))
+       if (!blocked.length) { say('已打开 ' + opened.length + ' 个签到页'); return }
+       // 被拦下的别假装打开了:捞进剪贴板,回执里把数量说清楚
+       let copied = false
+       try { await navigator.clipboard.writeText(blocked.join('\n')); copied = true } catch { copied = false }
+       const tail = copied ? ',链接已复制,粘到地址栏就行' : ',手动打开:' + blocked.join(' ')
+       say(opened.length
+         ? '打开了 ' + opened.length + ' 个,' + blocked.length + ' 个被浏览器拦下' + tail
+         : '一个也没打开,浏览器拦了 ' + blocked.length + ' 个' + tail)
+     }
+
      // ---- 垃圾箱视图 ----
      if (view === 'trash') {
        return h(React.Fragment, null, [
@@ -2214,6 +2277,16 @@ window.__ModuleLoader__.load({
          h('button', { key: 'a', className: '__dk_btn p', onClick: () => { setAdding(true); setEditing('') } }, [h(Ico, { key: 'i', name: 'plus', size: 14 }), ' 新提醒']),
          h('span', { key: 'h', className: '__dk_hint' }, '全部 ' + all.length + ' 条'),
        ]),
+       links.length >= 2
+         ? h('div', { key: 'allin', className: '__dk_toolbar' }, [
+           h('button', {
+             key: 'b', className: '__dk_btn',
+             title: '按时间顺序打开今天还没打卡的 ' + links.length + ' 个签到页',
+             onClick: openAll,
+           }, '全部打开'),
+           h('span', { key: 'h', className: '__dk_hint' }, '今天还有 ' + links.length + ' 个签到没打开'),
+         ])
+         : null,
        adding ? h(ReminderForm, { key: 'new', title: '新提醒', initial: {}, onSave: (v) => save(null, v), onCancel: () => setAdding(false) }) : null,
        sorted.length
          ? sorted.map((r) => h('div', { key: r.id, className: '__dk_item' + (r.status === 'expired' || r.status === 'paused' ? ' __dk_item--dim' : '') }, [
@@ -2858,10 +2931,8 @@ window.__ModuleLoader__.load({
    /** 打开一次:记一笔(用于「最近用的排前面」),然后交给系统浏览器。 */
    function openLink(run, l, notify) {
      run('link.touch', { id: l.id })
-     let opened = null
-     try { opened = window.open(l.url, '_blank', 'noopener,noreferrer') } catch { opened = null }
      // 弹窗被拦时绝不能 location.href:那会把 DSH 整个页面换成目标网站。
-     if (!opened) {
+     if (!openInNewTab(l.url)) {
        try { navigator.clipboard.writeText(l.url) } catch {}
        if (notify) notify('浏览器拦了新窗口,链接已复制')
      }
@@ -5056,6 +5127,7 @@ window.__ModuleLoader__.load({
    exports.__test = {
      Root, TabBar, Home, RemindersPage, NotesPage, VaultPage, Settings, ModelPicker, SafePage, CaptureBar, captureToast, HeaderButton,
      Ico, PATHS, weekText, fmtClock, reminderMeta, CSS, ReplyBar, LEAD_PRESETS, ReminderForm, CYCLE, todayISO, alertHead,
+     checkinLinks,
      SidebarPage, SidebarView, SidebarIcon, floatEnabled, PANEL_LABELS, PANEL_ICONS, SIDEBAR_ORDER, ORDER,
      LinksPage, LinkTile, linkInitial, linkHue, linkHost, MoveChips, ReplyMove, MOVE_TARGETS, PluginCard,
      FileChip, FileGrid, Lightbox, isImage, fmtSize, extOf, filesFromDataTransfer, shotName,
@@ -5066,6 +5138,7 @@ window.__ModuleLoader__.load({
      layoutPanel, fabRectOf, originOf, toLocal, nudgeIntoView,
      playChime, SOUND, useAlertSound, injectCss, apiGet, apiPost, apiGetOrLast, ErrorBar, writeOk, highlight,
      searchVariants, searchMatch, searchSnapshot, SEARCH_ALIASES, CAPTURE_EVENT, handleDeepLink,
+     openInNewTab, openMany,
    }
    return module.exports
  },

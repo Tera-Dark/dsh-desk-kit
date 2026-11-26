@@ -29,10 +29,8 @@
    /** 打开一次:记一笔(用于「最近用的排前面」),然后交给系统浏览器。 */
    function openLink(run, l, notify) {
      run('link.touch', { id: l.id })
-     let opened = null
-     try { opened = window.open(l.url, '_blank', 'noopener,noreferrer') } catch { opened = null }
      // 弹窗被拦时绝不能 location.href:那会把 DSH 整个页面换成目标网站。
-     if (!opened) {
+     if (!openInNewTab(l.url)) {
        try { navigator.clipboard.writeText(l.url) } catch {}
        if (notify) notify('浏览器拦了新窗口,链接已复制')
      }

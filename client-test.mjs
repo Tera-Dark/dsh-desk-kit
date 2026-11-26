@@ -1160,3 +1160,44 @@ test('设置页:还原备份的入口在,措辞说清两种模式', () => {
   assert.ok(html.includes('合并') && html.includes('替换'), '要说明两种模式')
   assert.ok(html.includes('先自动备份'), '替换会备份,得写出来')
 })
+
+test('一键打开签到:只算今天还没打卡、带网址的,按时间排并去重', () => {
+  const st = {
+    ...state, today: '2026-11-14',
+    reminders: [
+      { id: 'a', title: 'A 站', time: '09:00', url: 'https://a.example.com/', status: 'pending', done: false, active: true, dueDate: '2026-11-14' },
+      { id: 'b', title: 'B 站', time: '10:00', url: 'https://b.example.com/', status: 'upcoming', done: false, active: true, dueDate: '2026-11-14' },
+      { id: 'c', title: '签完了', time: '08:00', url: 'https://c.example.com/', status: 'done', done: true, active: true, dueDate: '2026-11-14' },
+      { id: 'd', title: '暂停', time: '07:00', url: 'https://d.example.com/', status: 'paused', done: false, active: false, dueDate: '2026-11-14' },
+      { id: 'e', title: '没网址', time: '11:00', status: 'pending', done: false, active: true, dueDate: '2026-11-14' },
+      { id: 'f', title: '同一站点的第二条', time: '12:00', url: 'https://a.example.com/', status: 'pending', done: false, active: true, dueDate: '2026-11-14' },
+      { id: 'g', title: '提前三天的生日', time: '09:30', url: 'https://g.example.com/', status: 'pending', done: false, active: true, dueDate: '2026-11-15' },
+      { id: 'h', title: '点过知道了', time: '13:00', url: 'https://h.example.com/', status: 'silenced', done: false, active: true, dueDate: '2026-11-14' },
+    ],
+  }
+  // 按时间顺序开:09:00 → 10:00 → 13:00;done/paused/没网址/明天的都不算,重复网址只开一次
+  assert.deepEqual(T.checkinLinks(st).map((l) => l.id), ['a', 'b', 'h'])
+  const html = renderToString(h(T.RemindersPage, { state: st, run, notify: () => {} }))
+  assert.ok(html.includes('今天还有 3 个签到没打开'), '数一数说清楚')
+  assert.ok(html.includes('全部打开'), '缺批量打开的按钮')
+  assert.ok(html.includes('按时间顺序打开'), '按钮要说明按什么顺序开')
+  // 只有一条时不给「全部」:那只是多一个按钮
+  const one = { ...st, reminders: [st.reminders[0]] }
+  assert.ok(!renderToString(h(T.RemindersPage, { state: one, run, notify: () => {} })).includes('全部打开'))
+})
+
+test('批量打开如实回报:开出去的和被拦下的分开算', () => {
+  const seen = []
+  globalThis.window.open = (url) => { seen.push(url); return url.includes('blocked') ? null : {} }
+  try {
+    const r = T.openMany(['https://a.example.com/1', 'https://blocked.example.com/2', 'https://a.example.com/3'])
+    assert.deepEqual(seen, ['https://a.example.com/1', 'https://blocked.example.com/2', 'https://a.example.com/3'], '按顺序一次一个')
+    assert.deepEqual(r.opened, ['https://a.example.com/1', 'https://a.example.com/3'])
+    assert.deepEqual(r.blocked, ['https://blocked.example.com/2'])
+    // 宿主没有 window.open 或它抛错:算被拦,不能假装开出去了
+    globalThis.window.open = () => { throw new Error('nope') }
+    assert.deepEqual(T.openMany(['https://x.example.com/']).blocked, ['https://x.example.com/'])
+  } finally {
+    delete globalThis.window.open
+  }
+})
